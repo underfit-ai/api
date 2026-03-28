@@ -11,6 +11,7 @@ from app.auth import get_app_secret
 from app.config import config
 from app.db import shutdown_engine
 from app.routes.accounts import router as accounts_router
+from app.routes.users import router as users_router
 
 
 @asynccontextmanager
@@ -33,6 +34,7 @@ app.add_middleware(
 
 api = FastAPI()
 api.include_router(accounts_router)
+api.include_router(users_router)
 
 app.mount("/api/v1", api)
 
