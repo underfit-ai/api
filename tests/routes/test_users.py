@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.config import config
-from tests.conftest import CreateUser, SessionForUser
+from tests.conftest import CreateUser, OwnerHeaders, SessionForUser
 
 
 def test_email_exists_requires_email_and_checks_presence(client: TestClient, create_user: CreateUser) -> None:
@@ -56,3 +56,21 @@ def test_me_returns_local_user_when_auth_disabled(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["handle"] == "local"
     assert response.json()["email"] == "local@underfit.local"
+
+
+def test_user_memberships_lists_orgs_and_rejects_unknown_user(
+    client: TestClient, owner_headers: OwnerHeaders,
+) -> None:
+    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
+    assert created.status_code == 201
+
+    memberships = client.get("/api/v1/users/owner/memberships")
+    assert memberships.status_code == 200
+    assert len(memberships.json()) == 1
+    assert memberships.json()[0]["handle"] == "core"
+    assert memberships.json()[0]["name"] == "Core"
+    assert memberships.json()[0]["role"] == "ADMIN"
+    assert memberships.json()[0]["type"] == "ORGANIZATION"
+
+    missing = client.get("/api/v1/users/missing/memberships")
+    assert missing.status_code == 404

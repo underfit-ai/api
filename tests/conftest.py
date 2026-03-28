@@ -20,6 +20,8 @@ os.environ.setdefault("UNDERFIT_APP_SECRET", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3OD
 RegisterUser = Callable[..., Response]
 CreateUser = Callable[..., User]
 SessionForUser = Callable[[User], dict[str, str]]
+OwnerHeaders = dict[str, str]
+OutsiderHeaders = dict[str, str]
 
 
 @pytest.fixture(autouse=True)
@@ -70,3 +72,15 @@ def session_for_user() -> SessionForUser:
         return {"Cookie": f"session_token={session.token}"}
 
     return _session_for_user
+
+
+@pytest.fixture
+def owner_headers(create_user: CreateUser, session_for_user: SessionForUser) -> OwnerHeaders:
+    owner = create_user(email="owner@example.com", handle="owner", name="Owner")
+    return session_for_user(owner)
+
+
+@pytest.fixture
+def outsider_headers(create_user: CreateUser, session_for_user: SessionForUser) -> OutsiderHeaders:
+    outsider = create_user(email="outsider@example.com", handle="outsider", name="Outsider")
+    return session_for_user(outsider)
