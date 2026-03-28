@@ -1031,10 +1031,12 @@ dependencies = [
     { name = "tomli" },
     { name = "uvicorn", version = "0.39.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "uvicorn", version = "0.42.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "watchdog" },
 ]
 
 [package.optional-dependencies]
+file-storage = [
+    { name = "watchdog" },
+]
 testing = [
     { name = "httpx" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -1056,9 +1058,9 @@ requires-dist = [
     { name = "tomli" },
     { name = "ty", marker = "extra == 'testing'" },
     { name = "uvicorn" },
-    { name = "watchdog" },
+    { name = "watchdog", marker = "extra == 'file-storage'" },
 ]
-provides-extras = ["testing"]
+provides-extras = ["file-storage", "testing"]
 
 [[package]]
 name = "uvicorn"

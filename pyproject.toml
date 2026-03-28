@@ -17,10 +17,10 @@ dependencies = [
     "python-multipart",
     "pillow",
     "tomli",
-    "watchdog",
 ]
 
 [project.optional-dependencies]
+file-storage = ["watchdog"]
 testing = [
     "ruff",
     "ty",
