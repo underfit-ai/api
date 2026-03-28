@@ -16,9 +16,11 @@ from app.routes.artifacts import router as artifacts_router
 from app.routes.auth import router as auth_router
 from app.routes.avatars import router as avatars_router
 from app.routes.collaborators import router as collaborators_router
+from app.routes.logs import router as logs_router
 from app.routes.organizations import router as orgs_router
 from app.routes.projects import router as projects_router
 from app.routes.runs import router as runs_router
+from app.routes.scalars import router as scalars_router
 from app.routes.users import router as users_router
 
 
@@ -47,9 +49,11 @@ api.include_router(artifacts_router)
 api.include_router(auth_router)
 api.include_router(avatars_router)
 api.include_router(collaborators_router)
+api.include_router(logs_router)
 api.include_router(orgs_router)
 api.include_router(projects_router)
 api.include_router(runs_router)
+api.include_router(scalars_router)
 api.include_router(users_router)
 
 app.mount("/api/v1", api)
