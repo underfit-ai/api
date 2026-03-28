@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+from uuid import UUID
 
 from fastapi import HTTPException
 
@@ -41,7 +41,7 @@ def resolve_run(conn: Conn, handle: str, project_name: str, run_name: str, user:
     return run
 
 
-def resolve_artifact(conn: Conn, artifact_id: uuid.UUID, user: User | None = None) -> Artifact:
+def resolve_artifact(conn: Conn, artifact_id: UUID, user: User | None = None) -> Artifact:
     if not (artifact := artifacts_repo.get_by_id(conn, artifact_id)):
         raise HTTPException(404, "Artifact not found")
     require_project_viewer(conn, artifact.project_id, user.id if user else None)

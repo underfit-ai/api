@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -29,7 +29,7 @@ def create_api_key(body: CreateApiKeyBody, conn: Conn, user: CurrentUser) -> Api
 @router.delete("/{key_id}")
 def delete_api_key(key_id: str, conn: Conn, user: CurrentUser) -> dict[str, str]:
     try:
-        parsed_id = uuid.UUID(key_id)
+        parsed_id = UUID(key_id)
     except ValueError:
         raise HTTPException(404, "API key not found") from None
     if not api_keys_repo.delete(conn, parsed_id, user.id):

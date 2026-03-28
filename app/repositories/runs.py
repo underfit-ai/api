@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import secrets
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy import Connection
@@ -31,7 +31,7 @@ _adjectives = (_wordlists_dir / "adjectives.txt").read_text().splitlines()
 _nouns = (_wordlists_dir / "nouns.txt").read_text().splitlines()
 
 
-def _generate_name(conn: Connection, project_id: uuid.UUID) -> str | None:
+def _generate_name(conn: Connection, project_id: UUID) -> str | None:
     for _ in range(8):
         adj = _adjectives[secrets.randbelow(len(_adjectives))]
         noun = _nouns[secrets.randbelow(len(_nouns))]
@@ -44,12 +44,12 @@ def _generate_name(conn: Connection, project_id: uuid.UUID) -> str | None:
     return None
 
 
-def get_by_id(conn: Connection, run_id: uuid.UUID) -> Run | None:
+def get_by_id(conn: Connection, run_id: UUID) -> Run | None:
     row = conn.execute(sa.select(*_columns).select_from(_join).where(runs.c.id == run_id)).first()
     return Run.model_validate(row) if row else None
 
 
-def get_by_project_and_name(conn: Connection, project_id: uuid.UUID, name: str) -> Run | None:
+def get_by_project_and_name(conn: Connection, project_id: UUID, name: str) -> Run | None:
     row = conn.execute(
         sa.select(*_columns).select_from(_join).where(
             runs.c.project_id == project_id, runs.c.name == name.lower(),
@@ -58,7 +58,7 @@ def get_by_project_and_name(conn: Connection, project_id: uuid.UUID, name: str) 
     return Run.model_validate(row) if row else None
 
 
-def list_by_project(conn: Connection, project_id: uuid.UUID) -> list[Run]:
+def list_by_project(conn: Connection, project_id: UUID) -> list[Run]:
     rows = conn.execute(
         sa.select(*_columns).select_from(_join)
         .where(runs.c.project_id == project_id)
@@ -67,7 +67,7 @@ def list_by_project(conn: Connection, project_id: uuid.UUID) -> list[Run]:
     return [Run.model_validate(row) for row in rows]
 
 
-def list_by_user(conn: Connection, user_id: uuid.UUID) -> list[Run]:
+def list_by_user(conn: Connection, user_id: UUID) -> list[Run]:
     rows = conn.execute(
         sa.select(*_columns).select_from(_join)
         .where(runs.c.user_id == user_id)
@@ -77,12 +77,12 @@ def list_by_user(conn: Connection, user_id: uuid.UUID) -> list[Run]:
 
 
 def create(
-    conn: Connection, project_id: uuid.UUID, user_id: uuid.UUID,
+    conn: Connection, project_id: UUID, user_id: UUID,
     status: str, config: dict[str, object] | None,
 ) -> Run | None:
     if not (name := _generate_name(conn, project_id)):
         return None
-    run_id = uuid.uuid4()
+    run_id = uuid4()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(runs.insert().values(
         id=run_id, project_id=project_id, user_id=user_id,
@@ -92,7 +92,7 @@ def create(
 
 
 def update(
-    conn: Connection, run_id: uuid.UUID, status: str | None,
+    conn: Connection, run_id: UUID, status: str | None,
     config: dict[str, object] | None, update_config: bool,
 ) -> Run | None:
     values: dict[str, object] = {"updated_at": datetime.now(timezone.utc).replace(tzinfo=None)}

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Union
+from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, PlainSerializer
 from pydantic.alias_generators import to_camel
@@ -19,7 +19,7 @@ class _Base(BaseModel):
 
 
 class User(_Base):
-    id: uuid.UUID
+    id: UUID
     handle: str
     type: str
     email: str
@@ -30,7 +30,7 @@ class User(_Base):
 
 
 class Organization(_Base):
-    id: uuid.UUID
+    id: UUID
     handle: str
     type: str
     name: str
@@ -45,8 +45,8 @@ class Session(_Base):
 
 
 class ApiKey(_Base):
-    id: uuid.UUID
-    user_id: uuid.UUID
+    id: UUID
+    user_id: UUID
     label: str | None
     created_at: UTCDatetime
 
@@ -56,7 +56,7 @@ class ApiKeyWithToken(ApiKey):
 
 
 class OrganizationMember(_Base):
-    id: uuid.UUID
+    id: UUID
     handle: str
     type: str
     email: str
@@ -68,7 +68,7 @@ class OrganizationMember(_Base):
 
 
 class UserMembership(_Base):
-    id: uuid.UUID
+    id: UUID
     handle: str
     type: str
     name: str
@@ -78,7 +78,7 @@ class UserMembership(_Base):
 
 
 class Project(_Base):
-    id: uuid.UUID
+    id: UUID
     owner: str
     name: str
     description: str | None
@@ -88,8 +88,8 @@ class Project(_Base):
 
 
 class Run(_Base):
-    id: uuid.UUID
-    project_id: uuid.UUID
+    id: UUID
+    project_id: UUID
     user: str
     project_name: str
     project_owner: str
@@ -101,9 +101,9 @@ class Run(_Base):
 
 
 class Artifact(_Base):
-    id: uuid.UUID
-    project_id: uuid.UUID
-    run_id: uuid.UUID | None
+    id: UUID
+    project_id: UUID
+    run_id: UUID | None
     step: int | None
     name: str
     type: str
@@ -118,8 +118,8 @@ class Artifact(_Base):
 
 
 class Media(_Base):
-    id: uuid.UUID
-    run_id: uuid.UUID
+    id: UUID
+    run_id: UUID
     key: str
     step: int | None
     type: str

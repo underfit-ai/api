@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 
@@ -12,7 +12,7 @@ from app.schema import accounts, users
 _base_query = users.join(accounts, users.c.id == accounts.c.id).select
 
 
-def get_by_id(conn: Connection, user_id: uuid.UUID) -> User | None:
+def get_by_id(conn: Connection, user_id: UUID) -> User | None:
     row = conn.execute(_base_query().where(users.c.id == user_id)).first()
     return User.model_validate(row) if row else None
 
@@ -32,7 +32,7 @@ def email_exists(conn: Connection, email: str) -> bool:
 
 
 def create(conn: Connection, email: str, handle: str, name: str) -> User:
-    user_id = uuid.uuid4()
+    user_id = uuid4()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(accounts.insert().values(id=user_id, handle=handle, type="USER"))
     conn.execute(users.insert().values(id=user_id, email=email, name=name, created_at=now, updated_at=now))
@@ -41,7 +41,7 @@ def create(conn: Connection, email: str, handle: str, name: str) -> User:
     return result
 
 
-def update(conn: Connection, user_id: uuid.UUID, name: str | None, bio: str | None) -> User | None:
+def update(conn: Connection, user_id: UUID, name: str | None, bio: str | None) -> User | None:
     updates: dict[str, Any] = {"updated_at": datetime.now(timezone.utc).replace(tzinfo=None)}
     if name is not None:
         updates["name"] = name

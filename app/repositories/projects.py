@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy import Connection, func
@@ -21,12 +21,12 @@ _columns = [
 ]
 
 
-def get_by_id(conn: Connection, project_id: uuid.UUID) -> Project | None:
+def get_by_id(conn: Connection, project_id: UUID) -> Project | None:
     row = conn.execute(sa.select(*_columns).select_from(_join).where(projects.c.id == project_id)).first()
     return Project.model_validate(row) if row else None
 
 
-def get_by_account_and_name(conn: Connection, account_id: uuid.UUID, name: str) -> Project | None:
+def get_by_account_and_name(conn: Connection, account_id: UUID, name: str) -> Project | None:
     row = conn.execute(
         sa.select(*_columns).select_from(_join).where(
             projects.c.account_id == account_id, projects.c.name == name.lower(),
@@ -35,7 +35,7 @@ def get_by_account_and_name(conn: Connection, account_id: uuid.UUID, name: str) 
     return Project.model_validate(row) if row else None
 
 
-def list_by_account(conn: Connection, account_id: uuid.UUID) -> list[Project]:
+def list_by_account(conn: Connection, account_id: UUID) -> list[Project]:
     rows = conn.execute(
         sa.select(*_columns).select_from(_join)
         .where(projects.c.account_id == account_id)
@@ -44,7 +44,7 @@ def list_by_account(conn: Connection, account_id: uuid.UUID) -> list[Project]:
     return [Project.model_validate(row) for row in rows]
 
 
-def list_by_user_run_count(conn: Connection, user_id: uuid.UUID) -> list[Project]:
+def list_by_user_run_count(conn: Connection, user_id: UUID) -> list[Project]:
     run_count = func.count(runs.c.id).label("run_count")
     j = _join.outerjoin(runs, (runs.c.project_id == projects.c.id) & (runs.c.user_id == user_id))
     rows = conn.execute(
@@ -54,9 +54,9 @@ def list_by_user_run_count(conn: Connection, user_id: uuid.UUID) -> list[Project
 
 
 def create(
-    conn: Connection, account_id: uuid.UUID, name: str, description: str | None, visibility: str,
+    conn: Connection, account_id: UUID, name: str, description: str | None, visibility: str,
 ) -> Project:
-    project_id = uuid.uuid4()
+    project_id = uuid4()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(projects.insert().values(
         id=project_id, account_id=account_id, name=name, description=description,
@@ -68,7 +68,7 @@ def create(
 
 
 def update(
-    conn: Connection, project_id: uuid.UUID, description: str | None, visibility: str | None,
+    conn: Connection, project_id: UUID, description: str | None, visibility: str | None,
 ) -> Project | None:
     values: dict[str, object] = {"updated_at": datetime.now(timezone.utc).replace(tzinfo=None)}
     if description is not None:

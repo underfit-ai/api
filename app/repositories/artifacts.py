@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 
@@ -9,12 +9,12 @@ from app.models import Artifact
 from app.schema import artifacts
 
 
-def get_by_id(conn: Connection, artifact_id: uuid.UUID) -> Artifact | None:
+def get_by_id(conn: Connection, artifact_id: UUID) -> Artifact | None:
     row = conn.execute(artifacts.select().where(artifacts.c.id == artifact_id)).first()
     return Artifact.model_validate(row) if row else None
 
 
-def list_by_project(conn: Connection, project_id: uuid.UUID) -> list[Artifact]:
+def list_by_project(conn: Connection, project_id: UUID) -> list[Artifact]:
     rows = conn.execute(
         artifacts.select()
         .where(artifacts.c.project_id == project_id)
@@ -25,8 +25,8 @@ def list_by_project(conn: Connection, project_id: uuid.UUID) -> list[Artifact]:
 
 def create(
     conn: Connection,
-    project_id: uuid.UUID,
-    run_id: uuid.UUID | None,
+    project_id: UUID,
+    run_id: UUID | None,
     step: int | None,
     name: str,
     artifact_type: str,
@@ -34,7 +34,7 @@ def create(
     declared_file_count: int,
     metadata: dict[str, object] | None,
 ) -> Artifact:
-    artifact_id = uuid.uuid4()
+    artifact_id = uuid4()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(artifacts.insert().values(
         id=artifact_id,
@@ -56,7 +56,7 @@ def create(
     return result
 
 
-def increment_uploaded(conn: Connection, artifact_id: uuid.UUID) -> Artifact | None:
+def increment_uploaded(conn: Connection, artifact_id: UUID) -> Artifact | None:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(
         artifacts.update()
@@ -66,7 +66,7 @@ def increment_uploaded(conn: Connection, artifact_id: uuid.UUID) -> Artifact | N
     return get_by_id(conn, artifact_id)
 
 
-def finalize(conn: Connection, artifact_id: uuid.UUID) -> Artifact | None:
+def finalize(conn: Connection, artifact_id: UUID) -> Artifact | None:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(
         artifacts.update()

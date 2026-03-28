@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 
@@ -64,7 +64,7 @@ def test_collaborators_for_organization_owned_project(
         json={"handle": "org", "name": "Org"},
     )
     assert created_org.status_code == 201
-    org_id = uuid.UUID(created_org.json()["id"])
+    org_id = UUID(created_org.json()["id"])
 
     with get_engine().begin() as conn:
         organizations_repo.add_member(conn, org_id, member.id, "MEMBER")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
@@ -34,7 +34,7 @@ class Manifest(BaseModel):
 
 
 class CreateArtifactBody(BaseModel):
-    run_id: uuid.UUID | None = None
+    run_id: UUID | None = None
     step: int | None = None
     name: str
     type: str
@@ -83,7 +83,7 @@ def create_artifact(
     deduped_files = list(seen.values())
     refs = list(dict.fromkeys(body.manifest.references)) if body.manifest.references else []
     base = f"{run_id}/artifacts" if run_id else f"{project.id}/artifacts"
-    artifact_id = uuid.uuid4()
+    artifact_id = uuid4()
     storage_key = f"{base}/{artifact_id}"
     storage = get_storage()
     manifest_data = {
@@ -105,13 +105,13 @@ def create_artifact(
 
 
 @router.get("/artifacts/{artifact_id}")
-def get_artifact(artifact_id: uuid.UUID, conn: Conn, user: MaybeUser) -> Artifact:
+def get_artifact(artifact_id: UUID, conn: Conn, user: MaybeUser) -> Artifact:
     return resolve_artifact(conn, artifact_id, user)
 
 
 @router.put("/artifacts/{artifact_id}/files/{file_path:path}")
 async def upload_file(
-    artifact_id: uuid.UUID, file_path: str, request: Request, conn: Conn, user: CurrentUser,
+    artifact_id: UUID, file_path: str, request: Request, conn: Conn, user: CurrentUser,
 ) -> Artifact:
     artifact = resolve_artifact(conn, artifact_id, user)
     require_project_contributor(conn, artifact.project_id, user.id)
@@ -134,7 +134,7 @@ async def upload_file(
 
 
 @router.get("/artifacts/{artifact_id}/files/{file_path:path}")
-def download_file(artifact_id: uuid.UUID, file_path: str, conn: Conn, user: MaybeUser) -> Response:
+def download_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) -> Response:
     artifact = resolve_artifact(conn, artifact_id, user)
     normalized = _validate_path(file_path)
     storage = get_storage()
@@ -145,7 +145,7 @@ def download_file(artifact_id: uuid.UUID, file_path: str, conn: Conn, user: Mayb
 
 
 @router.post("/artifacts/{artifact_id}/finalize")
-def finalize_artifact(artifact_id: uuid.UUID, conn: Conn, user: CurrentUser) -> dict[str, bool]:
+def finalize_artifact(artifact_id: UUID, conn: Conn, user: CurrentUser) -> dict[str, bool]:
     artifact = resolve_artifact(conn, artifact_id, user)
     require_project_contributor(conn, artifact.project_id, user.id)
     if artifact.status == "finalized":

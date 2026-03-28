@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
+from uuid import UUID
 
 from sqlalchemy import Connection
 
@@ -9,7 +9,7 @@ from app.auth import verify_password
 from app.schema import user_auth
 
 
-def verify(conn: Connection, user_id: uuid.UUID, password: str) -> bool:
+def verify(conn: Connection, user_id: UUID, password: str) -> bool:
     row = conn.execute(user_auth.select().where(user_auth.c.id == user_id)).first()
     return verify_password(
         password,
@@ -22,7 +22,7 @@ def verify(conn: Connection, user_id: uuid.UUID, password: str) -> bool:
 
 def create(
     conn: Connection,
-    user_id: uuid.UUID,
+    user_id: UUID,
     password_hash: str,
     password_salt: str,
     password_iterations: int,
