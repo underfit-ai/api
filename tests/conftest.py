@@ -6,16 +6,20 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 
 from app.config import config
 from app.db import get_engine, shutdown_engine
 from app.main import app
 from app.models import User
+from app.repositories import sessions as sessions_repo
 from app.repositories import users as users_repo
 
 os.environ.setdefault("UNDERFIT_APP_SECRET", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
+RegisterUser = Callable[..., Response]
 CreateUser = Callable[..., User]
+SessionForUser = Callable[[User], dict[str, str]]
 
 
 @pytest.fixture(autouse=True)
@@ -35,9 +39,34 @@ def client() -> Iterator[TestClient]:
 
 
 @pytest.fixture
+def register_user(client: TestClient) -> RegisterUser:
+    def _register(
+        email: str = "sam@example.com",
+        handle: str = "sam",
+        password: str = "",
+    ) -> Response:
+        return client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "handle": handle, "password": password or "password123"},
+        )
+
+    return _register
+
+
+@pytest.fixture
 def create_user() -> CreateUser:
     def _create_user(email: str, handle: str, name: str = "Test User") -> User:
         with get_engine().begin() as conn:
             return users_repo.create(conn, email, handle, name)
 
     return _create_user
+
+
+@pytest.fixture
+def session_for_user() -> SessionForUser:
+    def _session_for_user(user: User) -> dict[str, str]:
+        with get_engine().begin() as conn:
+            session = sessions_repo.create(conn, user.id)
+        return {"Cookie": f"session_token={session.token}"}
+
+    return _session_for_user
