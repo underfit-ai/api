@@ -17,11 +17,14 @@ from app.repositories import users as users_repo
 
 os.environ.setdefault("UNDERFIT_APP_SECRET", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
+OwnerHeaders = dict[str, str]
+OutsiderHeaders = dict[str, str]
 RegisterUser = Callable[..., Response]
 CreateUser = Callable[..., User]
 SessionForUser = Callable[[User], dict[str, str]]
-OwnerHeaders = dict[str, str]
-OutsiderHeaders = dict[str, str]
+AddCollaborator = Callable[..., Response]
+CreateProject = Callable[..., dict[str, object]]
+CreateRun = Callable[..., dict[str, object]]
 
 
 @pytest.fixture(autouse=True)
@@ -84,3 +87,62 @@ def owner_headers(create_user: CreateUser, session_for_user: SessionForUser) -> 
 def outsider_headers(create_user: CreateUser, session_for_user: SessionForUser) -> OutsiderHeaders:
     outsider = create_user(email="outsider@example.com", handle="outsider", name="Outsider")
     return session_for_user(outsider)
+
+
+@pytest.fixture
+def create_project(client: TestClient) -> CreateProject:
+    def _create(
+        headers: dict[str, str],
+        handle: str = "owner",
+        name: str = "underfit",
+        description: str = "tracking",
+        visibility: str = "private",
+    ) -> dict[str, object]:
+        response = client.post(
+            f"/api/v1/accounts/{handle}/projects",
+            headers=headers,
+            json={"name": name, "description": description, "visibility": visibility},
+        )
+        assert response.status_code == 200
+        return response.json()
+
+    return _create
+
+
+@pytest.fixture
+def create_run(create_project: CreateProject, client: TestClient) -> CreateRun:
+    def _create(
+        headers: dict[str, str],
+        handle: str = "owner",
+        project_name: str = "underfit",
+        status: str = "running",
+    ) -> dict[str, object]:
+        create_project(headers, handle=handle, name=project_name)
+        response = client.post(
+            f"/api/v1/accounts/{handle}/projects/{project_name}/runs",
+            headers=headers,
+            json={"status": status},
+        )
+        assert response.status_code == 200
+        return response.json()
+
+    return _create
+
+
+@pytest.fixture
+def add_collaborator(client: TestClient) -> AddCollaborator:
+    def _add(
+        headers: dict[str, str],
+        account: str = "owner",
+        project: str = "underfit",
+        user_handle: str = "outsider",
+        expected_status: int = 200,
+    ) -> Response:
+        response = client.put(
+            f"/api/v1/accounts/{account}/projects/{project}/collaborators/{user_handle}",
+            headers=headers,
+        )
+        assert response.status_code == expected_status
+        return response
+
+    return _add
