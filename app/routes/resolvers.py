@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import HTTPException
 
 from app.dependencies import Conn
-from app.models import Account, Project, Run, User
+from app.models import Account, Artifact, Project, Run, User
 from app.permissions import require_project_viewer
 from app.repositories import accounts as accounts_repo
+from app.repositories import artifacts as artifacts_repo
 from app.repositories import projects as projects_repo
 from app.repositories import runs as runs_repo
 
@@ -36,3 +39,10 @@ def resolve_run(conn: Conn, handle: str, project_name: str, run_name: str, user:
     if not (run := runs_repo.get_by_project_and_name(conn, project.id, run_name)):
         raise HTTPException(404, "Run not found")
     return run
+
+
+def resolve_artifact(conn: Conn, artifact_id: uuid.UUID, user: User | None = None) -> Artifact:
+    if not (artifact := artifacts_repo.get_by_id(conn, artifact_id)):
+        raise HTTPException(404, "Artifact not found")
+    require_project_viewer(conn, artifact.project_id, user.id if user else None)
+    return artifact
