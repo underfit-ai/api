@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 file-storage = ["watchdog"]
+s3-storage = ["boto3"]
 testing = [
     "ruff",
     "ty",

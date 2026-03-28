@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from app.config import BackfillConfig, BufferConfig, config
+from app.config import BackfillConfig, BufferConfig, FileStorageConfig, config
 from app.db import get_engine
 from app.schema import accounts, artifacts, log_segments, media, projects, runs, scalar_segments, users
 from app.storage.backfill import BackfillService
@@ -17,7 +17,8 @@ from app.storage.file import FileStorage
 
 
 def _service(max_segment_bytes: int = 256 * 1024) -> tuple[BackfillService, FileStorage]:
-    storage = FileStorage(config.storage.base)
+    assert isinstance(config.storage, FileStorageConfig)
+    storage = FileStorage(config.storage)
     service = BackfillService(
         storage,
         get_engine(),
@@ -40,7 +41,7 @@ def _write_text(storage: FileStorage, key: str, data: str) -> None:
 
 
 def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    storage = FileStorage(str(tmp_path))
+    storage = FileStorage(FileStorageConfig(base=str(tmp_path)))
     callbacks: list[Callable[[str], None]] = []
 
     monkeypatch.setattr(storage, "watch", callbacks.append)

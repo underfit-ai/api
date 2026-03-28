@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from app.config import config
+from app.config import FileStorageConfig, config
 from app.db import get_engine, shutdown_engine
 from app.main import app
 from app.models import User
@@ -32,7 +32,7 @@ SetupTuple = tuple[OwnerHeaders, str]
 def _reset_state(tmp_path: Path) -> Iterator[None]:
     shutdown_engine()
     config.database.path = str(tmp_path / "test.sqlite")
-    config.storage.base = str(tmp_path / "storage")
+    config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
     config.auth_enabled = True
     yield
     shutdown_engine()

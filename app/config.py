@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -17,9 +17,20 @@ class DatabaseConfig(BaseModel):
     path: str = ".underfit/db.sqlite"
 
 
-class StorageConfig(BaseModel):
+class FileStorageConfig(BaseModel):
     type: Literal["file"] = "file"
     base: str = ".underfit/storage"
+
+
+class S3StorageConfig(BaseModel):
+    type: Literal["s3"] = "s3"
+    bucket: str = ""
+    prefix: str = ""
+    region: str = ""
+    endpoint_url: str = ""
+
+
+StorageConfig = Annotated[Union[FileStorageConfig, S3StorageConfig], Field(discriminator="type")]
 
 
 class BackfillConfig(BaseModel):
@@ -40,7 +51,7 @@ class Config(BaseModel):
     auth_enabled: bool = True
     frontend_url: str | None = None
     database: DatabaseConfig = DatabaseConfig()
-    storage: StorageConfig = StorageConfig()
+    storage: StorageConfig = FileStorageConfig()
     backfill: BackfillConfig = BackfillConfig()
     buffer: BufferConfig = BufferConfig()
 
@@ -48,10 +59,10 @@ class Config(BaseModel):
 def load_config(path: Path | None = None) -> Config:
     if path is None:
         path = Path("underfit.toml")
-    data = {}
-    if path.exists():
-        with path.open("rb") as f:
-            data = tomllib.load(f)
+    if not path.exists():
+        return Config()
+    with path.open("rb") as f:
+        data = tomllib.load(f)
     return Config(**data)
 
 

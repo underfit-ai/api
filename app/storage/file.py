@@ -8,6 +8,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
+from app.config import FileStorageConfig
 from app.storage.types import AppendResult, DirEntry
 
 
@@ -27,8 +28,8 @@ class _StorageHandler(FileSystemEventHandler):
 
 
 class FileStorage:
-    def __init__(self, base: str) -> None:
-        self.base = Path(base)
+    def __init__(self, config: FileStorageConfig) -> None:
+        self.base = Path(config.base)
         self._observer: BaseObserver | None = None
 
     def _resolve(self, key: str) -> Path:

@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.buffer import LogBuffer, LogLine, ScalarBuffer, ScalarPoint
-from app.config import config
+from app.config import FileStorageConfig, config
 from app.db import get_engine
 from app.repositories import projects as projects_repo
 from app.repositories import runs as runs_repo
@@ -46,7 +46,7 @@ def test_log_buffer_expands_multiline_and_slices_by_cursor() -> None:
 def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -> None:
     run_id = _create_run_id()
     buffer = LogBuffer()
-    storage = FileStorage(str(tmp_path / "storage"))
+    storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
     with get_engine().begin() as conn:
@@ -73,7 +73,7 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
 def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
     run_id = _create_run_id()
     buffer = LogBuffer()
-    storage = FileStorage(str(tmp_path / "storage"))
+    storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     original = config.buffer.max_segment_bytes
     config.buffer.max_segment_bytes = 5
 
@@ -115,7 +115,7 @@ def test_scalar_buffer_builds_resolution_tiers() -> None:
 def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(tmp_path: Path) -> None:
     run_id = _create_run_id()
     buffer = ScalarBuffer()
-    storage = FileStorage(str(tmp_path / "storage"))
+    storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     original = config.buffer.max_segment_bytes
     config.buffer.max_segment_bytes = 1
 
