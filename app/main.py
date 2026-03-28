@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.auth import get_app_secret
 from app.config import config
-from app.db import shutdown_engine
+from app.db import get_engine, shutdown_engine
 from app.routes.accounts import router as accounts_router
 from app.routes.api_keys import router as api_keys_router
 from app.routes.artifacts import router as artifacts_router
@@ -24,17 +24,29 @@ from app.routes.projects import router as projects_router
 from app.routes.runs import router as runs_router
 from app.routes.scalars import router as scalars_router
 from app.routes.users import router as users_router
+from app.storage import get_storage
+from app.storage.backfill import BackfillService
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    backfill: BackfillService | None = None
     if config.auth_enabled:
         get_app_secret()
+    if config.backfill.enabled:
+        backfill = BackfillService(get_storage(), get_engine(), config.backfill, config.buffer)
+        await backfill.start()
     yield
+    if backfill is not None:
+        await backfill.stop()
     shutdown_engine()
 
 
 app = FastAPI(lifespan=lifespan)
+
+cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+if config.frontend_url:
+    cors_origins.append(config.frontend_url)
 
 app.add_middleware(
     CORSMiddleware,
