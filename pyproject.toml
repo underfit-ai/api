@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "underfit-api"
+version = "0.1.0"
+description = "Python API for the Underfit model reporter"
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "sqlalchemy",
+    "python-multipart",
+    "pillow",
+    "tomli",
+    "watchdog",
+]
+
+[project.optional-dependencies]
+testing = [
+    "ruff",
+    "ty",
+    "pytest",
+    "httpx",
+]
+
+[tool.setuptools.package-data]
+"app" = ["py.typed"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+lint.select = ["ALL"]
+lint.ignore = [
+    "ARG", "ASYNC", "BLE", "C", "D", "EM", "ERA", "FBT", "PERF", "PLR", "Q", "RET", "RUF", "TC", "TD", "TRY",
+    "E701", "FIX002", "N802", "PT018", "S101",
+]

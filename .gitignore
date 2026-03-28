@@ -1,0 +1,23 @@
+# Bytecode
+__pycache__/
+*.py[cod]
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Cache
+.pytest_cache/
+.ruff_cache/
+
+# Misc
+.worktrees/
+.venv/
+.DS_Store
+.ropeproject
+.claude/
+.vscode/
+
+# Local dev data
+.underfit/
