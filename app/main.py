@@ -14,6 +14,7 @@ from app.routes.accounts import router as accounts_router
 from app.routes.api_keys import router as api_keys_router
 from app.routes.artifacts import router as artifacts_router
 from app.routes.auth import router as auth_router
+from app.routes.avatars import router as avatars_router
 from app.routes.collaborators import router as collaborators_router
 from app.routes.organizations import router as orgs_router
 from app.routes.projects import router as projects_router
@@ -44,6 +45,7 @@ api.include_router(accounts_router)
 api.include_router(api_keys_router)
 api.include_router(artifacts_router)
 api.include_router(auth_router)
+api.include_router(avatars_router)
 api.include_router(collaborators_router)
 api.include_router(orgs_router)
 api.include_router(projects_router)
