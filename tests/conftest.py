@@ -163,3 +163,8 @@ def logs_setup(owner_headers: OwnerHeaders, create_run: CreateRun) -> SetupTuple
 @pytest.fixture
 def scalars_setup(owner_headers: OwnerHeaders, create_run: CreateRun) -> SetupTuple:
     return _run_endpoint(owner_headers, create_run, "scalars")
+
+
+@pytest.fixture
+def media_setup(owner_headers: OwnerHeaders, create_run: CreateRun) -> SetupTuple:
+    return _run_endpoint(owner_headers, create_run, "media")
