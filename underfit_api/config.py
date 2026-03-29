@@ -13,9 +13,32 @@ else:
     import tomli as tomllib  # type: ignore[import-not-found]
 
 
-class DatabaseConfig(BaseModel):
+class SqliteDatabaseConfig(BaseModel):
     type: Literal["sqlite"] = "sqlite"
     path: str = ".underfit/db.sqlite"
+
+
+class PostgresqlDatabaseConfig(BaseModel):
+    type: Literal["postgresql"] = "postgresql"
+    host: str = "localhost"
+    port: int = 5432
+    user: str = ""
+    password: str = ""
+    database: str = "underfit"
+
+
+class MysqlDatabaseConfig(BaseModel):
+    type: Literal["mysql"] = "mysql"
+    host: str = "localhost"
+    port: int = 3306
+    user: str = ""
+    password: str = ""
+    database: str = "underfit"
+
+
+DatabaseConfig = Annotated[
+    Union[SqliteDatabaseConfig, PostgresqlDatabaseConfig, MysqlDatabaseConfig], Field(discriminator="type"),
+]
 
 
 class FileStorageConfig(BaseModel):
@@ -51,7 +74,7 @@ class Config(BaseModel):
     auth_enabled: bool = True
     static_dir: str = 'static'
     frontend_url: str | None = None
-    database: DatabaseConfig = DatabaseConfig()
+    database: DatabaseConfig = SqliteDatabaseConfig()
     storage: StorageConfig = FileStorageConfig()
     backfill: BackfillConfig = BackfillConfig()
     buffer: BufferConfig = BufferConfig()

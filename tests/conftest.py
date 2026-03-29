@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from underfit_api.config import FileStorageConfig, config
+from underfit_api.config import FileStorageConfig, SqliteDatabaseConfig, config
 from underfit_api.db import get_engine, shutdown_engine
 from underfit_api.main import app
 from underfit_api.models import User
@@ -31,7 +31,7 @@ SetupTuple = tuple[OwnerHeaders, str]
 @pytest.fixture(autouse=True)
 def _reset_state(tmp_path: Path) -> Iterator[None]:
     shutdown_engine()
-    config.database.path = str(tmp_path / "test.sqlite")
+    config.database = SqliteDatabaseConfig(path=str(tmp_path / "test.sqlite"))
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
     config.auth_enabled = True
     yield

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sqlalchemy import Connection, Engine, create_engine
 
-from underfit_api.config import config
+from underfit_api.config import MysqlDatabaseConfig, PostgresqlDatabaseConfig, SqliteDatabaseConfig, config
 from underfit_api.schema import metadata
 
 engine: Engine | None = None
@@ -14,13 +14,20 @@ engine: Engine | None = None
 def get_engine() -> Engine:
     global engine  # noqa: PLW0603
     if engine is None:
-        if config.database.type == "sqlite":
-            if config.database.path != ":memory:":
-                Path(config.database.path).parent.mkdir(parents=True, exist_ok=True)
-            url = f"sqlite:///{config.database.path}" if config.database.path != ":memory:" else "sqlite://"
+        db = config.database
+        if isinstance(db, SqliteDatabaseConfig):
+            if db.path != ":memory:":
+                Path(db.path).parent.mkdir(parents=True, exist_ok=True)
+            url = f"sqlite:///{db.path}" if db.path != ":memory:" else "sqlite://"
             engine = create_engine(url, connect_args={"check_same_thread": False})
+        elif isinstance(db, PostgresqlDatabaseConfig):
+            url = f"postgresql://{db.user}:{db.password}@{db.host}:{db.port}/{db.database}"
+            engine = create_engine(url)
+        elif isinstance(db, MysqlDatabaseConfig):
+            url = f"mysql://{db.user}:{db.password}@{db.host}:{db.port}/{db.database}"
+            engine = create_engine(url)
         else:
-            raise ValueError(f"Unsupported database type: {config.database.type}")
+            raise ValueError(f"Unsupported database type: {db.type}")
         metadata.create_all(engine)
     return engine
 
