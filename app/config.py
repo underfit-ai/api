@@ -47,8 +47,8 @@ class BufferConfig(BaseModel):
 
 
 class Config(BaseModel):
-    port: int = 4000
     auth_enabled: bool = True
+    static_dir: str = 'static'
     frontend_url: str | None = None
     database: DatabaseConfig = DatabaseConfig()
     storage: StorageConfig = FileStorageConfig()

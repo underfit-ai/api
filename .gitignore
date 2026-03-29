@@ -19,5 +19,8 @@ build/
 .claude/
 .vscode/
 
+# Built frontend assets
+app/static/
+
 # Local dev data
 .underfit/

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.auth import get_app_secret
 from app.config import config
@@ -83,3 +85,16 @@ def not_found(_request: Request, _exc: Exception) -> JSONResponse:
 @api.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": "v1"}
+
+
+_static_dir = Path(__file__).parent / config.static_dir
+if _static_dir.is_dir():
+    _index_html = _static_dir / "index.html"
+    app.mount("/assets", StaticFiles(directory=_static_dir / "assets"), name="static-assets")
+
+    @app.get("/{path:path}")
+    async def spa_fallback(path: str) -> FileResponse:
+        file = _static_dir / path
+        if file.is_file():
+            return FileResponse(file)
+        return FileResponse(_index_html)

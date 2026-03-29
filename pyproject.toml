@@ -30,7 +30,7 @@ testing = [
 ]
 
 [tool.setuptools.package-data]
-"app" = ["py.typed"]
+"app" = ["py.typed", "static/**/*"]
 
 [tool.ruff]
 line-length = 120
