@@ -20,7 +20,7 @@ build/
 .vscode/
 
 # Built frontend assets
-app/static/
+underfit_api/static/
 
 # Local dev data
 .underfit/

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.config import config
 from tests.conftest import CreateUser, OwnerHeaders, SessionForUser
+from underfit_api.config import config
 
 
 def test_email_exists_requires_email_and_checks_presence(client: TestClient, create_user: CreateUser) -> None:

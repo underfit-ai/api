@@ -9,11 +9,11 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from app.config import BackfillConfig, BufferConfig, FileStorageConfig, config
-from app.db import get_engine
-from app.schema import accounts, artifacts, log_segments, media, projects, runs, scalar_segments, users
-from app.storage.backfill import BackfillService
-from app.storage.file import FileStorage
+from underfit_api.config import BackfillConfig, BufferConfig, FileStorageConfig, config
+from underfit_api.db import get_engine
+from underfit_api.schema import accounts, artifacts, log_segments, media, projects, runs, scalar_segments, users
+from underfit_api.storage.backfill import BackfillService
+from underfit_api.storage.file import FileStorage
 
 
 def _service(max_segment_bytes: int = 256 * 1024) -> tuple[BackfillService, FileStorage]:

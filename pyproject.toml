@@ -30,7 +30,7 @@ testing = [
 ]
 
 [tool.setuptools.package-data]
-"app" = ["py.typed", "static/**/*"]
+"underfit_api" = ["py.typed", "static/**/*"]
 
 [tool.ruff]
 line-length = 120

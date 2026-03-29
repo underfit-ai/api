@@ -6,14 +6,14 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from app.buffer import LogBuffer, LogLine, ScalarBuffer, ScalarPoint
-from app.config import FileStorageConfig, config
-from app.db import get_engine
-from app.repositories import projects as projects_repo
-from app.repositories import runs as runs_repo
-from app.repositories import users as users_repo
-from app.schema import log_segments, scalar_segments
-from app.storage.file import FileStorage
+from underfit_api.buffer import LogBuffer, LogLine, ScalarBuffer, ScalarPoint
+from underfit_api.config import FileStorageConfig, config
+from underfit_api.db import get_engine
+from underfit_api.repositories import projects as projects_repo
+from underfit_api.repositories import runs as runs_repo
+from underfit_api.repositories import users as users_repo
+from underfit_api.schema import log_segments, scalar_segments
+from underfit_api.storage.file import FileStorage
 
 
 def _create_run_id() -> UUID:

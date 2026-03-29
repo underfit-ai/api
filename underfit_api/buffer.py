@@ -1,0 +1,233 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Generic, NamedTuple, TypeVar
+from uuid import UUID, uuid4
+
+from sqlalchemy import Connection
+
+from underfit_api.config import config
+from underfit_api.schema import log_segments, scalar_segments
+from underfit_api.storage import Storage
+
+T = TypeVar("T")
+
+RESOLUTIONS = [1, 10, 100, 1000, 10000]
+
+
+class LogLine(NamedTuple):
+    timestamp: datetime
+    content: str
+
+
+class ScalarPoint(NamedTuple):
+    step: int | None
+    values: dict[str, float]
+    timestamp: datetime
+
+
+@dataclass
+class _LineBuffer(Generic[T]):
+    lines: list[T] = field(default_factory=list)
+    byte_count: int = 0
+    start_line: int = 0
+
+    @property
+    def end_line(self) -> int:
+        return self.start_line + len(self.lines)
+
+
+@dataclass
+class _Accumulator:
+    sums: dict[str, float] = field(default_factory=dict)
+    counts: dict[str, int] = field(default_factory=dict)
+    n: int = 0
+    last_step: int | None = None
+    last_timestamp: datetime | None = None
+
+
+class LogBuffer:
+    def __init__(self) -> None:
+        self._buffers: dict[tuple[UUID, str], _LineBuffer[LogLine]] = {}
+
+    def get_end_line(self, conn: Connection, run_id: UUID, worker_id: str) -> int:
+        k = (run_id, worker_id)
+        if (buf := self._buffers.get(k)) and buf.lines:
+            return buf.end_line
+        row = conn.execute(
+            log_segments.select()
+            .where(log_segments.c.run_id == run_id, log_segments.c.worker_id == worker_id)
+            .order_by(log_segments.c.end_line.desc())
+            .limit(1),
+        ).first()
+        return row.end_line if row else 0
+
+    def append(
+        self, conn: Connection, run_id: UUID, worker_id: str, start_line: int, lines: list[LogLine],
+    ) -> int | None:
+        expected = self.get_end_line(conn, run_id, worker_id)
+        if start_line != expected:
+            return expected
+        buf = self._buffers.setdefault((run_id, worker_id), _LineBuffer(start_line=start_line))
+        for line in lines:
+            for sub in line.content.split("\n"):
+                buf.lines.append(LogLine(timestamp=line.timestamp, content=sub))
+                buf.byte_count += len(sub.encode()) + 1
+        return None
+
+    def flush(self, conn: Connection, storage: Storage, run_id: UUID, worker_id: str) -> None:
+        buf = self._buffers.get((run_id, worker_id))
+        if not buf or not buf.lines:
+            return
+        content = "".join(f"{line.content}\n" for line in buf.lines)
+        storage_key = f"{run_id}/logs/{worker_id}.log"
+        result = storage.append(storage_key, content.encode())
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        conn.execute(log_segments.insert().values(
+            id=uuid4(),
+            run_id=run_id,
+            worker_id=worker_id,
+            start_line=buf.start_line,
+            end_line=buf.end_line,
+            start_at=buf.lines[0].timestamp,
+            end_at=buf.lines[-1].timestamp,
+            byte_offset=result.byte_offset,
+            byte_count=result.byte_count,
+            storage_key=storage_key,
+            created_at=now,
+        ))
+        buf.start_line = buf.end_line
+        buf.lines.clear()
+        buf.byte_count = 0
+
+    def flush_if_needed(self, conn: Connection, storage: Storage, run_id: UUID, worker_id: str) -> None:
+        buf = self._buffers.get((run_id, worker_id))
+        if buf and buf.byte_count >= config.buffer.max_segment_bytes:
+            self.flush(conn, storage, run_id, worker_id)
+
+    def read_buffered(self, run_id: UUID, worker_id: str, cursor: int, count: int) -> list[LogLine]:
+        buf = self._buffers.get((run_id, worker_id))
+        if not buf or not buf.lines:
+            return []
+        start = max(0, cursor - buf.start_line)
+        end = min(len(buf.lines), cursor + count - buf.start_line)
+        if start >= end:
+            return []
+        return buf.lines[start:end]
+
+
+class ScalarBuffer:
+    def __init__(self) -> None:
+        self._buffers: dict[tuple[UUID, int], _LineBuffer[ScalarPoint]] = {}
+        self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
+
+    def get_end_line(self, conn: Connection, run_id: UUID, resolution: int = 0) -> int:
+        k = (run_id, resolution)
+        if (buf := self._buffers.get(k)) and buf.lines:
+            return buf.end_line
+        row = conn.execute(
+            scalar_segments.select()
+            .where(scalar_segments.c.run_id == run_id, scalar_segments.c.resolution == resolution)
+            .order_by(scalar_segments.c.end_line.desc())
+            .limit(1),
+        ).first()
+        return row.end_line if row else 0
+
+    def append(
+        self, conn: Connection, run_id: UUID, start_line: int, scalars: list[ScalarPoint],
+    ) -> int | None:
+        expected = self.get_end_line(conn, run_id, 0)
+        if start_line != expected:
+            return expected
+        buf = self._buffers.setdefault((run_id, 0), _LineBuffer(start_line=start_line))
+        for scalar in scalars:
+            buf.lines.append(scalar)
+            encoded = self._serialize_scalar(scalar)
+            buf.byte_count += len(encoded.encode()) + 1
+            self._feed_accumulators(run_id, scalar)
+        return None
+
+    def _serialize_scalar(self, s: ScalarPoint) -> str:
+        return json.dumps({"step": s.step, "values": s.values, "timestamp": s.timestamp.isoformat() + "Z"})
+
+    def _feed_accumulators(self, run_id: UUID, scalar: ScalarPoint) -> None:
+        for tier, stride in enumerate(RESOLUTIONS[:4], start=1):
+            k = (run_id, tier)
+            acc = self._accumulators.setdefault(k, _Accumulator())
+            for key, val in scalar.values.items():
+                acc.sums[key] = acc.sums.get(key, 0.0) + val
+                acc.counts[key] = acc.counts.get(key, 0) + 1
+            acc.n += 1
+            acc.last_step = scalar.step
+            acc.last_timestamp = scalar.timestamp
+            if acc.n >= stride:
+                self._emit_accumulator(run_id, tier, acc)
+                self._accumulators[k] = _Accumulator()
+
+    def _emit_accumulator(self, run_id: UUID, resolution: int, acc: _Accumulator) -> None:
+        averaged = {k: acc.sums[k] / acc.counts[k] for k in acc.sums}
+        ts = acc.last_timestamp or datetime.now(timezone.utc).replace(tzinfo=None)
+        point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=ts)
+        buf = self._buffers.setdefault((run_id, resolution), _LineBuffer(start_line=0))
+        buf.lines.append(point)
+        buf.byte_count += len(self._serialize_scalar(point).encode()) + 1
+
+    def flush(self, conn: Connection, storage: Storage, run_id: UUID, *, emit_partial: bool = True) -> None:
+        if emit_partial:
+            for (rid, tier), acc in list(self._accumulators.items()):
+                if rid == run_id and acc.n > 0:
+                    self._emit_accumulator(run_id, tier, acc)
+                    self._accumulators[(rid, tier)] = _Accumulator()
+        for resolution in range(5):
+            self._flush_tier(conn, storage, run_id, resolution)
+
+    def _flush_tier(self, conn: Connection, storage: Storage, run_id: UUID, resolution: int) -> None:
+        buf = self._buffers.get((run_id, resolution))
+        if not buf or not buf.lines:
+            return
+        lines_data = [self._serialize_scalar(line) for line in buf.lines]
+        content = "".join(s + "\n" for s in lines_data)
+        storage_key = f"{run_id}/scalars/r{resolution}.jsonl"
+        result = storage.append(storage_key, content.encode())
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        conn.execute(scalar_segments.insert().values(
+            id=uuid4(),
+            run_id=run_id,
+            resolution=resolution,
+            start_line=buf.start_line,
+            end_line=buf.end_line,
+            start_at=buf.lines[0].timestamp,
+            end_at=buf.lines[-1].timestamp,
+            byte_offset=result.byte_offset,
+            byte_count=result.byte_count,
+            storage_key=storage_key,
+            created_at=now,
+        ))
+        new_start = buf.end_line
+        buf.lines.clear()
+        buf.byte_count = 0
+        buf.start_line = new_start
+
+    def flush_if_needed(self, conn: Connection, storage: Storage, run_id: UUID) -> None:
+        buf = self._buffers.get((run_id, 0))
+        if buf and buf.byte_count >= config.buffer.max_segment_bytes:
+            self.flush(conn, storage, run_id, emit_partial=False)
+
+    def read_buffered(self, run_id: UUID, resolution: int) -> list[ScalarPoint]:
+        buf = self._buffers.get((run_id, resolution))
+        if not buf or not buf.lines:
+            return []
+        return buf.lines
+
+    def tier_line_count(self, conn: Connection, run_id: UUID, resolution: int) -> int:
+        end = self.get_end_line(conn, run_id, resolution)
+        buf = self._buffers.get((run_id, resolution))
+        if buf:
+            end = max(end, buf.end_line)
+        return end
+
+
+log_buffer = LogBuffer()
+scalar_buffer = ScalarBuffer()

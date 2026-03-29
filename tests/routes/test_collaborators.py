@@ -4,9 +4,9 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from app.db import get_engine
-from app.repositories import organizations as organizations_repo
 from tests.conftest import AddCollaborator, CreateUser, OwnerHeaders, SessionForUser
+from underfit_api.db import get_engine
+from underfit_api.repositories import organizations as organizations_repo
 
 
 def test_collaborators_for_user_owned_project(

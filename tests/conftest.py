@@ -8,12 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from app.config import FileStorageConfig, config
-from app.db import get_engine, shutdown_engine
-from app.main import app
-from app.models import User
-from app.repositories import sessions as sessions_repo
-from app.repositories import users as users_repo
+from underfit_api.config import FileStorageConfig, config
+from underfit_api.db import get_engine, shutdown_engine
+from underfit_api.main import app
+from underfit_api.models import User
+from underfit_api.repositories import sessions as sessions_repo
+from underfit_api.repositories import users as users_repo
 
 os.environ.setdefault("UNDERFIT_APP_SECRET", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 

@@ -7,7 +7,7 @@ if [ -z "$1" ]; then
 fi
 
 frontend_dir="$1"
-static_dir="$(cd "$(dirname "$0")/.." && pwd)/app/static"
+static_dir="$(cd "$(dirname "$0")/.." && pwd)/underfit_api/static"
 
 cd "$frontend_dir"
 npm ci

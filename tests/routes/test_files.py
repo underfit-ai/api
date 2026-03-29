@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.storage import get_storage
 from tests.conftest import CreateRun, OwnerHeaders
+from underfit_api.storage import get_storage
 
 
 def test_list_and_download_run_files(client: TestClient, owner_headers: OwnerHeaders, create_run: CreateRun) -> None:
