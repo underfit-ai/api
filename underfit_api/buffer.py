@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Generic, NamedTuple, TypeVar
@@ -50,104 +51,113 @@ class _Accumulator:
 
 class LogBuffer:
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._buffers: dict[tuple[UUID, str], _LineBuffer[LogLine]] = {}
 
     def get_end_line(self, conn: Connection, run_id: UUID, worker_id: str) -> int:
-        k = (run_id, worker_id)
-        if (buf := self._buffers.get(k)) and buf.lines:
-            return buf.end_line
-        row = conn.execute(
-            log_segments.select()
-            .where(log_segments.c.run_id == run_id, log_segments.c.worker_id == worker_id)
-            .order_by(log_segments.c.end_line.desc())
-            .limit(1),
-        ).first()
-        return row.end_line if row else 0
+        with self._lock:
+            k = (run_id, worker_id)
+            if (buf := self._buffers.get(k)) and buf.lines:
+                return buf.end_line
+            row = conn.execute(
+                log_segments.select()
+                .where(log_segments.c.run_id == run_id, log_segments.c.worker_id == worker_id)
+                .order_by(log_segments.c.end_line.desc())
+                .limit(1),
+            ).first()
+            return row.end_line if row else 0
 
     def append(
         self, conn: Connection, run_id: UUID, worker_id: str, start_line: int, lines: list[LogLine],
     ) -> int | None:
-        expected = self.get_end_line(conn, run_id, worker_id)
-        if start_line != expected:
-            return expected
-        buf = self._buffers.setdefault((run_id, worker_id), _LineBuffer(start_line=start_line))
-        for line in lines:
-            for sub in line.content.split("\n"):
-                buf.lines.append(LogLine(timestamp=line.timestamp, content=sub))
-                buf.byte_count += len(sub.encode()) + 1
-        return None
+        with self._lock:
+            expected = self.get_end_line(conn, run_id, worker_id)
+            if start_line != expected:
+                return expected
+            buf = self._buffers.setdefault((run_id, worker_id), _LineBuffer(start_line=start_line))
+            for line in lines:
+                for sub in line.content.split("\n"):
+                    buf.lines.append(LogLine(timestamp=line.timestamp, content=sub))
+                    buf.byte_count += len(sub.encode()) + 1
+            return None
 
     def flush(self, conn: Connection, storage: Storage, run_id: UUID, worker_id: str) -> None:
-        buf = self._buffers.get((run_id, worker_id))
-        if not buf or not buf.lines:
-            return
-        content = "".join(f"{line.content}\n" for line in buf.lines)
-        storage_key = f"{run_id}/logs/{worker_id}.log"
-        result = storage.append(storage_key, content.encode())
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        conn.execute(log_segments.insert().values(
-            id=uuid4(),
-            run_id=run_id,
-            worker_id=worker_id,
-            start_line=buf.start_line,
-            end_line=buf.end_line,
-            start_at=buf.lines[0].timestamp,
-            end_at=buf.lines[-1].timestamp,
-            byte_offset=result.byte_offset,
-            byte_count=result.byte_count,
-            storage_key=storage_key,
-            created_at=now,
-        ))
-        buf.start_line = buf.end_line
-        buf.lines.clear()
-        buf.byte_count = 0
+        with self._lock:
+            buf = self._buffers.get((run_id, worker_id))
+            if not buf or not buf.lines:
+                return
+            content = "".join(f"{line.content}\n" for line in buf.lines)
+            storage_key = f"{run_id}/logs/{worker_id}.log"
+            result = storage.append(storage_key, content.encode())
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            conn.execute(log_segments.insert().values(
+                id=uuid4(),
+                run_id=run_id,
+                worker_id=worker_id,
+                start_line=buf.start_line,
+                end_line=buf.end_line,
+                start_at=buf.lines[0].timestamp,
+                end_at=buf.lines[-1].timestamp,
+                byte_offset=result.byte_offset,
+                byte_count=result.byte_count,
+                storage_key=storage_key,
+                created_at=now,
+            ))
+            buf.start_line = buf.end_line
+            buf.lines.clear()
+            buf.byte_count = 0
 
     def flush_if_needed(self, conn: Connection, storage: Storage, run_id: UUID, worker_id: str) -> None:
-        buf = self._buffers.get((run_id, worker_id))
-        if buf and buf.byte_count >= config.buffer.max_segment_bytes:
-            self.flush(conn, storage, run_id, worker_id)
+        with self._lock:
+            buf = self._buffers.get((run_id, worker_id))
+            if buf and buf.byte_count >= config.buffer.max_segment_bytes:
+                self.flush(conn, storage, run_id, worker_id)
 
     def read_buffered(self, run_id: UUID, worker_id: str, cursor: int, count: int) -> list[LogLine]:
-        buf = self._buffers.get((run_id, worker_id))
-        if not buf or not buf.lines:
-            return []
-        start = max(0, cursor - buf.start_line)
-        end = min(len(buf.lines), cursor + count - buf.start_line)
-        if start >= end:
-            return []
-        return buf.lines[start:end]
+        with self._lock:
+            buf = self._buffers.get((run_id, worker_id))
+            if not buf or not buf.lines:
+                return []
+            start = max(0, cursor - buf.start_line)
+            end = min(len(buf.lines), cursor + count - buf.start_line)
+            if start >= end:
+                return []
+            return buf.lines[start:end]
 
 
 class ScalarBuffer:
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._buffers: dict[tuple[UUID, int], _LineBuffer[ScalarPoint]] = {}
         self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
 
     def get_end_line(self, conn: Connection, run_id: UUID, resolution: int = 0) -> int:
-        k = (run_id, resolution)
-        if (buf := self._buffers.get(k)) and buf.lines:
-            return buf.end_line
-        row = conn.execute(
-            scalar_segments.select()
-            .where(scalar_segments.c.run_id == run_id, scalar_segments.c.resolution == resolution)
-            .order_by(scalar_segments.c.end_line.desc())
-            .limit(1),
-        ).first()
-        return row.end_line if row else 0
+        with self._lock:
+            k = (run_id, resolution)
+            if (buf := self._buffers.get(k)) and buf.lines:
+                return buf.end_line
+            row = conn.execute(
+                scalar_segments.select()
+                .where(scalar_segments.c.run_id == run_id, scalar_segments.c.resolution == resolution)
+                .order_by(scalar_segments.c.end_line.desc())
+                .limit(1),
+            ).first()
+            return row.end_line if row else 0
 
     def append(
         self, conn: Connection, run_id: UUID, start_line: int, scalars: list[ScalarPoint],
     ) -> int | None:
-        expected = self.get_end_line(conn, run_id, 0)
-        if start_line != expected:
-            return expected
-        buf = self._buffers.setdefault((run_id, 0), _LineBuffer(start_line=start_line))
-        for scalar in scalars:
-            buf.lines.append(scalar)
-            encoded = self._serialize_scalar(scalar)
-            buf.byte_count += len(encoded.encode()) + 1
-            self._feed_accumulators(run_id, scalar)
-        return None
+        with self._lock:
+            expected = self.get_end_line(conn, run_id, 0)
+            if start_line != expected:
+                return expected
+            buf = self._buffers.setdefault((run_id, 0), _LineBuffer(start_line=start_line))
+            for scalar in scalars:
+                buf.lines.append(scalar)
+                encoded = self._serialize_scalar(scalar)
+                buf.byte_count += len(encoded.encode()) + 1
+                self._feed_accumulators(run_id, scalar)
+            return None
 
     def _serialize_scalar(self, s: ScalarPoint) -> str:
         return json.dumps({"step": s.step, "values": s.values, "timestamp": s.timestamp.isoformat() + "Z"})
@@ -175,13 +185,14 @@ class ScalarBuffer:
         buf.byte_count += len(self._serialize_scalar(point).encode()) + 1
 
     def flush(self, conn: Connection, storage: Storage, run_id: UUID, *, emit_partial: bool = True) -> None:
-        if emit_partial:
-            for (rid, tier), acc in list(self._accumulators.items()):
-                if rid == run_id and acc.n > 0:
-                    self._emit_accumulator(run_id, tier, acc)
-                    self._accumulators[(rid, tier)] = _Accumulator()
-        for resolution in range(5):
-            self._flush_tier(conn, storage, run_id, resolution)
+        with self._lock:
+            if emit_partial:
+                for (rid, tier), acc in list(self._accumulators.items()):
+                    if rid == run_id and acc.n > 0:
+                        self._emit_accumulator(run_id, tier, acc)
+                        self._accumulators[(rid, tier)] = _Accumulator()
+            for resolution in range(5):
+                self._flush_tier(conn, storage, run_id, resolution)
 
     def _flush_tier(self, conn: Connection, storage: Storage, run_id: UUID, resolution: int) -> None:
         buf = self._buffers.get((run_id, resolution))
@@ -211,22 +222,25 @@ class ScalarBuffer:
         buf.start_line = new_start
 
     def flush_if_needed(self, conn: Connection, storage: Storage, run_id: UUID) -> None:
-        buf = self._buffers.get((run_id, 0))
-        if buf and buf.byte_count >= config.buffer.max_segment_bytes:
-            self.flush(conn, storage, run_id, emit_partial=False)
+        with self._lock:
+            buf = self._buffers.get((run_id, 0))
+            if buf and buf.byte_count >= config.buffer.max_segment_bytes:
+                self.flush(conn, storage, run_id, emit_partial=False)
 
     def read_buffered(self, run_id: UUID, resolution: int) -> list[ScalarPoint]:
-        buf = self._buffers.get((run_id, resolution))
-        if not buf or not buf.lines:
-            return []
-        return buf.lines
+        with self._lock:
+            buf = self._buffers.get((run_id, resolution))
+            if not buf or not buf.lines:
+                return []
+            return list(buf.lines)
 
     def tier_line_count(self, conn: Connection, run_id: UUID, resolution: int) -> int:
-        end = self.get_end_line(conn, run_id, resolution)
-        buf = self._buffers.get((run_id, resolution))
-        if buf:
-            end = max(end, buf.end_line)
-        return end
+        with self._lock:
+            end = self.get_end_line(conn, run_id, resolution)
+            buf = self._buffers.get((run_id, resolution))
+            if buf:
+                end = max(end, buf.end_line)
+            return end
 
 
 log_buffer = LogBuffer()
