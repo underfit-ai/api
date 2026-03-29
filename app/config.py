@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Annotated, Literal, Union
@@ -58,7 +59,7 @@ class Config(BaseModel):
 
 def load_config(path: Path | None = None) -> Config:
     if path is None:
-        path = Path("underfit.toml")
+        path = Path(os.environ.get("UNDERFIT_CONFIG", "underfit.toml"))
     if not path.exists():
         return Config()
     with path.open("rb") as f:
