@@ -1,13 +1,22 @@
-[build-system]
-requires = ["setuptools>=45", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "underfit-api"
 version = "0.1.0"
 description = "Python API for the Underfit model reporter"
-readme = "README.md"
+authors = [{ name = "Mitchell Goff" }]
 requires-python = ">=3.9"
+
+readme = "README.md"
+classifiers = ["Programming Language :: Python :: 3"]
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/underfit-ai/api"
+Issues = "https://github.com/underfit-ai/api/issues"
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
 
 dependencies = [
     "fastapi",
@@ -17,11 +26,11 @@ dependencies = [
     "python-multipart",
     "pillow",
     "tomli",
+    "watchdog",
+    "boto3",
 ]
 
 [project.optional-dependencies]
-file-storage = ["watchdog"]
-s3-storage = ["boto3"]
 testing = [
     "ruff",
     "ty",

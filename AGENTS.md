@@ -1,6 +1,6 @@
 # Project
 
-Underfit is an open-source model reporting dashboard for tracking experiments, metrics, and artifacts. It serves a similar role to Weights & Biases, with a focus on transparent, self-hostable reporting. This repository contains the backend API, written in python + fastapi.
+Underfit is an open-source model reporting dashboard for tracking experiments, metrics, and artifacts. It serves a similar role to Weights & Biases or Tensorboard, with a focus on transparent, self-hostable reporting. This repository contains the backend API, written in python + fastapi.
 
 # Contributing
 
