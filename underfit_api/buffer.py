@@ -53,6 +53,7 @@ class LogBuffer:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._buffers: dict[tuple[UUID, str], _LineBuffer[LogLine]] = {}
+        self._total_bytes = 0
 
     def get_end_line(self, conn: Connection, run_id: UUID, worker_id: str) -> int:
         with self._lock:
@@ -77,8 +78,10 @@ class LogBuffer:
             buf = self._buffers.setdefault((run_id, worker_id), _LineBuffer(start_line=start_line))
             for line in lines:
                 for sub in line.content.split("\n"):
+                    size = len(sub.encode()) + 1
                     buf.lines.append(LogLine(timestamp=line.timestamp, content=sub))
-                    buf.byte_count += len(sub.encode()) + 1
+                    buf.byte_count += size
+                    self._total_bytes += size
             return None
 
     def flush(self, conn: Connection, storage: Storage, run_id: UUID, worker_id: str) -> None:
@@ -103,6 +106,7 @@ class LogBuffer:
                 storage_key=storage_key,
                 created_at=now,
             ))
+            self._total_bytes -= buf.byte_count
             buf.start_line = buf.end_line
             buf.lines.clear()
             buf.byte_count = 0
@@ -112,6 +116,12 @@ class LogBuffer:
             buf = self._buffers.get((run_id, worker_id))
             if buf and buf.byte_count >= config.buffer.max_segment_bytes:
                 self.flush(conn, storage, run_id, worker_id)
+            while self._total_bytes > config.buffer.max_buffer_bytes:
+                nonempty = (k for k, b in self._buffers.items() if b.lines)
+                largest = max(nonempty, key=lambda k: self._buffers[k].byte_count, default=None)
+                if largest is None:
+                    break
+                self.flush(conn, storage, largest[0], largest[1])
 
     def read_buffered(self, run_id: UUID, worker_id: str, cursor: int, count: int) -> list[LogLine]:
         with self._lock:
@@ -130,6 +140,7 @@ class ScalarBuffer:
         self._lock = threading.RLock()
         self._buffers: dict[tuple[UUID, int], _LineBuffer[ScalarPoint]] = {}
         self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
+        self._total_bytes = 0
 
     def get_end_line(self, conn: Connection, run_id: UUID, resolution: int = 0) -> int:
         with self._lock:
@@ -154,8 +165,9 @@ class ScalarBuffer:
             buf = self._buffers.setdefault((run_id, 0), _LineBuffer(start_line=start_line))
             for scalar in scalars:
                 buf.lines.append(scalar)
-                encoded = self._serialize_scalar(scalar)
-                buf.byte_count += len(encoded.encode()) + 1
+                size = len(self._serialize_scalar(scalar).encode()) + 1
+                buf.byte_count += size
+                self._total_bytes += size
                 self._feed_accumulators(run_id, scalar)
             return None
 
@@ -181,8 +193,10 @@ class ScalarBuffer:
         ts = acc.last_timestamp or datetime.now(timezone.utc).replace(tzinfo=None)
         point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=ts)
         buf = self._buffers.setdefault((run_id, resolution), _LineBuffer(start_line=0))
+        size = len(self._serialize_scalar(point).encode()) + 1
         buf.lines.append(point)
-        buf.byte_count += len(self._serialize_scalar(point).encode()) + 1
+        buf.byte_count += size
+        self._total_bytes += size
 
     def flush(self, conn: Connection, storage: Storage, run_id: UUID, *, emit_partial: bool = True) -> None:
         with self._lock:
@@ -216,6 +230,7 @@ class ScalarBuffer:
             storage_key=storage_key,
             created_at=now,
         ))
+        self._total_bytes -= buf.byte_count
         new_start = buf.end_line
         buf.lines.clear()
         buf.byte_count = 0
@@ -226,6 +241,12 @@ class ScalarBuffer:
             buf = self._buffers.get((run_id, 0))
             if buf and buf.byte_count >= config.buffer.max_segment_bytes:
                 self.flush(conn, storage, run_id, emit_partial=False)
+            while self._total_bytes > config.buffer.max_buffer_bytes:
+                nonempty = (k for k, b in self._buffers.items() if b.lines)
+                largest = max(nonempty, key=lambda k: self._buffers[k].byte_count, default=None)
+                if largest is None:
+                    break
+                self.flush(conn, storage, largest[0], emit_partial=False)
 
     def read_buffered(self, run_id: UUID, resolution: int) -> list[ScalarPoint]:
         with self._lock:
