@@ -193,5 +193,5 @@ media = sa.Table(
     sa.Column("count", sa.Integer, nullable=False),
     sa.Column("metadata", sa.JSON),
     sa.Column("created_at", sa.DateTime, nullable=False),
-    sa.CheckConstraint("type IN ('image', 'video', 'audio')"),
+    sa.CheckConstraint("type IN ('image', 'video', 'audio', 'html')"),
 )

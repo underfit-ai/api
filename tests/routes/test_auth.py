@@ -53,4 +53,4 @@ def test_register_rejects_invalid_input(client: TestClient) -> None:
 
     for payload in bad_payloads:
         response = client.post("/api/v1/auth/register", json=payload)
-        assert response.status_code == 422
+        assert response.status_code == 400

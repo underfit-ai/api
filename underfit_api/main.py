@@ -6,7 +6,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -106,6 +107,17 @@ app.mount("/api/v1", api)
 @api.exception_handler(404)
 def not_found(_request: Request, _exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=404, content={"error": "Route not found"})
+
+
+@api.exception_handler(HTTPException)
+def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    content = exc.detail if isinstance(exc.detail, dict) else {"error": str(exc.detail)}
+    return JSONResponse(status_code=exc.status_code, content=content)
+
+
+@api.exception_handler(RequestValidationError)
+def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"error": "Validation error"})
 
 
 @api.get("/health")

@@ -32,28 +32,28 @@ def test_media_create_list_filter_and_download(
     assert downloaded.content == b"file-a"
 
 
-@pytest.mark.parametrize(
-    ("metadata", "files", "expected_status"),
-    [
-        ("not-json", [("files", ("a.bin", b"file-a", "application/octet-stream"))], 400),
-        (
-            json.dumps({"key": "predictions", "type": "table"}),
-            [("files", ("a.bin", b"file-a", "application/octet-stream"))],
-            400,
-        ),
-        (json.dumps({"key": "predictions", "type": "image"}), [], 422),
-    ],
-)
-def test_media_validation_errors(
-    client: TestClient,
-    media_setup: tuple[OwnerHeaders, str],
-    metadata: str,
-    files: list[tuple[str, tuple[str, bytes, str]]],
-    expected_status: int,
-) -> None:
-    headers, media_url = media_setup
-    response = client.post(media_url, headers=headers, data={"metadata": metadata}, files=files)
-    assert response.status_code == expected_status
+    @pytest.mark.parametrize(
+        ("metadata", "files", "expected_status"),
+        [
+            ("not-json", [("files", ("a.bin", b"file-a", "application/octet-stream"))], 400),
+            (
+                json.dumps({"key": "predictions", "type": "table"}),
+                [("files", ("a.bin", b"file-a", "application/octet-stream"))],
+                400,
+            ),
+            (json.dumps({"key": "predictions", "type": "image"}), [], 400),
+        ],
+    )
+    def test_media_validation_errors(
+        client: TestClient,
+        media_setup: tuple[OwnerHeaders, str],
+        metadata: str,
+        files: list[tuple[str, tuple[str, bytes, str]]],
+        expected_status: int,
+    ) -> None:
+        headers, media_url = media_setup
+        response = client.post(media_url, headers=headers, data={"metadata": metadata}, files=files)
+        assert response.status_code == expected_status
 
 
 def test_media_create_requires_project_access(

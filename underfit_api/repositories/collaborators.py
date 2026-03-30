@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import sqlalchemy as sa
 from sqlalchemy import Connection
 
-from underfit_api.models import User
+from underfit_api.models import Collaborator, User
 from underfit_api.schema import accounts, collaborators, users
 
 _join = collaborators.join(users, collaborators.c.user_id == users.c.id).join(
@@ -40,11 +40,13 @@ def get(conn: Connection, project_id: UUID, user_id: UUID) -> bool:
     return row is not None
 
 
-def add(conn: Connection, project_id: UUID, user_id: UUID) -> None:
+def add(conn: Connection, project_id: UUID, user_id: UUID) -> Collaborator:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    collab_id = uuid4()
     conn.execute(collaborators.insert().values(
-        id=uuid4(), project_id=project_id, user_id=user_id, created_at=now, updated_at=now,
+        id=collab_id, project_id=project_id, user_id=user_id, created_at=now, updated_at=now,
     ))
+    return Collaborator(id=collab_id, project_id=project_id, user_id=user_id, created_at=now, updated_at=now)
 
 
 def remove(conn: Connection, project_id: UUID, user_id: UUID) -> None:
