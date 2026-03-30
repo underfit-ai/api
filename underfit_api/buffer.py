@@ -129,6 +129,7 @@ class LogBuffer:
             for k, buf in list(self._buffers.items()):
                 if buf.lines and buf.created_at is not None and buf.created_at < cutoff:
                     self.flush(conn, storage, k[0], k[1])
+            self._buffers = {k: b for k, b in self._buffers.items() if b.lines}
 
     def read_buffered(self, run_id: UUID, worker_id: str, cursor: int, count: int) -> list[LogLine]:
         with self._lock:
@@ -263,6 +264,8 @@ class ScalarBuffer:
                     stale_runs.add(run_id)
             for run_id in stale_runs:
                 self.flush(conn, storage, run_id)
+            self._buffers = {k: b for k, b in self._buffers.items() if b.lines}
+            self._accumulators = {k: a for k, a in self._accumulators.items() if a.n > 0}
 
     def read_buffered(self, run_id: UUID, resolution: int) -> list[ScalarPoint]:
         with self._lock:
