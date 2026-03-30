@@ -30,13 +30,61 @@ class S3Storage:
         self._client.put_object(Bucket=self._bucket, Key=self._key(key), Body=content)
 
     async def write_stream(self, key: str, stream: AsyncIterator[bytes]) -> int:
-        chunks: list[bytes] = []
+        min_part = 5 * 1024 * 1024
+        buffer = bytearray()
+        parts: list[dict[str, object]] = []
+        upload_id: str | None = None
+        part_number = 1
         total = 0
-        async for chunk in stream:
-            chunks.append(chunk)
-            total += len(chunk)
-        self._client.put_object(Bucket=self._bucket, Key=self._key(key), Body=b"".join(chunks))
-        return total
+        try:
+            async for chunk in stream:
+                if not chunk:
+                    continue
+                total += len(chunk)
+                buffer.extend(chunk)
+                while len(buffer) >= min_part:
+                    upload_id = upload_id or self._client.create_multipart_upload(
+                        Bucket=self._bucket, Key=self._key(key),
+                    )["UploadId"]
+                    to_send = bytes(buffer[:min_part])
+                    del buffer[:min_part]
+                    resp = self._client.upload_part(
+                        Bucket=self._bucket,
+                        Key=self._key(key),
+                        UploadId=upload_id,
+                        PartNumber=part_number,
+                        Body=to_send,
+                    )
+                    parts.append({"ETag": resp["ETag"], "PartNumber": part_number})
+                    part_number += 1
+            if total == 0:
+                self._client.put_object(Bucket=self._bucket, Key=self._key(key), Body=b"")
+                return 0
+            if upload_id is None:
+                self._client.put_object(Bucket=self._bucket, Key=self._key(key), Body=bytes(buffer))
+                return total
+            if buffer:
+                resp = self._client.upload_part(
+                    Bucket=self._bucket,
+                    Key=self._key(key),
+                    UploadId=upload_id,
+                    PartNumber=part_number,
+                    Body=bytes(buffer),
+                )
+                parts.append({"ETag": resp["ETag"], "PartNumber": part_number})
+            self._client.complete_multipart_upload(
+                Bucket=self._bucket,
+                Key=self._key(key),
+                UploadId=upload_id,
+                MultipartUpload={"Parts": parts},
+            )
+            return total
+        except Exception:
+            if upload_id is not None:
+                self._client.abort_multipart_upload(
+                    Bucket=self._bucket, Key=self._key(key), UploadId=upload_id,
+                )
+            raise
 
     def read(self, key: str, byte_offset: int = 0, byte_count: int | None = None) -> bytes:
         kwargs: dict[str, object] = {"Bucket": self._bucket, "Key": self._key(key)}
@@ -63,13 +111,77 @@ class S3Storage:
             yield chunk
 
     def append(self, key: str, content: bytes) -> AppendResult:
+        min_part = 5 * 1024 * 1024
+        new_size = len(content)
         try:
-            existing = self.read(key)
-        except FileNotFoundError:
-            existing = b""
-        offset = len(existing)
-        self.write(key, existing + content)
-        return AppendResult(byte_offset=offset, byte_count=len(content))
+            head = self._client.head_object(Bucket=self._bucket, Key=self._key(key))
+            existing_size = head["ContentLength"]
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                self.write(key, content)
+                return AppendResult(byte_offset=0, byte_count=new_size)
+            raise
+
+        offset = existing_size
+        # Small file + small append: simple re-upload to avoid multipart edge cases.
+        if existing_size + new_size < min_part:
+            combined = self.read(key) + content
+            self.write(key, combined)
+            return AppendResult(byte_offset=offset, byte_count=new_size)
+
+        # Existing object too small to serve as a multipart part: re-upload combined payload.
+        if existing_size < min_part:
+            combined = self.read(key) + content
+            self.write(key, combined)
+            return AppendResult(byte_offset=offset, byte_count=new_size)
+
+        upload_id = None
+        parts: list[dict[str, object]] = []
+        part_number = 1
+        try:
+            upload_id = self._client.create_multipart_upload(
+                Bucket=self._bucket, Key=self._key(key),
+            )["UploadId"]
+            # Copy existing object as first part (size >= min_part here)
+            copy_resp = self._client.upload_part_copy(
+                Bucket=self._bucket,
+                Key=self._key(key),
+                UploadId=upload_id,
+                PartNumber=part_number,
+                CopySource={"Bucket": self._bucket, "Key": self._key(key)},
+                CopySourceRange=f"bytes=0-{existing_size - 1}",
+            )
+            parts.append({"ETag": copy_resp["ETag"], "PartNumber": part_number})
+            part_number += 1
+
+            # Upload new content as subsequent parts
+            idx = 0
+            while idx < new_size:
+                chunk = content[idx: idx + min_part]
+                resp = self._client.upload_part(
+                    Bucket=self._bucket,
+                    Key=self._key(key),
+                    UploadId=upload_id,
+                    PartNumber=part_number,
+                    Body=chunk,
+                )
+                parts.append({"ETag": resp["ETag"], "PartNumber": part_number})
+                part_number += 1
+                idx += len(chunk)
+
+            self._client.complete_multipart_upload(
+                Bucket=self._bucket,
+                Key=self._key(key),
+                UploadId=upload_id,
+                MultipartUpload={"Parts": parts},
+            )
+            return AppendResult(byte_offset=offset, byte_count=new_size)
+        except Exception:
+            if upload_id is not None:
+                self._client.abort_multipart_upload(
+                    Bucket=self._bucket, Key=self._key(key), UploadId=upload_id,
+                )
+            raise
 
     def exists(self, key: str) -> bool:
         try:

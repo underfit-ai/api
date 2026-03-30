@@ -52,6 +52,8 @@ class BackfillService:
         self, storage: Storage, engine: Engine,
         backfill_config: BackfillConfig, buffer_config: BufferConfig,
     ) -> None:
+        if not isinstance(storage, FileStorage):
+            raise RuntimeError("Backfill is only supported with file storage")
         self._storage = storage
         self._engine = engine
         self._config = backfill_config

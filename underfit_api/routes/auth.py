@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
@@ -70,7 +71,7 @@ def register(body: RegisterBody, response: Response, request: Request, conn: Con
         samesite="lax",
         secure=_cookie_secure(request),
         max_age=SESSION_TTL_SECONDS,
-        expires=session.expires_at,
+        expires=session.expires_at.replace(tzinfo=timezone.utc),
     )
     return AuthResponse(user=user, session=session)
 
@@ -90,7 +91,7 @@ def login(body: LoginBody, response: Response, request: Request, conn: Conn) -> 
         samesite="lax",
         secure=_cookie_secure(request),
         max_age=SESSION_TTL_SECONDS,
-        expires=session.expires_at,
+        expires=session.expires_at.replace(tzinfo=timezone.utc),
     )
     return AuthResponse(user=user, session=session)
 
