@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import tempfile
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import datetime, timezone
 
@@ -30,61 +32,16 @@ class S3Storage:
         self._client.put_object(Bucket=self._bucket, Key=self._key(key), Body=content)
 
     async def write_stream(self, key: str, stream: AsyncIterator[bytes]) -> int:
-        min_part = 5 * 1024 * 1024
-        buffer = bytearray()
-        parts: list[dict[str, object]] = []
-        upload_id: str | None = None
-        part_number = 1
         total = 0
-        try:
+        with tempfile.TemporaryFile() as tmp:
             async for chunk in stream:
                 if not chunk:
                     continue
+                tmp.write(chunk)
                 total += len(chunk)
-                buffer.extend(chunk)
-                while len(buffer) >= min_part:
-                    upload_id = upload_id or self._client.create_multipart_upload(
-                        Bucket=self._bucket, Key=self._key(key),
-                    )["UploadId"]
-                    to_send = bytes(buffer[:min_part])
-                    del buffer[:min_part]
-                    resp = self._client.upload_part(
-                        Bucket=self._bucket,
-                        Key=self._key(key),
-                        UploadId=upload_id,
-                        PartNumber=part_number,
-                        Body=to_send,
-                    )
-                    parts.append({"ETag": resp["ETag"], "PartNumber": part_number})
-                    part_number += 1
-            if total == 0:
-                self._client.put_object(Bucket=self._bucket, Key=self._key(key), Body=b"")
-                return 0
-            if upload_id is None:
-                self._client.put_object(Bucket=self._bucket, Key=self._key(key), Body=bytes(buffer))
-                return total
-            if buffer:
-                resp = self._client.upload_part(
-                    Bucket=self._bucket,
-                    Key=self._key(key),
-                    UploadId=upload_id,
-                    PartNumber=part_number,
-                    Body=bytes(buffer),
-                )
-                parts.append({"ETag": resp["ETag"], "PartNumber": part_number})
-            self._client.complete_multipart_upload(
-                Bucket=self._bucket,
-                Key=self._key(key),
-                UploadId=upload_id,
-                MultipartUpload={"Parts": parts},
-            )
-            return total
-        except Exception:
-            if upload_id is not None:
-                self._client.abort_multipart_upload(
-                    Bucket=self._bucket, Key=self._key(key), UploadId=upload_id,
-                )
-            raise
+            tmp.seek(0)
+            await asyncio.to_thread(self._client.upload_fileobj, tmp, self._bucket, self._key(key))
+        return total
 
     def read(self, key: str, byte_offset: int = 0, byte_count: int | None = None) -> bytes:
         kwargs: dict[str, object] = {"Bucket": self._bucket, "Key": self._key(key)}
