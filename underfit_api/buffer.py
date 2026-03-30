@@ -6,12 +6,13 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Generic, NamedTuple, TypeVar
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import Connection
 
 from underfit_api.config import config
-from underfit_api.schema import log_segments, scalar_segments
+from underfit_api.repositories import log_segments as log_seg_repo
+from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.storage import Storage
 
 T = TypeVar("T")
@@ -62,13 +63,7 @@ class LogBuffer:
             k = (run_id, worker_id)
             if (buf := self._buffers.get(k)) and buf.lines:
                 return buf.end_line
-            row = conn.execute(
-                log_segments.select()
-                .where(log_segments.c.run_id == run_id, log_segments.c.worker_id == worker_id)
-                .order_by(log_segments.c.end_line.desc())
-                .limit(1),
-            ).first()
-            return row.end_line if row else 0
+            return log_seg_repo.get_end_line(conn, run_id, worker_id)
 
     def append(
         self, conn: Connection, run_id: UUID, worker_id: str, start_line: int, lines: list[LogLine],
@@ -96,20 +91,13 @@ class LogBuffer:
             content = "".join(f"{line.content}\n" for line in buf.lines)
             storage_key = f"{run_id}/logs/{worker_id}.log"
             result = storage.append(storage_key, content.encode())
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            conn.execute(log_segments.insert().values(
-                id=uuid4(),
-                run_id=run_id,
-                worker_id=worker_id,
-                start_line=buf.start_line,
-                end_line=buf.end_line,
-                start_at=buf.lines[0].timestamp,
-                end_at=buf.lines[-1].timestamp,
-                byte_offset=result.byte_offset,
-                byte_count=result.byte_count,
+            log_seg_repo.insert(
+                conn, run_id, worker_id,
+                start_line=buf.start_line, end_line=buf.end_line,
+                start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
+                byte_offset=result.byte_offset, byte_count=result.byte_count,
                 storage_key=storage_key,
-                created_at=now,
-            ))
+            )
             self._total_bytes -= buf.byte_count
             buf.start_line = buf.end_line
             buf.lines.clear()
@@ -165,13 +153,7 @@ class ScalarBuffer:
             k = (run_id, resolution)
             if (buf := self._buffers.get(k)) and buf.lines:
                 return buf.end_line
-            row = conn.execute(
-                scalar_segments.select()
-                .where(scalar_segments.c.run_id == run_id, scalar_segments.c.resolution == resolution)
-                .order_by(scalar_segments.c.end_line.desc())
-                .limit(1),
-            ).first()
-            return row.end_line if row else 0
+            return scalar_seg_repo.get_end_line(conn, run_id, resolution)
 
     def append(
         self, conn: Connection, run_id: UUID, start_line: int, scalars: list[ScalarPoint],
@@ -238,20 +220,13 @@ class ScalarBuffer:
         content = "".join(s + "\n" for s in lines_data)
         storage_key = f"{run_id}/scalars/r{resolution}.jsonl"
         result = storage.append(storage_key, content.encode())
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        conn.execute(scalar_segments.insert().values(
-            id=uuid4(),
-            run_id=run_id,
-            resolution=resolution,
-            start_line=buf.start_line,
-            end_line=buf.end_line,
-            start_at=buf.lines[0].timestamp,
-            end_at=buf.lines[-1].timestamp,
-            byte_offset=result.byte_offset,
-            byte_count=result.byte_count,
+        scalar_seg_repo.insert(
+            conn, run_id, resolution,
+            start_line=buf.start_line, end_line=buf.end_line,
+            start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
+            byte_offset=result.byte_offset, byte_count=result.byte_count,
             storage_key=storage_key,
-            created_at=now,
-        ))
+        )
         self._total_bytes -= buf.byte_count
         new_start = buf.end_line
         buf.lines.clear()

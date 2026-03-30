@@ -12,8 +12,8 @@ from underfit_api.buffer import ScalarPoint, scalar_buffer
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Run, Scalar, UTCDatetime
 from underfit_api.permissions import require_project_contributor
+from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
-from underfit_api.schema import scalar_segments
 from underfit_api.storage import get_storage
 
 router = APIRouter()
@@ -94,11 +94,7 @@ def _select_tier(conn: Conn, run: Run, max_points: int) -> int:
 
 
 def _read_tier(conn: Conn, run: Run, resolution: int) -> list[Scalar]:
-    segments = conn.execute(
-        scalar_segments.select()
-        .where(scalar_segments.c.run_id == run.id, scalar_segments.c.resolution == resolution)
-        .order_by(scalar_segments.c.start_line),
-    ).all()
+    segments = scalar_seg_repo.list_by_resolution(conn, run.id, resolution)
     storage = get_storage()
     scalars: list[Scalar] = []
     for seg in segments:

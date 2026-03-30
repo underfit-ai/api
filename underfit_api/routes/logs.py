@@ -10,8 +10,8 @@ from underfit_api.buffer import LogLine, log_buffer
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import UTCDatetime
 from underfit_api.permissions import require_project_contributor
+from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.routes.resolvers import resolve_run
-from underfit_api.schema import log_segments
 from underfit_api.storage import get_storage
 
 router = APIRouter()
@@ -80,16 +80,7 @@ def read_logs(
 ) -> dict[str, object]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     entries: list[dict[str, object]] = []
-    segments = conn.execute(
-        log_segments.select()
-        .where(
-            log_segments.c.run_id == run.id,
-            log_segments.c.worker_id == worker_id,
-            log_segments.c.end_line > cursor,
-            log_segments.c.start_line < cursor + count,
-        )
-        .order_by(log_segments.c.start_line),
-    ).all()
+    segments = log_seg_repo.list_for_range(conn, run.id, worker_id, cursor, count)
     storage = get_storage()
     for seg in segments:
         data = storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
