@@ -128,6 +128,12 @@ class LogBuffer:
                     break
                 self.flush(conn, storage, largest[0], largest[1])
 
+    def flush_all(self, conn: Connection, storage: Storage) -> None:
+        with self._lock:
+            for k, buf in list(self._buffers.items()):
+                if buf.lines:
+                    self.flush(conn, storage, k[0], k[1])
+
     def flush_stale(self, conn: Connection, storage: Storage) -> None:
         with self._lock:
             cutoff = time.monotonic() - config.buffer.max_segment_age_ms / 1000
@@ -264,6 +270,12 @@ class ScalarBuffer:
                 if largest is None:
                     break
                 self.flush(conn, storage, largest[0], emit_partial=False)
+
+    def flush_all(self, conn: Connection, storage: Storage) -> None:
+        with self._lock:
+            run_ids = {run_id for (run_id, _res), buf in self._buffers.items() if buf.lines}
+            for run_id in run_ids:
+                self.flush(conn, storage, run_id)
 
     def flush_stale(self, conn: Connection, storage: Storage) -> None:
         with self._lock:

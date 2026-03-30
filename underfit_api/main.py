@@ -62,6 +62,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     flush_task.cancel()
     if backfill is not None:
         await backfill.stop()
+    engine = get_engine()
+    storage = get_storage()
+    with engine.begin() as conn:
+        log_buffer.flush_all(conn, storage)
+        scalar_buffer.flush_all(conn, storage)
     shutdown_engine()
 
 
