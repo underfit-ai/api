@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import Engine
 
 from underfit_api.auth import get_app_secret
 from underfit_api.buffer import log_buffer, scalar_buffer
@@ -30,24 +31,31 @@ from underfit_api.routes.projects import router as projects_router
 from underfit_api.routes.runs import router as runs_router
 from underfit_api.routes.scalars import router as scalars_router
 from underfit_api.routes.users import router as users_router
-from underfit_api.storage import get_storage
+from underfit_api.storage import Storage, get_storage
 from underfit_api.storage.backfill import BackfillService
 
 logger = logging.getLogger(__name__)
+
+
+def _flush_once(engine: Engine, storage: Storage) -> None:
+    with engine.begin() as conn:
+        log_buffer.flush_stale(conn, storage)
+        scalar_buffer.flush_stale(conn, storage)
 
 
 async def _flush_loop() -> None:
     engine = get_engine()
     storage = get_storage()
     interval = config.buffer.flush_interval_ms / 1000
-    while True:
-        await asyncio.sleep(interval)
-        try:
-            with engine.begin() as conn:
-                log_buffer.flush_stale(conn, storage)
-                scalar_buffer.flush_stale(conn, storage)
-        except Exception:
-            logger.exception("Buffer flush error")
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await asyncio.to_thread(_flush_once, engine, storage)
+            except Exception:
+                logger.exception("Buffer flush error")
+    except asyncio.CancelledError:
+        return
 
 
 @asynccontextmanager
@@ -61,6 +69,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     flush_task = asyncio.create_task(_flush_loop())
     yield
     flush_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await flush_task
     if backfill is not None:
         await backfill.stop()
     engine = get_engine()
