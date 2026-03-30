@@ -17,7 +17,7 @@ from underfit_api.storage import get_storage
 
 router = APIRouter()
 
-VALID_MEDIA_TYPES = {"image", "video", "audio"}
+VALID_MEDIA_TYPES = {"image", "video", "audio", "html"}
 MAX_JSON_BYTES = 65536
 
 
