@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from sqlalchemy import Connection, Engine, create_engine
+from sqlalchemy.engine import URL
 
 from underfit_api.config import MysqlDatabaseConfig, PostgresqlDatabaseConfig, SqliteDatabaseConfig, config
 from underfit_api.schema import metadata
@@ -21,10 +22,24 @@ def get_engine() -> Engine:
             url = f"sqlite:///{db.path}" if db.path != ":memory:" else "sqlite://"
             engine = create_engine(url, connect_args={"check_same_thread": False})
         elif isinstance(db, PostgresqlDatabaseConfig):
-            url = f"postgresql://{db.user}:{db.password}@{db.host}:{db.port}/{db.database}"
+            url = URL.create(
+                "postgresql",
+                username=db.user or None,
+                password=db.password or None,
+                host=db.host,
+                port=db.port,
+                database=db.database,
+            )
             engine = create_engine(url)
         elif isinstance(db, MysqlDatabaseConfig):
-            url = f"mysql://{db.user}:{db.password}@{db.host}:{db.port}/{db.database}"
+            url = URL.create(
+                "mysql",
+                username=db.user or None,
+                password=db.password or None,
+                host=db.host,
+                port=db.port,
+                database=db.database,
+            )
             engine = create_engine(url)
         else:
             raise ValueError(f"Unsupported database type: {db.type}")
