@@ -58,11 +58,14 @@ def create(
 
 def increment_uploaded(conn: Connection, artifact_id: UUID) -> Artifact | None:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    conn.execute(
+    updated = conn.execute(
         artifacts.update()
-        .where(artifacts.c.id == artifact_id)
-        .values(uploaded_file_count=artifacts.c.uploaded_file_count + 1, updated_at=now),
-    )
+        .where(artifacts.c.id == artifact_id, artifacts.c.uploaded_file_count < artifacts.c.declared_file_count)
+        .values(uploaded_file_count=artifacts.c.uploaded_file_count + 1, updated_at=now)
+        .returning(artifacts),
+    ).first()
+    if updated:
+        return Artifact.model_validate(updated)
     return get_by_id(conn, artifact_id)
 
 
