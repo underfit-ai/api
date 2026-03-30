@@ -19,15 +19,15 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 dependencies = [
-    "fastapi",
-    "uvicorn",
-    "pydantic",
-    "sqlalchemy",
-    "python-multipart",
-    "pillow",
-    "tomli",
-    "watchdog",
-    "boto3",
+    "fastapi>=0.135",
+    "uvicorn>=0.42",
+    "pydantic>=2.11",
+    "sqlalchemy>=2,<3",
+    "python-multipart>=0.0.22",
+    "pillow>=11",
+    'tomli>=2; python_version<"3.11"',
+    "watchdog>=6",
+    "boto3>=1.42",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +39,7 @@ testing = [
 ]
 
 [tool.setuptools.package-data]
-"underfit_api" = ["py.typed", "static/**/*"]
+"underfit_api" = ["py.typed", "static/**/*", "wordlists/*"]
 
 [tool.ruff]
 line-length = 120
