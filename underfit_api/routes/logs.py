@@ -79,9 +79,7 @@ def read_logs(
     storage = get_storage()
     for seg in segments:
         data = storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
-        all_lines = data.decode().split("\n")
-        if all_lines and all_lines[-1] == "":
-            all_lines = all_lines[:-1]
+        all_lines = data.decode().splitlines()
         seg_start = max(cursor, seg.start_line)
         seg_end = min(cursor + count, seg.end_line)
         offset = seg_start - seg.start_line
@@ -102,6 +100,6 @@ def read_logs(
             "endAt": buffered[-1].timestamp.isoformat() + "Z",
         })
     last_end = entries[-1]["endLine"] if entries else cursor
-    next_cursor: int = last_end if isinstance(last_end, int) else cursor
+    next_cursor = last_end if isinstance(last_end, int) else cursor
     has_more = bool(entries) and next_cursor < log_buffer.get_end_line(conn, run.id, worker_id)
     return {"entries": entries, "nextCursor": next_cursor, "hasMore": has_more}

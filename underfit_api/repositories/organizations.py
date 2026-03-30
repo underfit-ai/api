@@ -55,16 +55,6 @@ def is_admin(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
     return row is not None
 
 
-def is_member(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
-    row = conn.execute(
-        organization_members.select().where(
-            organization_members.c.organization_id == org_id,
-            organization_members.c.user_id == user_id,
-        ),
-    ).first()
-    return row is not None
-
-
 def get_member_role(conn: Connection, org_id: UUID, user_id: UUID) -> str | None:
     row = conn.execute(
         organization_members.select().where(
@@ -73,6 +63,10 @@ def get_member_role(conn: Connection, org_id: UUID, user_id: UUID) -> str | None
         ),
     ).first()
     return row.role if row else None
+
+
+def is_member(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
+    return get_member_role(conn, org_id, user_id) is not None
 
 
 def list_members(conn: Connection, org_id: UUID) -> list[OrganizationMember]:

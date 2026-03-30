@@ -6,7 +6,7 @@ from datetime import timezone
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
 
-from underfit_api.auth import hash_password
+from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, hash_password
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.models import AuthResponse, Session
@@ -18,8 +18,6 @@ from underfit_api.repositories.sessions import SESSION_TTL_DAYS
 
 router = APIRouter(prefix="/auth")
 
-HASH_DIGEST = "sha256"
-HASH_ITERATIONS = 310_000
 SESSION_TTL_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60
 
 
@@ -73,7 +71,7 @@ def register(body: RegisterBody, response: Response, request: Request, conn: Con
 
     user = users_repo.create(conn, body.email, handle_lower, body.handle)
     pw_hash, pw_salt = hash_password(body.password)
-    user_auth_repo.create(conn, user.id, pw_hash, pw_salt, HASH_ITERATIONS, HASH_DIGEST)
+    user_auth_repo.create(conn, user.id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
 
     session = sessions_repo.create(conn, user.id)
     _set_session_cookie(response, request, session)

@@ -9,7 +9,7 @@ from underfit_api.schema import accounts
 
 
 def exists(conn: Connection, handle: str) -> bool:
-    return conn.execute(accounts.select().where(accounts.c.handle == handle.lower())).first() is not None
+    return get_by_handle(conn, handle) is not None
 
 
 def get_by_handle(conn: Connection, handle: str) -> Account | None:

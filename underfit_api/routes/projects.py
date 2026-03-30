@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Project
-from underfit_api.permissions import can_view_project, require_account_admin, require_project_admin
+from underfit_api.permissions import can_view_project, require_account_admin
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
 
@@ -59,7 +59,7 @@ def update_project(
     handle: str, project_name: str, body: UpdateProjectBody, conn: Conn, user: CurrentUser,
 ) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
-    require_project_admin(conn, account.id, account.type, user.id)
+    require_account_admin(conn, account.id, account.type, user.id)
     if body.visibility is not None and body.visibility not in ("private", "public"):
         raise HTTPException(400, "Invalid visibility")
     if not (updated := projects_repo.update(conn, project.id, body.description, body.visibility)):

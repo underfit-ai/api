@@ -92,7 +92,7 @@ def _read_tier(conn: Conn, run: Run, resolution: int) -> list[Scalar]:
     scalars: list[Scalar] = []
     for seg in segments:
         data = storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
-        for line in data.decode().strip().split("\n"):
+        for line in data.decode().splitlines():
             if line:
                 parsed = json.loads(line)
                 scalars.append(Scalar(
