@@ -113,14 +113,12 @@ def health() -> dict[str, str]:
     return {"status": "ok", "version": "v1"}
 
 
-_static_dir = Path(__file__).parent / config.static_dir
-if _static_dir.is_dir():
+if (_static_dir := Path(__file__).parent / config.static_dir).is_dir():
     _index_html = _static_dir / "index.html"
     app.mount("/assets", StaticFiles(directory=_static_dir / "assets"), name="static-assets")
 
     @app.get("/{path:path}")
     async def spa_fallback(path: str) -> FileResponse:
-        file = _static_dir / path
-        if file.is_file():
+        if (file := _static_dir / path).is_file():
             return FileResponse(file)
         return FileResponse(_index_html)

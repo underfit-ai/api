@@ -109,8 +109,7 @@ class BackfillService:
                     continue
                 if not self._storage.exists(f"{run_dir}/run.json"):
                     continue
-                run_id = self._ensure_run(conn, run_uuid)
-                if run_id is None:
+                if not (run_id := self._ensure_run(conn, run_uuid)):
                     continue
                 seen_media: set[str] = set()
                 for key in run_keys:
@@ -122,9 +121,11 @@ class BackfillService:
                         self._ingest_scalar(conn, run_id, int(m.group(2)), key)
                     elif m := _ARTIFACT.match(key):
                         self._ingest_artifact(conn, run_id, m.group(2))
-                    elif (m := _MEDIA.match(key)) and m.group(2) not in seen_media:
-                        seen_media.add(m.group(2))
-                        self._ingest_media(conn, run_id, m.group(2))
+                    elif m := _MEDIA.match(key):
+                        media_id = m.group(2)
+                        if media_id not in seen_media:
+                            seen_media.add(media_id)
+                            self._ingest_media(conn, run_id, media_id)
 
     # ---- run management ----
 
@@ -142,13 +143,11 @@ class BackfillService:
         status = metadata.status
         run_config = metadata.config
 
-        account_id = self._resolve_account(conn, handle)
-        if account_id is None:
+        if not (account_id := self._resolve_account(conn, handle)):
             return None
         project_id = self._resolve_project(conn, account_id, project_name)
 
-        existing = conn.execute(runs.select().where(runs.c.id == run_uuid)).first()
-        if existing is None:
+        if not (existing := conn.execute(runs.select().where(runs.c.id == run_uuid)).first()):
             now = _now()
             conn.execute(runs.insert().values(
                 id=run_uuid, project_id=project_id, user_id=account_id,
@@ -161,8 +160,7 @@ class BackfillService:
         return run_uuid
 
     def _resolve_account(self, conn: Connection, handle: str) -> UUID | None:
-        row = conn.execute(accounts.select().where(accounts.c.handle == handle)).first()
-        if row is not None:
+        if row := conn.execute(accounts.select().where(accounts.c.handle == handle)).first():
             return row.id
         if handle != "local":
             return None
@@ -175,10 +173,9 @@ class BackfillService:
         return uid
 
     def _resolve_project(self, conn: Connection, account_id: UUID, name: str) -> UUID:
-        row = conn.execute(projects.select().where(
+        if row := conn.execute(projects.select().where(
             projects.c.account_id == account_id, projects.c.name == name,
-        )).first()
-        if row is not None:
+        )).first():
             return row.id
         project_id = uuid4()
         now = _now()
@@ -260,11 +257,9 @@ class BackfillService:
             return
 
         new_data = self._storage.read(storage_key, byte_offset=byte_pos)
-        last_nl = new_data.rfind(b"\n")
-        if last_nl < 0:
+        if (last_nl := new_data.rfind(b"\n")) < 0:
             return
-        raw_lines = new_data[:last_nl + 1].split(b"\n")[:-1]
-        if not raw_lines:
+        if not (raw_lines := new_data[:last_nl + 1].split(b"\n")[:-1]):
             return
 
         now = _now()
@@ -323,8 +318,7 @@ class BackfillService:
         except (json.JSONDecodeError, FileNotFoundError):
             return
 
-        run_row = conn.execute(runs.select().where(runs.c.id == run_id)).first()
-        if run_row is None:
+        if not (run_row := conn.execute(runs.select().where(runs.c.id == run_id)).first()):
             return
 
         files_list = manifest.get("files", [])
@@ -364,8 +358,7 @@ class BackfillService:
 
         media_dir = f"{run_id}/media/{media_id_str}"
         entries = self._storage.list_dir(media_dir)
-        file_count = sum(1 for e in entries if not e.is_directory and e.name.isdigit())
-        if file_count == 0:
+        if not (file_count := sum(1 for e in entries if not e.is_directory and e.name.isdigit())):
             return
 
         existing = conn.execute(media.select().where(media.c.id == media_id)).first()

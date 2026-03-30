@@ -44,15 +44,11 @@ def write_logs(
         raise HTTPException(400, "startLine must be >= 0")
     if not body.lines:
         return {"status": "buffered"}
-    parsed = [
-        LogLine(timestamp=ln.timestamp, content=ln.content)
-        for ln in body.lines
-    ]
+    parsed = [LogLine(timestamp=ln.timestamp, content=ln.content) for ln in body.lines]
     expected = log_buffer.append(conn, run.id, body.worker_id, body.start_line, parsed)
     if expected is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    storage = get_storage()
-    log_buffer.flush_if_needed(conn, storage, run.id, body.worker_id)
+    log_buffer.flush_if_needed(conn, get_storage(), run.id, body.worker_id)
     return {"status": "buffered"}
 
 
@@ -62,8 +58,7 @@ def flush_logs(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    storage = get_storage()
-    log_buffer.flush(conn, storage, run.id, body.worker_id)
+    log_buffer.flush(conn, get_storage(), run.id, body.worker_id)
     return {"status": "flushed"}
 
 
@@ -98,16 +93,14 @@ def read_logs(
             "startAt": seg.start_at.isoformat() + "Z",
             "endAt": seg.end_at.isoformat() + "Z",
         })
-    if not entries:
-        buffered = log_buffer.read_buffered(run.id, worker_id, cursor, count)
-        if buffered:
-            entries.append({
-                "startLine": cursor,
-                "endLine": cursor + len(buffered),
-                "content": "\n".join(line.content for line in buffered),
-                "startAt": buffered[0].timestamp.isoformat() + "Z",
-                "endAt": buffered[-1].timestamp.isoformat() + "Z",
-            })
+    if not entries and (buffered := log_buffer.read_buffered(run.id, worker_id, cursor, count)):
+        entries.append({
+            "startLine": cursor,
+            "endLine": cursor + len(buffered),
+            "content": "\n".join(line.content for line in buffered),
+            "startAt": buffered[0].timestamp.isoformat() + "Z",
+            "endAt": buffered[-1].timestamp.isoformat() + "Z",
+        })
     last_end = entries[-1]["endLine"] if entries else cursor
     next_cursor: int = last_end if isinstance(last_end, int) else cursor
     has_more = bool(entries) and next_cursor < log_buffer.get_end_line(conn, run.id, worker_id)

@@ -13,8 +13,7 @@ def exists(conn: Connection, handle: str) -> bool:
 
 
 def get_by_handle(conn: Connection, handle: str) -> Account | None:
-    account = conn.execute(accounts.select().where(accounts.c.handle == handle.lower())).first()
-    if account is None:
+    if not (account := conn.execute(accounts.select().where(accounts.c.handle == handle.lower())).first()):
         return None
     if account.type == "ORGANIZATION":
         return organizations_repo.get_by_id(conn, account.id)

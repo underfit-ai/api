@@ -41,15 +41,10 @@ def write_scalars(
         raise HTTPException(400, "startLine must be >= 0")
     if not body.scalars:
         return {"status": "buffered"}
-    parsed = [
-        ScalarPoint(step=s.step, values=s.values, timestamp=s.timestamp)
-        for s in body.scalars
-    ]
-    expected = scalar_buffer.append(conn, run.id, body.start_line, parsed)
-    if expected is not None:
+    parsed = [ScalarPoint(step=s.step, values=s.values, timestamp=s.timestamp) for s in body.scalars]
+    if (expected := scalar_buffer.append(conn, run.id, body.start_line, parsed)) is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    storage = get_storage()
-    scalar_buffer.flush_if_needed(conn, storage, run.id)
+    scalar_buffer.flush_if_needed(conn, get_storage(), run.id)
     return {"status": "buffered"}
 
 
@@ -59,8 +54,7 @@ def flush_scalars(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    storage = get_storage()
-    scalar_buffer.flush(conn, storage, run.id)
+    scalar_buffer.flush(conn, get_storage(), run.id)
     return {"status": "flushed"}
 
 
@@ -87,8 +81,7 @@ def read_scalars(
 
 def _select_tier(conn: Conn, run: Run, max_points: int) -> int:
     for res in range(4, -1, -1):
-        count = scalar_buffer.tier_line_count(conn, run.id, res)
-        if count >= max_points:
+        if scalar_buffer.tier_line_count(conn, run.id, res) >= max_points:
             return res
     return 0
 

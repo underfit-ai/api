@@ -19,8 +19,7 @@ SessionTokenCookie = Annotated[Optional[str], Cookie()]
 
 
 def _get_local_user(conn: Connection) -> User:
-    existing = users_repo.get_by_email(conn, "local@underfit.local")
-    if existing is not None:
+    if existing := users_repo.get_by_email(conn, "local@underfit.local"):
         return existing
     return users_repo.create(conn, "local@underfit.local", "local", "Local User")
 
@@ -30,13 +29,10 @@ def _authenticate(conn: Connection, authorization: str | None, session_token: st
         return _get_local_user(conn)
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
-        key = api_keys_repo.get_by_token_hash(conn, hash_token(token))
-        if key is not None:
+        if key := api_keys_repo.get_by_token_hash(conn, hash_token(token)):
             return users_repo.get_by_id(conn, key.user_id)
-    if session_token:
-        session_user_id = sessions_repo.get_user_id_by_token_hash(conn, hash_token(session_token))
-        if session_user_id is not None:
-            return users_repo.get_by_id(conn, session_user_id)
+    if session_token and (session_user_id := sessions_repo.get_user_id_by_token_hash(conn, hash_token(session_token))):
+        return users_repo.get_by_id(conn, session_user_id)
     return None
 
 

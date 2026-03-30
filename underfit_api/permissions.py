@@ -12,8 +12,7 @@ from underfit_api.repositories import projects as projects_repo
 
 
 def _project_account(conn: Connection, project_id: UUID) -> tuple[UUID, str]:
-    project = projects_repo.get_by_id(conn, project_id)
-    if project is None:
+    if not (project := projects_repo.get_by_id(conn, project_id)):
         raise HTTPException(404, "Project not found")
     account = accounts_repo.get_by_handle(conn, project.owner)
     assert account is not None
@@ -51,8 +50,7 @@ def require_project_contributor(
 
 
 def _project_info(conn: Connection, project_id: UUID) -> tuple[str, UUID, str]:
-    project = projects_repo.get_by_id(conn, project_id)
-    if project is None:
+    if not (project := projects_repo.get_by_id(conn, project_id)):
         raise HTTPException(404, "Project not found")
     account = accounts_repo.get_by_handle(conn, project.owner)
     assert account is not None

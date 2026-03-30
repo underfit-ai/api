@@ -72,8 +72,7 @@ def update_run(
     require_project_contributor(conn, run.project_id, user.id)
     if body.status is not None and body.status not in VALID_STATUSES:
         raise HTTPException(400, "Invalid status")
-    config_provided = "config" in body.model_fields_set
-    if config_provided:
+    if config_provided := "config" in body.model_fields_set:
         _validate_config(body.config)
     config = body.config if config_provided else None
     if not (updated := runs_repo.update(conn, run.id, body.status, config, config_provided)):

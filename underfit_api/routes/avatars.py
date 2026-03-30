@@ -21,8 +21,7 @@ JPEG_QUALITY = 82
 @router.get("/accounts/{handle}/avatar")
 def get_avatar(handle: str, conn: Conn) -> Response:
     account = resolve_account(conn, handle)
-    image = avatars_repo.get(conn, account.id)
-    if image is None:
+    if (image := avatars_repo.get(conn, account.id)) is None:
         raise HTTPException(404, "Avatar not found")
     return Response(content=image, media_type="image/jpeg")
 

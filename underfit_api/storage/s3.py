@@ -114,16 +114,14 @@ class S3Storage:
         return entries
 
     def list_files(self, prefix: str) -> list[str]:
-        full_prefix = self._key(prefix).rstrip("/")
-        if full_prefix:
+        if full_prefix := self._key(prefix).rstrip("/"):
             full_prefix += "/"
         paginator = self._client.get_paginator("list_objects_v2")
         files: list[str] = []
         strip = len(self._key(""))
         for page in paginator.paginate(Bucket=self._bucket, Prefix=full_prefix):
             for obj in page.get("Contents", []):
-                rel = obj["Key"][strip:]
-                if rel:
+                if rel := obj["Key"][strip:]:
                     files.append(rel)
         return sorted(files)
 

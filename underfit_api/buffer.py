@@ -61,7 +61,8 @@ class LogBuffer:
     def get_end_line(self, conn: Connection, run_id: UUID, worker_id: str) -> int:
         with self._lock:
             k = (run_id, worker_id)
-            if (buf := self._buffers.get(k)) and buf.lines:
+            buf = self._buffers.get(k)
+            if buf and buf.lines:
                 return buf.end_line
             return log_seg_repo.get_end_line(conn, run_id, worker_id)
 
@@ -151,7 +152,8 @@ class ScalarBuffer:
     def get_end_line(self, conn: Connection, run_id: UUID, resolution: int = 0) -> int:
         with self._lock:
             k = (run_id, resolution)
-            if (buf := self._buffers.get(k)) and buf.lines:
+            buf = self._buffers.get(k)
+            if buf and buf.lines:
                 return buf.end_line
             return scalar_seg_repo.get_end_line(conn, run_id, resolution)
 
@@ -272,8 +274,7 @@ class ScalarBuffer:
     def tier_line_count(self, conn: Connection, run_id: UUID, resolution: int) -> int:
         with self._lock:
             end = self.get_end_line(conn, run_id, resolution)
-            buf = self._buffers.get((run_id, resolution))
-            if buf:
+            if buf := self._buffers.get((run_id, resolution)):
                 end = max(end, buf.end_line)
             return end
 
