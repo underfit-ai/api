@@ -2,24 +2,22 @@ from __future__ import annotations
 
 from uuid import UUID
 
-import sqlalchemy as sa
 from fastapi import HTTPException
 from sqlalchemy import Connection
 
+from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import collaborators as collaborators_repo
 from underfit_api.repositories import organizations as organizations_repo
-from underfit_api.schema import accounts, projects
+from underfit_api.repositories import projects as projects_repo
 
 
 def _project_account(conn: Connection, project_id: UUID) -> tuple[UUID, str]:
-    row = conn.execute(
-        sa.select(accounts.c.id, accounts.c.type)
-        .select_from(projects.join(accounts, projects.c.account_id == accounts.c.id))
-        .where(projects.c.id == project_id),
-    ).first()
-    if row is None:
+    project = projects_repo.get_by_id(conn, project_id)
+    if project is None:
         raise HTTPException(404, "Project not found")
-    return row.id, row.type
+    account = accounts_repo.get_by_handle(conn, project.owner)
+    assert account is not None
+    return account.id, account.type
 
 
 def require_account_admin(conn: Connection, account_id: UUID, account_type: str, user_id: UUID) -> None:
@@ -53,14 +51,12 @@ def require_project_contributor(
 
 
 def _project_info(conn: Connection, project_id: UUID) -> tuple[str, UUID, str]:
-    row = conn.execute(
-        sa.select(projects.c.visibility, accounts.c.id, accounts.c.type)
-        .select_from(projects.join(accounts, projects.c.account_id == accounts.c.id))
-        .where(projects.c.id == project_id),
-    ).first()
-    if row is None:
+    project = projects_repo.get_by_id(conn, project_id)
+    if project is None:
         raise HTTPException(404, "Project not found")
-    return row.visibility, row.id, row.type
+    account = accounts_repo.get_by_handle(conn, project.owner)
+    assert account is not None
+    return project.visibility, account.id, account.type
 
 
 def require_project_viewer(conn: Connection, project_id: UUID, user_id: UUID | None) -> None:

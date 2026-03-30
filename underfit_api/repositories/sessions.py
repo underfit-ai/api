@@ -14,6 +14,14 @@ from underfit_api.schema import sessions
 SESSION_TTL_DAYS = 30
 
 
+def get_user_id_by_token_hash(conn: Connection, token_hash: str) -> UUID | None:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    row = conn.execute(
+        sessions.select().where(sessions.c.token_hash == token_hash, sessions.c.expires_at > now),
+    ).first()
+    return row.user_id if row else None
+
+
 def create(conn: Connection, user_id: UUID) -> Session:
     token = urlsafe_b64encode(os.urandom(32)).decode()
     prefix = token[:8]

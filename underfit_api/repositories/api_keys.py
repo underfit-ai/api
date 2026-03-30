@@ -12,6 +12,11 @@ from underfit_api.models import ApiKey, ApiKeyWithToken
 from underfit_api.schema import api_keys
 
 
+def get_by_token_hash(conn: Connection, token_hash: str) -> ApiKey | None:
+    row = conn.execute(api_keys.select().where(api_keys.c.token_hash == token_hash)).first()
+    return ApiKey.model_validate(row) if row else None
+
+
 def list_by_user(conn: Connection, user_id: UUID) -> list[ApiKey]:
     rows = conn.execute(api_keys.select().where(api_keys.c.user_id == user_id)).all()
     return [ApiKey.model_validate(r) for r in rows]

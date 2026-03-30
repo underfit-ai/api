@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 from fastapi import Cookie, Depends, Header, HTTPException
@@ -10,8 +9,9 @@ from underfit_api.auth import hash_token
 from underfit_api.config import config
 from underfit_api.db import get_conn
 from underfit_api.models import User
+from underfit_api.repositories import api_keys as api_keys_repo
+from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
-from underfit_api.schema import api_keys, sessions
 
 Conn = Annotated[Connection, Depends(get_conn)]
 AuthorizationHeader = Annotated[Optional[str], Header()]
@@ -30,16 +30,13 @@ def _authenticate(conn: Connection, authorization: str | None, session_token: st
         return _get_local_user(conn)
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
-        key = conn.execute(api_keys.select().where(api_keys.c.token_hash == hash_token(token))).first()
+        key = api_keys_repo.get_by_token_hash(conn, hash_token(token))
         if key is not None:
             return users_repo.get_by_id(conn, key.user_id)
     if session_token:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        session = conn.execute(
-            sessions.select().where(sessions.c.token_hash == hash_token(session_token), sessions.c.expires_at > now),
-        ).first()
-        if session is not None:
-            return users_repo.get_by_id(conn, session.user_id)
+        session_user_id = sessions_repo.get_user_id_by_token_hash(conn, hash_token(session_token))
+        if session_user_id is not None:
+            return users_repo.get_by_id(conn, session_user_id)
     return None
 
 
