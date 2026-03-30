@@ -18,7 +18,13 @@ from underfit_api.storage import Storage
 
 T = TypeVar("T")
 
-RESOLUTIONS = [1, 10, 100, 1000, 10000]
+
+def _scalar_storage_key(run_id: UUID, resolution: int) -> str:
+    if resolution == 0:
+        return f"{run_id}/scalars/raw.jsonl"
+    strides = config.buffer.scalar_resolutions
+    stride = strides[resolution - 1] if resolution - 1 < len(strides) else resolution
+    return f"{run_id}/scalars/r{stride}.jsonl"
 
 
 class LogLine(NamedTuple):
@@ -181,7 +187,7 @@ class ScalarBuffer:
         return json.dumps({"step": s.step, "values": s.values, "timestamp": s.timestamp.isoformat() + "Z"})
 
     def _feed_accumulators(self, run_id: UUID, scalar: ScalarPoint) -> None:
-        for tier, stride in enumerate(RESOLUTIONS[:4], start=1):
+        for tier, stride in enumerate(config.buffer.scalar_resolutions, start=1):
             k = (run_id, tier)
             acc = self._accumulators.setdefault(k, _Accumulator())
             for key, val in scalar.values.items():
@@ -213,7 +219,7 @@ class ScalarBuffer:
                     if rid == run_id and acc.n > 0:
                         self._emit_accumulator(run_id, tier, acc)
                         self._accumulators[(rid, tier)] = _Accumulator()
-            for resolution in range(5):
+            for resolution in range(len(config.buffer.scalar_resolutions) + 1):
                 self._flush_tier(conn, storage, run_id, resolution)
 
     def _flush_tier(self, conn: Connection, storage: Storage, run_id: UUID, resolution: int) -> None:
@@ -222,7 +228,7 @@ class ScalarBuffer:
             return
         lines_data = [self._serialize_scalar(line) for line in buf.lines]
         content = "".join(s + "\n" for s in lines_data)
-        storage_key = f"{run_id}/scalars/r{resolution}.jsonl"
+        storage_key = _scalar_storage_key(run_id, resolution)
         result = storage.append(storage_key, content.encode())
         scalar_seg_repo.insert(
             conn, run_id, resolution,

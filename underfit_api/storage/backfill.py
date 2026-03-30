@@ -21,7 +21,7 @@ from underfit_api.storage.types import Storage
 logger = logging.getLogger(__name__)
 
 _LOG = re.compile(r"^([^/]+)/logs/(.+)\.log$")
-_SCALAR = re.compile(r"^([^/]+)/scalars/r(\d+)\.jsonl$")
+_SCALAR = re.compile(r"^([^/]+)/scalars/(raw|r(\d+))\.jsonl$")
 _ARTIFACT = re.compile(r"^([^/]+)/artifacts/([^/]+)/manifest\.json$")
 _MEDIA = re.compile(r"^([^/]+)/media/([^/]+)/\d+$")
 
@@ -55,6 +55,7 @@ class BackfillService:
         self._engine = engine
         self._config = backfill_config
         self._max_segment_bytes = buffer_config.max_segment_bytes
+        self._scalar_resolutions = buffer_config.scalar_resolutions
         self._pending: set[str] = set()
         self._tasks: list[asyncio.Task[None]] = []
 
@@ -117,7 +118,9 @@ class BackfillService:
                     if m := _LOG.match(key):
                         self._ingest_log(conn, run_id, m.group(2), key)
                     elif m := _SCALAR.match(key):
-                        self._ingest_scalar(conn, run_id, int(m.group(2)), key)
+                        tier = self._scalar_tier_from_match(m)
+                        if tier is not None:
+                            self._ingest_scalar(conn, run_id, tier, key)
                     elif m := _ARTIFACT.match(key):
                         self._ingest_artifact(conn, run_id, m.group(2))
                     elif m := _MEDIA.match(key):
@@ -269,6 +272,15 @@ class BackfillService:
         )
 
     # ---- scalar ingestion ----
+
+    def _scalar_tier_from_match(self, m: re.Match[str]) -> int | None:
+        if m.group(2) == "raw":
+            return 0
+        stride = int(m.group(3))
+        try:
+            return self._scalar_resolutions.index(stride) + 1
+        except ValueError:
+            return None
 
     def _ingest_scalar(self, conn: Connection, run_id: UUID, resolution: int, storage_key: str) -> None:
         file_size = self._storage.size(storage_key)

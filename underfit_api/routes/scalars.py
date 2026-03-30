@@ -10,6 +10,7 @@ from pydantic.alias_generators import to_camel
 
 import underfit_api.storage as storage_mod
 from underfit_api.buffer import ScalarPoint, scalar_buffer
+from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Run, Scalar, UTCDatetime
 from underfit_api.permissions import require_project_contributor
@@ -74,13 +75,14 @@ def read_scalars(
     tier = resolution if resolution is not None else 0
     if max_points is not None:
         tier = _select_tier(conn, run, max_points)
-    if tier < 0 or tier > 4:
-        raise HTTPException(400, "Resolution must be 0-4")
+    max_tier = len(config.buffer.scalar_resolutions)
+    if tier < 0 or tier > max_tier:
+        raise HTTPException(400, f"Resolution must be 0-{max_tier}")
     return _read_tier(conn, run, tier)
 
 
 def _select_tier(conn: Conn, run: Run, max_points: int) -> int:
-    for res in range(4, -1, -1):
+    for res in range(len(config.buffer.scalar_resolutions), -1, -1):
         if scalar_buffer.tier_line_count(conn, run.id, res) >= max_points:
             return res
     return 0
