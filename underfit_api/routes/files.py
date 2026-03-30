@@ -5,9 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
+import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, MaybeUser
 from underfit_api.routes.resolvers import resolve_run
-from underfit_api.storage import DirEntry, get_storage
+from underfit_api.storage import DirEntry
 
 router = APIRouter()
 
@@ -22,11 +23,10 @@ def list_files(
     path: Annotated[str | None, Query()] = None,
 ) -> list[dict[str, object]]:
     run = resolve_run(conn, handle, project_name, run_name, user)
-    storage = get_storage()
     prefix = str(run.id)
     if path:
         prefix = f"{prefix}/{path}"
-    entries: list[DirEntry] = storage.list_dir(prefix)
+    entries: list[DirEntry] = storage_mod.storage.list_dir(prefix)
     return [
         {"name": e.name, "isDirectory": e.is_directory, "size": e.size, "lastModified": e.last_modified}
         for e in entries
@@ -45,13 +45,12 @@ def download_file(
     if not path:
         raise HTTPException(400, "Path is required")
     run = resolve_run(conn, handle, project_name, run_name, user)
-    storage = get_storage()
     key = f"{run.id}/{path}"
-    if not storage.exists(key):
+    if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     filename = path.rsplit("/", 1)[-1]
     return StreamingResponse(
-        storage.read_stream(key),
+        storage_mod.storage.read_stream(key),
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

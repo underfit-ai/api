@@ -8,13 +8,13 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
+import underfit_api.storage as storage_mod
 from underfit_api.buffer import ScalarPoint, scalar_buffer
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Run, Scalar, UTCDatetime
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
-from underfit_api.storage import get_storage
 
 router = APIRouter()
 
@@ -44,7 +44,7 @@ def write_scalars(
     parsed = [ScalarPoint(step=s.step, values=s.values, timestamp=s.timestamp) for s in body.scalars]
     if (expected := scalar_buffer.append(conn, run.id, body.start_line, parsed)) is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    scalar_buffer.flush_if_needed(conn, get_storage(), run.id)
+    scalar_buffer.flush_if_needed(conn, storage_mod.storage, run.id)
     return {"status": "buffered"}
 
 
@@ -54,7 +54,7 @@ def flush_scalars(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    scalar_buffer.flush(conn, get_storage(), run.id)
+    scalar_buffer.flush(conn, storage_mod.storage, run.id)
     return {"status": "flushed"}
 
 
@@ -88,10 +88,9 @@ def _select_tier(conn: Conn, run: Run, max_points: int) -> int:
 
 def _read_tier(conn: Conn, run: Run, resolution: int) -> list[Scalar]:
     segments = scalar_seg_repo.list_by_resolution(conn, run.id, resolution)
-    storage = get_storage()
     scalars: list[Scalar] = []
     for seg in segments:
-        data = storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
+        data = storage_mod.storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
         for line in data.decode().splitlines():
             if line:
                 parsed = json.loads(line)

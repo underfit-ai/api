@@ -8,13 +8,13 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
+import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Artifact
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import artifacts as artifacts_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.routes.resolvers import resolve_artifact, resolve_project
-from underfit_api.storage import get_storage
 
 router = APIRouter()
 
@@ -87,12 +87,11 @@ def create_artifact(
     base = f"{run_id}/artifacts" if run_id else f"{project.id}/artifacts"
     artifact_id = uuid4()
     storage_key = f"{base}/{artifact_id}"
-    storage = get_storage()
     manifest_data = {
         "files": [{"path": f.path, "size": f.size, "sha256": f.sha256} for f in deduped_files],
         "references": refs,
     }
-    storage.write(f"{storage_key}/manifest.json", json.dumps(manifest_data).encode())
+    storage_mod.storage.write(f"{storage_key}/manifest.json", json.dumps(manifest_data).encode())
     return artifacts_repo.create(
         conn,
         project_id=project.id,
@@ -120,16 +119,15 @@ async def upload_file(
     if artifact.status == "finalized":
         raise HTTPException(409, "Artifact is finalized")
     normalized = _validate_path(file_path)
-    storage = get_storage()
-    manifest_bytes = storage.read(f"{artifact.storage_key}/manifest.json")
+    manifest_bytes = storage_mod.storage.read(f"{artifact.storage_key}/manifest.json")
     manifest = json.loads(manifest_bytes)
     declared_paths = {f["path"] for f in manifest["files"]}
     if normalized not in declared_paths:
         raise HTTPException(400, "Path not in manifest")
-    await storage.write_stream(f"{artifact.storage_key}/files/{normalized}", request.stream())
+    await storage_mod.storage.write_stream(f"{artifact.storage_key}/files/{normalized}", request.stream())
     marker_key = f"{artifact.storage_key}/.uploaded/{normalized}"
-    if not storage.exists(marker_key):
-        storage.write(marker_key, b"")
+    if not storage_mod.storage.exists(marker_key):
+        storage_mod.storage.write(marker_key, b"")
         artifact = artifacts_repo.increment_uploaded(conn, artifact.id)
         assert artifact is not None
     return artifact
@@ -139,11 +137,10 @@ async def upload_file(
 def download_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) -> Response:
     artifact = resolve_artifact(conn, artifact_id, user)
     normalized = _validate_path(file_path)
-    storage = get_storage()
     key = f"{artifact.storage_key}/files/{normalized}"
-    if not storage.exists(key):
+    if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
-    return StreamingResponse(storage.read_stream(key), media_type="application/octet-stream")
+    return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")
 
 
 @router.post("/artifacts/{artifact_id}/finalize")

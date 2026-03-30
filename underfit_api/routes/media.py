@@ -8,12 +8,12 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
+import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Media
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import media as media_repo
 from underfit_api.routes.resolvers import resolve_run
-from underfit_api.storage import get_storage
 
 router = APIRouter()
 
@@ -51,12 +51,11 @@ async def create_media(
         raise HTTPException(400, "Metadata too large")
     media_id = uuid4()
     storage_key = f"{run.id}/media/{media_id}"
-    storage = get_storage()
     for i, f in enumerate(files):
         async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
             while chunk := await f.read(262144):
                 yield chunk
-        await storage.write_stream(f"{storage_key}/{i}", _chunks())
+        await storage_mod.storage.write_stream(f"{storage_key}/{i}", _chunks())
     return media_repo.create(
         conn,
         run_id=run.id,
@@ -99,8 +98,7 @@ def get_media_file(
         raise HTTPException(404, "Media not found")
     if index < 0 or index >= record.count:
         raise HTTPException(400, "Index out of range")
-    storage = get_storage()
     key = f"{record.storage_key}/{index}"
-    if not storage.exists(key):
+    if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
-    return StreamingResponse(storage.read_stream(key), media_type="application/octet-stream")
+    return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")

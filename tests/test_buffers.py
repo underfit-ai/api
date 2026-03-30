@@ -6,9 +6,9 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+import underfit_api.db as db
 from underfit_api.buffer import LogBuffer, LogLine, ScalarBuffer, ScalarPoint
 from underfit_api.config import FileStorageConfig, config
-from underfit_api.db import get_engine
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
@@ -17,7 +17,7 @@ from underfit_api.storage.file import FileStorage
 
 
 def _create_run_id() -> UUID:
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         user = users_repo.create(conn, email="owner@example.com", handle="owner", name="Owner")
         project = projects_repo.create(conn, user.id, "underfit", None, "private")
         run = runs_repo.create(conn, project.id, user.id, "running", None)
@@ -30,7 +30,7 @@ def test_log_buffer_expands_multiline_and_slices_by_cursor() -> None:
     buffer = LogBuffer()
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         expected = buffer.append(conn, run_id, "worker-1", 0, [
             LogLine(timestamp=t0, content="a\nb"),
             LogLine(timestamp=t0 + timedelta(seconds=1), content="c"),
@@ -49,7 +49,7 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         assert buffer.append(conn, run_id, "worker-1", 0, [LogLine(timestamp=t0, content="first")]) is None
         buffer.flush(conn, storage, run_id, "worker-1")
         assert buffer.append(conn, run_id, "worker-1", 1, [LogLine(timestamp=t0, content="second")]) is None
@@ -78,7 +78,7 @@ def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
     config.buffer.max_segment_bytes = 5
 
     try:
-        with get_engine().begin() as conn:
+        with db.engine.begin() as conn:
             assert buffer.append(conn, run_id, "worker-1", 0, [
                 LogLine(timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc), content="abcd"),
             ]) is None
@@ -97,7 +97,7 @@ def test_scalar_buffer_builds_resolution_tiers() -> None:
     buffer = ScalarBuffer()
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         points = [
             ScalarPoint(step=i, values={"loss": float(i + 1)}, timestamp=t0 + timedelta(seconds=i))
             for i in range(10)
@@ -120,7 +120,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
     config.buffer.max_segment_bytes = 1
 
     try:
-        with get_engine().begin() as conn:
+        with db.engine.begin() as conn:
             assert buffer.append(conn, run_id, 0, [
                 ScalarPoint(
                     step=0,

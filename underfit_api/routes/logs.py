@@ -6,13 +6,13 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
+import underfit_api.storage as storage_mod
 from underfit_api.buffer import LogLine, log_buffer
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import UTCDatetime
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.routes.resolvers import resolve_run
-from underfit_api.storage import get_storage
 
 router = APIRouter()
 
@@ -48,7 +48,7 @@ def write_logs(
     expected = log_buffer.append(conn, run.id, body.worker_id, body.start_line, parsed)
     if expected is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    log_buffer.flush_if_needed(conn, get_storage(), run.id, body.worker_id)
+    log_buffer.flush_if_needed(conn, storage_mod.storage, run.id, body.worker_id)
     return {"status": "buffered"}
 
 
@@ -58,7 +58,7 @@ def flush_logs(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    log_buffer.flush(conn, get_storage(), run.id, body.worker_id)
+    log_buffer.flush(conn, storage_mod.storage, run.id, body.worker_id)
     return {"status": "flushed"}
 
 
@@ -76,9 +76,8 @@ def read_logs(
     run = resolve_run(conn, handle, project_name, run_name, user)
     entries: list[dict[str, object]] = []
     segments = log_seg_repo.list_for_range(conn, run.id, worker_id, cursor, count)
-    storage = get_storage()
     for seg in segments:
-        data = storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
+        data = storage_mod.storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
         all_lines = data.decode().splitlines()
         seg_start = max(cursor, seg.start_line)
         seg_end = min(cursor + count, seg.end_line)

@@ -8,12 +8,14 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
 
+import underfit_api.db as db
+import underfit_api.storage as storage_mod
 from underfit_api.config import FileStorageConfig, SqliteDatabaseConfig, config
-from underfit_api.db import get_engine, shutdown_engine
 from underfit_api.main import app
 from underfit_api.models import User
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
+from underfit_api.schema import metadata
 
 os.environ.setdefault("UNDERFIT_APP_SECRET", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
@@ -30,12 +32,15 @@ SetupTuple = tuple[OwnerHeaders, str]
 
 @pytest.fixture(autouse=True)
 def _reset_state(tmp_path: Path) -> Iterator[None]:
-    shutdown_engine()
+    db.engine.dispose()
     config.database = SqliteDatabaseConfig(path=str(tmp_path / "test.sqlite"))
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
     config.auth_enabled = True
+    db.engine = db.build_engine()
+    storage_mod.storage = storage_mod.build_storage()
+    metadata.create_all(db.engine)
     yield
-    shutdown_engine()
+    db.engine.dispose()
 
 
 @pytest.fixture
@@ -62,7 +67,7 @@ def register_user(client: TestClient) -> RegisterUser:
 @pytest.fixture
 def create_user() -> CreateUser:
     def _create_user(email: str, handle: str, name: str = "Test User") -> User:
-        with get_engine().begin() as conn:
+        with db.engine.begin() as conn:
             return users_repo.create(conn, email, handle, name)
 
     return _create_user
@@ -71,7 +76,7 @@ def create_user() -> CreateUser:
 @pytest.fixture
 def session_for_user() -> SessionForUser:
     def _session_for_user(user: User) -> dict[str, str]:
-        with get_engine().begin() as conn:
+        with db.engine.begin() as conn:
             session = sessions_repo.create(conn, user.id)
         return {"Cookie": f"session_token={session.token}"}
 

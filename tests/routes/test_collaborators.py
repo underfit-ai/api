@@ -4,8 +4,8 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
+import underfit_api.db as db
 from tests.conftest import AddCollaborator, CreateUser, OwnerHeaders, SessionForUser
-from underfit_api.db import get_engine
 from underfit_api.repositories import organizations as organizations_repo
 
 
@@ -66,7 +66,7 @@ def test_collaborators_for_organization_owned_project(
     assert created_org.status_code == 201
     org_id = UUID(created_org.json()["id"])
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         organizations_repo.add_member(conn, org_id, member.id, "MEMBER")
 
     created_project = client.post(

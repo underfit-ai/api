@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+import underfit_api.storage as storage_mod
 from tests.conftest import CreateRun, OwnerHeaders
-from underfit_api.storage import get_storage
 
 
 def test_list_and_download_run_files(client: TestClient, owner_headers: OwnerHeaders, create_run: CreateRun) -> None:
     run = create_run(owner_headers)
 
-    storage = get_storage()
-    storage.write(f"{run['id']}/metrics.json", b"{\"loss\": 0.1}")
-    storage.write(f"{run['id']}/checkpoints/model.bin", b"model-bytes")
+    storage_mod.storage.write(f"{run['id']}/metrics.json", b"{\"loss\": 0.1}")
+    storage_mod.storage.write(f"{run['id']}/checkpoints/model.bin", b"model-bytes")
 
     list_root = client.get(f"/api/v1/accounts/owner/projects/underfit/runs/{run['name']}/files", headers=owner_headers)
     assert list_root.status_code == 200

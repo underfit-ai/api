@@ -9,8 +9,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
+import underfit_api.db as db
 from underfit_api.config import BackfillConfig, BufferConfig, FileStorageConfig, config
-from underfit_api.db import get_engine
 from underfit_api.schema import accounts, artifacts, log_segments, media, projects, runs, scalar_segments, users
 from underfit_api.storage.backfill import BackfillService
 from underfit_api.storage.file import FileStorage
@@ -21,7 +21,7 @@ def _service(max_segment_bytes: int = 256 * 1024) -> tuple[BackfillService, File
     storage = FileStorage(config.storage)
     service = BackfillService(
         storage,
-        get_engine(),
+        db.engine,
         BackfillConfig(enabled=True, scan_interval_ms=10, debounce_ms=1, realtime=False),
         BufferConfig(max_segment_bytes=max_segment_bytes, max_segment_age_ms=30_000, flush_interval_ms=1_000),
     )
@@ -49,7 +49,7 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
 
     service = BackfillService(
         storage,
-        get_engine(),
+        db.engine,
         BackfillConfig(enabled=True, scan_interval_ms=3_600_000, debounce_ms=5, realtime=True),
         BufferConfig(max_segment_bytes=256 * 1024, max_segment_age_ms=30_000, flush_interval_ms=1_000),
     )
@@ -70,7 +70,7 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
         callbacks[0](f"{run_id}/logs/worker-1.log")
         loop.run_until_complete(asyncio.sleep(0.05))
 
-        with get_engine().begin() as conn:
+        with db.engine.begin() as conn:
             run_rows = conn.execute(select(runs).where(runs.c.id == run_id)).all()
             log_rows = conn.execute(select(log_segments).where(log_segments.c.run_id == run_id)).all()
 
@@ -102,7 +102,7 @@ def test_backfill_ingests_run_logs_and_scalars() -> None:
 
     _scan(service, storage)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         account_rows = conn.execute(select(accounts)).all()
         user_rows = conn.execute(select(users)).all()
         project_rows = conn.execute(select(projects)).all()
@@ -159,7 +159,7 @@ def test_backfill_appends_without_duplicate_segments() -> None:
     _write_text(storage, f"{run_id}/scalars/r0.jsonl", appended_scalars)
     _scan(service, storage)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         log_rows = conn.execute(
             select(log_segments).where(log_segments.c.run_id == run_id, log_segments.c.worker_id == "worker-1"),
         ).all()
@@ -200,7 +200,7 @@ def test_backfill_rebuilds_segments_after_truncation() -> None:
     _write_text(storage, f"{run_id}/scalars/r0.jsonl", truncated_scalars)
     _scan(service, storage)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         log_rows = conn.execute(
             select(log_segments).where(log_segments.c.run_id == run_id, log_segments.c.worker_id == "worker-1"),
         ).all()
@@ -240,7 +240,7 @@ def test_backfill_skips_orphan_data_and_stops_scalar_at_invalid_json() -> None:
 
     _scan(service, storage)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         run_rows = conn.execute(select(runs).order_by(runs.c.id)).all()
         log_rows = conn.execute(select(log_segments)).all()
         scalar_rows = conn.execute(select(scalar_segments).order_by(scalar_segments.c.run_id)).all()
@@ -263,7 +263,7 @@ def test_backfill_skips_run_with_invalid_run_json_status() -> None:
     _write_json(storage, f"{valid_run_id}/run.json", {"project": "Vision", "name": "Good Trial", "status": "finished"})
     _scan(service, storage)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         run_rows = conn.execute(select(runs).order_by(runs.c.id)).all()
 
     assert [row.id for row in run_rows] == [valid_run_id]
@@ -298,7 +298,7 @@ def test_backfill_updates_artifact_and_media_records() -> None:
 
     _scan(service, storage)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
         media_row = conn.execute(select(media).where(media.c.id == media_id)).first()
 
@@ -321,7 +321,7 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     _write_text(storage, f"{run_id}/media/{media_id}/2", "m2")
     _scan(service, storage)
 
-    with get_engine().begin() as conn:
+    with db.engine.begin() as conn:
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
         media_row = conn.execute(select(media).where(media.c.id == media_id)).first()
 
