@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Media
@@ -103,5 +103,4 @@ def get_media_file(
     key = f"{record.storage_key}/{index}"
     if not storage.exists(key):
         raise HTTPException(404, "File not found")
-    data = storage.read(key)
-    return Response(content=data, media_type="application/octet-stream")
+    return StreamingResponse(storage.read_stream(key), media_type="application/octet-stream")

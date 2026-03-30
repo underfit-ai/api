@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from underfit_api.dependencies import Conn, MaybeUser
 from underfit_api.routes.resolvers import resolve_run
@@ -49,10 +49,9 @@ def download_file(
     key = f"{run.id}/{path}"
     if not storage.exists(key):
         raise HTTPException(404, "File not found")
-    data = storage.read(key)
     filename = path.rsplit("/", 1)[-1]
-    return Response(
-        content=data,
+    return StreamingResponse(
+        storage.read_stream(key),
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
