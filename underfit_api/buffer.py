@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Generic, NamedTuple, TypeVar
@@ -34,6 +35,7 @@ class _LineBuffer(Generic[T]):
     lines: list[T] = field(default_factory=list)
     byte_count: int = 0
     start_line: int = 0
+    created_at: float | None = None
 
     @property
     def end_line(self) -> int:
@@ -76,6 +78,8 @@ class LogBuffer:
             if start_line != expected:
                 return expected
             buf = self._buffers.setdefault((run_id, worker_id), _LineBuffer(start_line=start_line))
+            if not buf.lines:
+                buf.created_at = time.monotonic()
             for line in lines:
                 for sub in line.content.split("\n"):
                     size = len(sub.encode()) + 1
@@ -110,6 +114,7 @@ class LogBuffer:
             buf.start_line = buf.end_line
             buf.lines.clear()
             buf.byte_count = 0
+            buf.created_at = None
 
     def flush_if_needed(self, conn: Connection, storage: Storage, run_id: UUID, worker_id: str) -> None:
         with self._lock:
@@ -122,6 +127,13 @@ class LogBuffer:
                 if largest is None:
                     break
                 self.flush(conn, storage, largest[0], largest[1])
+
+    def flush_stale(self, conn: Connection, storage: Storage) -> None:
+        with self._lock:
+            cutoff = time.monotonic() - config.buffer.max_segment_age_ms / 1000
+            for k, buf in list(self._buffers.items()):
+                if buf.lines and buf.created_at is not None and buf.created_at < cutoff:
+                    self.flush(conn, storage, k[0], k[1])
 
     def read_buffered(self, run_id: UUID, worker_id: str, cursor: int, count: int) -> list[LogLine]:
         with self._lock:
@@ -163,6 +175,8 @@ class ScalarBuffer:
             if start_line != expected:
                 return expected
             buf = self._buffers.setdefault((run_id, 0), _LineBuffer(start_line=start_line))
+            if not buf.lines:
+                buf.created_at = time.monotonic()
             for scalar in scalars:
                 buf.lines.append(scalar)
                 size = len(self._serialize_scalar(scalar).encode()) + 1
@@ -193,6 +207,8 @@ class ScalarBuffer:
         ts = acc.last_timestamp or datetime.now(timezone.utc).replace(tzinfo=None)
         point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=ts)
         buf = self._buffers.setdefault((run_id, resolution), _LineBuffer(start_line=0))
+        if not buf.lines:
+            buf.created_at = time.monotonic()
         size = len(self._serialize_scalar(point).encode()) + 1
         buf.lines.append(point)
         buf.byte_count += size
@@ -234,6 +250,7 @@ class ScalarBuffer:
         new_start = buf.end_line
         buf.lines.clear()
         buf.byte_count = 0
+        buf.created_at = None
         buf.start_line = new_start
 
     def flush_if_needed(self, conn: Connection, storage: Storage, run_id: UUID) -> None:
@@ -247,6 +264,16 @@ class ScalarBuffer:
                 if largest is None:
                     break
                 self.flush(conn, storage, largest[0], emit_partial=False)
+
+    def flush_stale(self, conn: Connection, storage: Storage) -> None:
+        with self._lock:
+            cutoff = time.monotonic() - config.buffer.max_segment_age_ms / 1000
+            stale_runs: set[UUID] = set()
+            for (run_id, _res), buf in self._buffers.items():
+                if buf.lines and buf.created_at is not None and buf.created_at < cutoff:
+                    stale_runs.add(run_id)
+            for run_id in stale_runs:
+                self.flush(conn, storage, run_id)
 
     def read_buffered(self, run_id: UUID, resolution: int) -> list[ScalarPoint]:
         with self._lock:

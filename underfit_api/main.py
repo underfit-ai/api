@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from underfit_api.auth import get_app_secret
+from underfit_api.buffer import log_buffer, scalar_buffer
 from underfit_api.config import config
 from underfit_api.db import get_engine, shutdown_engine
 from underfit_api.routes.accounts import router as accounts_router
@@ -29,6 +32,22 @@ from underfit_api.routes.users import router as users_router
 from underfit_api.storage import get_storage
 from underfit_api.storage.backfill import BackfillService
 
+logger = logging.getLogger(__name__)
+
+
+async def _flush_loop() -> None:
+    engine = get_engine()
+    storage = get_storage()
+    interval = config.buffer.flush_interval_ms / 1000
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            with engine.begin() as conn:
+                log_buffer.flush_stale(conn, storage)
+                scalar_buffer.flush_stale(conn, storage)
+        except Exception:
+            logger.exception("Buffer flush error")
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -38,7 +57,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if config.backfill.enabled:
         backfill = BackfillService(get_storage(), get_engine(), config.backfill, config.buffer)
         await backfill.start()
+    flush_task = asyncio.create_task(_flush_loop())
     yield
+    flush_task.cancel()
     if backfill is not None:
         await backfill.stop()
     shutdown_engine()
