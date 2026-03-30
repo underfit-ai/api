@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import Connection, Engine
 
 from underfit_api.config import BackfillConfig, BufferConfig
+from underfit_api.helpers import utcnow
 from underfit_api.schema import accounts, artifacts, log_segments, media, projects, runs, scalar_segments, users
 from underfit_api.storage.file import FileStorage
 from underfit_api.storage.types import Storage
@@ -34,17 +35,13 @@ class RunMetadata(BaseModel):
     config: dict[str, object] | None = None
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
 def _parse_ts(raw: str | None) -> datetime:
     if raw:
         try:
             return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
         except ValueError:
             pass
-    return _now()
+    return utcnow()
 
 
 class BackfillService:
@@ -150,14 +147,14 @@ class BackfillService:
         project_id = self._resolve_project(conn, account_id, project_name)
 
         if not (existing := conn.execute(runs.select().where(runs.c.id == run_uuid)).first()):
-            now = _now()
+            now = utcnow()
             conn.execute(runs.insert().values(
                 id=run_uuid, project_id=project_id, user_id=account_id,
                 name=name, status=status, config=run_config, created_at=now, updated_at=now,
             ))
         elif existing.name != name or existing.status != status or existing.config != run_config:
             conn.execute(runs.update().where(runs.c.id == run_uuid).values(
-                name=name, status=status, config=run_config, updated_at=_now(),
+                name=name, status=status, config=run_config, updated_at=utcnow(),
             ))
         return run_uuid
 
@@ -167,7 +164,7 @@ class BackfillService:
         if handle != "local":
             return None
         uid = uuid4()
-        now = _now()
+        now = utcnow()
         conn.execute(accounts.insert().values(id=uid, handle="local", type="USER"))
         conn.execute(users.insert().values(
             id=uid, email="local@underfit.local", name="Local User", created_at=now, updated_at=now,
@@ -180,7 +177,7 @@ class BackfillService:
         )).first():
             return row.id
         project_id = uuid4()
-        now = _now()
+        now = utcnow()
         conn.execute(projects.insert().values(
             id=project_id, account_id=account_id, name=name,
             visibility="private", created_at=now, updated_at=now,
@@ -229,7 +226,7 @@ class BackfillService:
                 byte_cursor += added_bytes
                 line_cursor += i - start_i
 
-        now = _now()
+        now = utcnow()
         while i < len(line_sizes):
             chunk_bytes = 0
             chunk_start = i
@@ -264,7 +261,7 @@ class BackfillService:
         if not (raw_lines := new_data[:last_nl + 1].split(b"\n")[:-1]):
             return
 
-        now = _now()
+        now = utcnow()
         self._build_segments(
             conn, log_segments, run_id, storage_key,
             [len(line) + 1 for line in raw_lines], [now] * len(raw_lines),
@@ -325,7 +322,7 @@ class BackfillService:
 
         files_list = manifest.get("files", [])
         storage_prefix = f"{run_id}/artifacts/{artifact_id_str}"
-        now = _now()
+        now = utcnow()
 
         if existing is None:
             conn.execute(artifacts.insert().values(
@@ -381,7 +378,7 @@ class BackfillService:
             except (json.JSONDecodeError, FileNotFoundError):
                 pass
 
-        now = _now()
+        now = utcnow()
         if existing is None:
             conn.execute(media.insert().values(
                 id=media_id, run_id=run_id, key=key_name, step=step,

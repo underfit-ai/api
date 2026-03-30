@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import Connection
 
+from underfit_api.helpers import utcnow
 from underfit_api.schema import account_avatars
 
 
@@ -16,7 +16,7 @@ def get(conn: Connection, account_id: UUID) -> bytes | None:
 
 
 def upsert(conn: Connection, account_id: UUID, image: bytes) -> None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     existing = conn.execute(
         account_avatars.select().where(account_avatars.c.account_id == account_id),
     ).first()

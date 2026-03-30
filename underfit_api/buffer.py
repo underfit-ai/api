@@ -4,13 +4,14 @@ import json
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Generic, NamedTuple, TypeVar
 from uuid import UUID
 
 from sqlalchemy import Connection
 
 from underfit_api.config import config
+from underfit_api.helpers import utcnow
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.storage import Storage
@@ -195,7 +196,7 @@ class ScalarBuffer:
 
     def _emit_accumulator(self, run_id: UUID, resolution: int, acc: _Accumulator) -> None:
         averaged = {k: acc.sums[k] / acc.counts[k] for k in acc.sums}
-        ts = acc.last_timestamp or datetime.now(timezone.utc).replace(tzinfo=None)
+        ts = acc.last_timestamp or utcnow()
         point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=ts)
         buf = self._buffers.setdefault((run_id, resolution), _LineBuffer(start_line=0))
         if not buf.lines:

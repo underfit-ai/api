@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy import Connection, func
 
+from underfit_api.helpers import utcnow
 from underfit_api.models import Project
 from underfit_api.schema import accounts, projects, runs
 
@@ -57,7 +57,7 @@ def create(
     conn: Connection, account_id: UUID, name: str, description: str | None, visibility: str,
 ) -> Project:
     project_id = uuid4()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(projects.insert().values(
         id=project_id, account_id=account_id, name=name, description=description,
         visibility=visibility, created_at=now, updated_at=now,
@@ -70,7 +70,7 @@ def create(
 def update(
     conn: Connection, project_id: UUID, description: str | None, visibility: str | None,
 ) -> Project | None:
-    values: dict[str, object] = {"updated_at": datetime.now(timezone.utc).replace(tzinfo=None)}
+    values: dict[str, object] = {"updated_at": utcnow()}
     if description is not None:
         values["description"] = description
     if visibility is not None:

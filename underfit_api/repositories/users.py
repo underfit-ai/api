@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 
+from underfit_api.helpers import utcnow
 from underfit_api.models import User
 from underfit_api.schema import accounts, users
 
@@ -33,7 +33,7 @@ def email_exists(conn: Connection, email: str) -> bool:
 
 def create(conn: Connection, email: str, handle: str, name: str) -> User:
     user_id = uuid4()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(accounts.insert().values(id=user_id, handle=handle, type="USER"))
     conn.execute(users.insert().values(id=user_id, email=email, name=name, created_at=now, updated_at=now))
     result = get_by_id(conn, user_id)
@@ -42,7 +42,7 @@ def create(conn: Connection, email: str, handle: str, name: str) -> User:
 
 
 def update(conn: Connection, user_id: UUID, name: str | None, bio: str | None) -> User | None:
-    updates: dict[str, Any] = {"updated_at": datetime.now(timezone.utc).replace(tzinfo=None)}
+    updates: dict[str, Any] = {"updated_at": utcnow()}
     if name is not None:
         updates["name"] = name
     if bio is not None:

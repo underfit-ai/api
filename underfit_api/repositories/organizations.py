@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 
+from underfit_api.helpers import utcnow
 from underfit_api.models import Organization, OrganizationMember, UserMembership
 from underfit_api.schema import accounts, organization_members, organizations, users
 
@@ -23,7 +23,7 @@ def get_by_handle(conn: Connection, handle: str) -> Organization | None:
 
 def create(conn: Connection, handle: str, name: str) -> Organization:
     org_id = uuid4()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(accounts.insert().values(id=org_id, handle=handle, type="ORGANIZATION"))
     conn.execute(organizations.insert().values(id=org_id, name=name, created_at=now, updated_at=now))
     result = get_by_id(conn, org_id)
@@ -33,13 +33,12 @@ def create(conn: Connection, handle: str, name: str) -> Organization:
 
 def update(conn: Connection, org_id: UUID, name: str | None) -> Organization | None:
     if name is not None:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        conn.execute(organizations.update().where(organizations.c.id == org_id).values(name=name, updated_at=now))
+        conn.execute(organizations.update().where(organizations.c.id == org_id).values(name=name, updated_at=utcnow()))
     return get_by_id(conn, org_id)
 
 
 def add_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(organization_members.insert().values(
         id=uuid4(), organization_id=org_id, user_id=user_id, role=role, created_at=now, updated_at=now,
     ))
@@ -85,11 +84,10 @@ def list_members(conn: Connection, org_id: UUID) -> list[OrganizationMember]:
 
 
 def update_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(
         organization_members.update()
         .where(organization_members.c.organization_id == org_id, organization_members.c.user_id == user_id)
-        .values(role=role, updated_at=now),
+        .values(role=role, updated_at=utcnow()),
     )
 
 

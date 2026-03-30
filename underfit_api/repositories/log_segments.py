@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 from sqlalchemy.engine import Row
 
+from underfit_api.helpers import utcnow
 from underfit_api.schema import log_segments
 
 
@@ -32,7 +33,6 @@ def insert(
     byte_count: int,
     storage_key: str,
 ) -> None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(log_segments.insert().values(
         id=uuid4(),
         run_id=run_id,
@@ -44,7 +44,7 @@ def insert(
         byte_offset=byte_offset,
         byte_count=byte_count,
         storage_key=storage_key,
-        created_at=now,
+        created_at=utcnow(),
     ))
 
 

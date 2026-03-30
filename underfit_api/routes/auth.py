@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from underfit_api.auth import hash_password
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
-from underfit_api.models import AuthResponse
+from underfit_api.models import AuthResponse, Session
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import user_auth as user_auth_repo
@@ -31,6 +31,18 @@ def _cookie_secure(request: Request) -> bool:
     scheme_secure = request.url.scheme == "https"
     frontend_secure = bool(config.frontend_url and config.frontend_url.startswith("https://"))
     return scheme_secure or frontend_secure
+
+
+def _set_session_cookie(response: Response, request: Request, session: Session) -> None:
+    response.set_cookie(
+        "session_token",
+        session.token,
+        httponly=True,
+        samesite="lax",
+        secure=_cookie_secure(request),
+        max_age=SESSION_TTL_SECONDS,
+        expires=session.expires_at.replace(tzinfo=timezone.utc),
+    )
 
 
 class RegisterBody(BaseModel):
@@ -64,15 +76,7 @@ def register(body: RegisterBody, response: Response, request: Request, conn: Con
     user_auth_repo.create(conn, user.id, pw_hash, pw_salt, HASH_ITERATIONS, HASH_DIGEST)
 
     session = sessions_repo.create(conn, user.id)
-    response.set_cookie(
-        "session_token",
-        session.token,
-        httponly=True,
-        samesite="lax",
-        secure=_cookie_secure(request),
-        max_age=SESSION_TTL_SECONDS,
-        expires=session.expires_at.replace(tzinfo=timezone.utc),
-    )
+    _set_session_cookie(response, request, session)
     return AuthResponse(user=user, session=session)
 
 
@@ -84,15 +88,7 @@ def login(body: LoginBody, response: Response, request: Request, conn: Conn) -> 
         raise HTTPException(401, "Invalid credentials")
 
     session = sessions_repo.create(conn, user.id)
-    response.set_cookie(
-        "session_token",
-        session.token,
-        httponly=True,
-        samesite="lax",
-        secure=_cookie_secure(request),
-        max_age=SESSION_TTL_SECONDS,
-        expires=session.expires_at.replace(tzinfo=timezone.utc),
-    )
+    _set_session_cookie(response, request, session)
     return AuthResponse(user=user, session=session)
 
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 
+from underfit_api.helpers import utcnow
 from underfit_api.models import Media
 from underfit_api.schema import media
 
@@ -37,7 +37,6 @@ def create(
     metadata: dict[str, object] | None,
 ) -> Media:
     media_id = uuid4()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     conn.execute(media.insert().values(
         id=media_id,
         run_id=run_id,
@@ -47,7 +46,7 @@ def create(
         storage_key=storage_key,
         count=count,
         metadata=metadata,
-        created_at=now,
+        created_at=utcnow(),
     ))
     result = get_by_id(conn, media_id)
     assert result is not None

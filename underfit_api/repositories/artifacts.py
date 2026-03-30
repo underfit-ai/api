@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 
+from underfit_api.helpers import utcnow
 from underfit_api.models import Artifact
 from underfit_api.schema import artifacts
 
@@ -35,7 +35,7 @@ def create(
     metadata: dict[str, object] | None,
 ) -> Artifact:
     artifact_id = uuid4()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(artifacts.insert().values(
         id=artifact_id,
         project_id=project_id,
@@ -57,11 +57,10 @@ def create(
 
 
 def increment_uploaded(conn: Connection, artifact_id: UUID) -> Artifact | None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     updated = conn.execute(
         artifacts.update()
         .where(artifacts.c.id == artifact_id, artifacts.c.uploaded_file_count < artifacts.c.declared_file_count)
-        .values(uploaded_file_count=artifacts.c.uploaded_file_count + 1, updated_at=now)
+        .values(uploaded_file_count=artifacts.c.uploaded_file_count + 1, updated_at=utcnow())
         .returning(artifacts),
     ).first()
     if updated:
@@ -70,7 +69,7 @@ def increment_uploaded(conn: Connection, artifact_id: UUID) -> Artifact | None:
 
 
 def finalize(conn: Connection, artifact_id: UUID) -> Artifact | None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(
         artifacts.update()
         .where(artifacts.c.id == artifact_id)

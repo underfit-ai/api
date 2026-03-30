@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 from base64 import urlsafe_b64encode
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 
 from underfit_api.auth import hash_token
+from underfit_api.helpers import utcnow
 from underfit_api.models import Session
 from underfit_api.schema import sessions
 
@@ -15,7 +16,7 @@ SESSION_TTL_DAYS = 30
 
 
 def get_user_id_by_token_hash(conn: Connection, token_hash: str) -> UUID | None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     row = conn.execute(
         sessions.select().where(sessions.c.token_hash == token_hash, sessions.c.expires_at > now),
     ).first()
@@ -26,7 +27,7 @@ def create(conn: Connection, user_id: UUID) -> Session:
     token = urlsafe_b64encode(os.urandom(32)).decode()
     prefix = token[:8]
     token_hash = hash_token(token)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     expires = now + timedelta(days=SESSION_TTL_DAYS)
     session_id = uuid4()
     conn.execute(sessions.insert().values(

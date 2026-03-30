@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy import Connection
 
+from underfit_api.helpers import utcnow
 from underfit_api.models import Run
 from underfit_api.schema import accounts, projects, runs
 
@@ -83,7 +83,7 @@ def create(
     if not (name := _generate_name(conn, project_id)):
         return None
     run_id = uuid4()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(runs.insert().values(
         id=run_id, project_id=project_id, user_id=user_id,
         name=name, status=status, config=config, created_at=now, updated_at=now,
@@ -95,7 +95,7 @@ def update(
     conn: Connection, run_id: UUID, status: str | None,
     config: dict[str, object] | None, update_config: bool,
 ) -> Run | None:
-    values: dict[str, object] = {"updated_at": datetime.now(timezone.utc).replace(tzinfo=None)}
+    values: dict[str, object] = {"updated_at": utcnow()}
     if status is not None:
         values["status"] = status
     if update_config:

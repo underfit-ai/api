@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import Connection
 
 from underfit_api.auth import verify_password
+from underfit_api.helpers import utcnow
 from underfit_api.schema import user_auth
 
 
@@ -28,7 +28,7 @@ def create(
     password_iterations: int,
     password_digest: str,
 ) -> None:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(user_auth.insert().values(
         id=user_id, password_hash=password_hash, password_salt=password_salt,
         password_iterations=password_iterations, password_digest=password_digest,

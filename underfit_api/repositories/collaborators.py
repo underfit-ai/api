@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy import Connection
 
+from underfit_api.helpers import utcnow
 from underfit_api.models import Collaborator, User
 from underfit_api.schema import accounts, collaborators, users
 
@@ -41,7 +41,7 @@ def get(conn: Connection, project_id: UUID, user_id: UUID) -> bool:
 
 
 def add(conn: Connection, project_id: UUID, user_id: UUID) -> Collaborator:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     collab_id = uuid4()
     conn.execute(collaborators.insert().values(
         id=collab_id, project_id=project_id, user_id=user_id, created_at=now, updated_at=now,

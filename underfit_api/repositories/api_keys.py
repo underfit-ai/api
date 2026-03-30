@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import os
 from base64 import urlsafe_b64encode
-from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import Connection
 
 from underfit_api.auth import hash_token
+from underfit_api.helpers import utcnow
 from underfit_api.models import ApiKey, ApiKeyWithToken
 from underfit_api.schema import api_keys
 
@@ -27,7 +27,7 @@ def create(conn: Connection, user_id: UUID, label: str | None) -> ApiKeyWithToke
     token = urlsafe_b64encode(os.urandom(32)).decode()
     prefix = token[:8]
     token_hash = hash_token(token)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     conn.execute(api_keys.insert().values(
         id=key_id,
         user_id=user_id,
