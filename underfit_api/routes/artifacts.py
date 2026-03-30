@@ -71,6 +71,8 @@ def create_artifact(
         run = runs_repo.get_by_id(conn, body.run_id)
         if not run:
             raise HTTPException(404, "Run not found")
+        if run.project_id != project.id:
+            raise HTTPException(400, "Run not in project")
         run_id = run.id
     if body.step is not None and run_id is None:
         raise HTTPException(400, "step requires runId")
