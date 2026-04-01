@@ -10,7 +10,7 @@ from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, hash_password
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.models import AuthResponse, Session
-from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.repositories import account_aliases as account_aliases_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import user_auth as user_auth_repo
 from underfit_api.repositories import users as users_repo
@@ -64,12 +64,13 @@ class LoginBody(BaseModel):
 @router.post("/register")
 def register(body: RegisterBody, response: Response, request: Request, conn: Conn) -> AuthResponse:
     handle_lower = body.handle.lower()
-    if accounts_repo.exists(conn, handle_lower):
+    if account_aliases_repo.handle_exists(conn, handle_lower):
         raise HTTPException(409, "Handle already exists")
     if users_repo.email_exists(conn, body.email):
         raise HTTPException(409, "Email already exists")
 
     user = users_repo.create(conn, body.email, handle_lower, body.handle)
+    account_aliases_repo.create(conn, user.id, handle_lower)
     pw_hash, pw_salt = hash_password(body.password)
     user_auth_repo.create(conn, user.id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
 

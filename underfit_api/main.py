@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import underfit_api.db as db
@@ -28,6 +28,7 @@ from underfit_api.routes.logs import router as logs_router
 from underfit_api.routes.media import router as media_router
 from underfit_api.routes.organizations import router as orgs_router
 from underfit_api.routes.projects import router as projects_router
+from underfit_api.routes.resolvers import AliasRedirectError
 from underfit_api.routes.runs import router as runs_router
 from underfit_api.routes.scalars import router as scalars_router
 from underfit_api.routes.users import router as users_router
@@ -125,6 +126,15 @@ def http_exception_handler(_request: Request, exc: HTTPException) -> JSONRespons
 @api.exception_handler(RequestValidationError)
 def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
     return JSONResponse(status_code=400, content={"error": "Validation error"})
+
+
+@api.exception_handler(AliasRedirectError)
+def alias_redirect_handler(request: Request, exc: AliasRedirectError) -> RedirectResponse:
+    path = request.url.path
+    new_path = path.replace(f"{exc.path_segment}/{exc.old_name}", f"{exc.path_segment}/{exc.new_name}", 1)
+    query = str(request.url.query)
+    location = new_path + (f"?{query}" if query else "")
+    return RedirectResponse(url=location, status_code=307)
 
 
 @api.get("/health")

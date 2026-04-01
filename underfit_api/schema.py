@@ -181,6 +181,26 @@ artifacts = sa.Table(
     sa.CheckConstraint("uploaded_file_count >= 0 AND uploaded_file_count <= declared_file_count"),
 )
 
+account_aliases = sa.Table(
+    "account_aliases",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("handle", sa.Text, nullable=False, unique=True),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+)
+
+project_aliases = sa.Table(
+    "project_aliases",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("project_id", sa.Uuid, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+    sa.UniqueConstraint("account_id", "name"),
+)
+
 media = sa.Table(
     "media",
     metadata,

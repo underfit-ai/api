@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy import Connection
 
 from underfit_api.models import Account
@@ -12,9 +14,21 @@ def exists(conn: Connection, handle: str) -> bool:
     return get_by_handle(conn, handle) is not None
 
 
+def get_by_id(conn: Connection, account_id: UUID) -> Account | None:
+    if not (account := conn.execute(accounts.select().where(accounts.c.id == account_id)).first()):
+        return None
+    if account.type == "ORGANIZATION":
+        return organizations_repo.get_by_id(conn, account.id)
+    return users_repo.get_by_id(conn, account.id)
+
+
 def get_by_handle(conn: Connection, handle: str) -> Account | None:
     if not (account := conn.execute(accounts.select().where(accounts.c.handle == handle.lower())).first()):
         return None
     if account.type == "ORGANIZATION":
         return organizations_repo.get_by_id(conn, account.id)
     return users_repo.get_by_id(conn, account.id)
+
+
+def rename(conn: Connection, account_id: UUID, new_handle: str) -> None:
+    conn.execute(accounts.update().where(accounts.c.id == account_id).values(handle=new_handle))

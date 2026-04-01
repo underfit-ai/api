@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import OutsiderHeaders, OwnerHeaders
+from tests.conftest import CreateProject, OutsiderHeaders, OwnerHeaders
 
 
 def test_project_crud_and_listing(client: TestClient, owner_headers: OwnerHeaders) -> None:
@@ -96,3 +96,102 @@ def test_project_create_requires_account_admin(
         json={"name": "proj", "description": "x", "visibility": "private"},
     )
     assert allowed.status_code == 200
+
+
+def test_rename_project(client: TestClient, owner_headers: OwnerHeaders, create_project: CreateProject) -> None:
+    create_project(owner_headers)
+
+    renamed = client.post(
+        "/api/v1/accounts/owner/projects/underfit/rename",
+        headers=owner_headers,
+        json={"name": "new-project"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "new-project"
+
+    fetched = client.get("/api/v1/accounts/owner/projects/new-project", headers=owner_headers)
+    assert fetched.status_code == 200
+    assert fetched.json()["name"] == "new-project"
+
+
+def test_rename_project_old_name_redirects(
+    client: TestClient, owner_headers: OwnerHeaders, create_project: CreateProject,
+) -> None:
+    create_project(owner_headers)
+    client.post(
+        "/api/v1/accounts/owner/projects/underfit/rename",
+        headers=owner_headers,
+        json={"name": "new-project"},
+    )
+
+    response = client.get(
+        "/api/v1/accounts/owner/projects/underfit", headers=owner_headers, follow_redirects=False,
+    )
+    assert response.status_code == 307
+    assert "/projects/new-project" in response.headers["location"]
+
+
+def test_rename_project_conflict_with_existing(
+    client: TestClient, owner_headers: OwnerHeaders, create_project: CreateProject,
+) -> None:
+    create_project(owner_headers, name="project-a")
+    create_project(owner_headers, name="project-b")
+
+    conflict = client.post(
+        "/api/v1/accounts/owner/projects/project-a/rename",
+        headers=owner_headers,
+        json={"name": "project-b"},
+    )
+    assert conflict.status_code == 409
+
+
+def test_rename_project_conflict_with_old_alias(
+    client: TestClient, owner_headers: OwnerHeaders, create_project: CreateProject,
+) -> None:
+    create_project(owner_headers, name="original")
+    create_project(owner_headers, name="other")
+
+    client.post(
+        "/api/v1/accounts/owner/projects/original/rename",
+        headers=owner_headers,
+        json={"name": "renamed"},
+    )
+
+    conflict = client.post(
+        "/api/v1/accounts/owner/projects/other/rename",
+        headers=owner_headers,
+        json={"name": "original"},
+    )
+    assert conflict.status_code == 409
+
+
+def test_rename_project_requires_admin(
+    client: TestClient, owner_headers: OwnerHeaders, outsider_headers: OutsiderHeaders,
+    create_project: CreateProject,
+) -> None:
+    create_project(owner_headers)
+
+    forbidden = client.post(
+        "/api/v1/accounts/owner/projects/underfit/rename",
+        headers=outsider_headers,
+        json={"name": "hacked"},
+    )
+    assert forbidden.status_code == 403
+
+
+def test_cannot_create_project_with_old_alias_name(
+    client: TestClient, owner_headers: OwnerHeaders, create_project: CreateProject,
+) -> None:
+    create_project(owner_headers, name="original")
+    client.post(
+        "/api/v1/accounts/owner/projects/original/rename",
+        headers=owner_headers,
+        json={"name": "renamed"},
+    )
+
+    conflict = client.post(
+        "/api/v1/accounts/owner/projects",
+        headers=owner_headers,
+        json={"name": "original", "visibility": "private"},
+    )
+    assert conflict.status_code == 409

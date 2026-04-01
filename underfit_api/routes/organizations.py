@@ -5,9 +5,10 @@ from pydantic import BaseModel, Field
 
 from underfit_api.dependencies import Conn, CurrentUser
 from underfit_api.models import Organization, OrganizationMember
-from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.repositories import account_aliases as account_aliases_repo
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
+from underfit_api.routes.resolvers import resolve_organization
 
 router = APIRouter(prefix="/organizations")
 
@@ -28,17 +29,17 @@ class UpdateMemberBody(BaseModel):
 @router.post("", status_code=201)
 def create_organization(body: CreateOrgBody, conn: Conn, user: CurrentUser) -> Organization:
     handle_lower = body.handle.lower()
-    if accounts_repo.exists(conn, handle_lower):
+    if account_aliases_repo.handle_exists(conn, handle_lower):
         raise HTTPException(409, "Handle already exists")
     org = organizations_repo.create(conn, handle_lower, body.name)
+    account_aliases_repo.create(conn, org.id, handle_lower)
     organizations_repo.add_member(conn, org.id, user.id, "ADMIN")
     return org
 
 
 @router.patch("/{handle}")
 def update_organization(handle: str, body: UpdateOrgBody, conn: Conn, user: CurrentUser) -> Organization:
-    if not (org := organizations_repo.get_by_handle(conn, handle)):
-        raise HTTPException(404, "Organization not found")
+    org = resolve_organization(conn, handle)
     if not organizations_repo.is_admin(conn, org.id, user.id):
         raise HTTPException(403, "Forbidden")
     if body.name is not None and not body.name.strip():
@@ -50,8 +51,7 @@ def update_organization(handle: str, body: UpdateOrgBody, conn: Conn, user: Curr
 
 @router.get("/{handle}/members")
 def list_members(handle: str, conn: Conn) -> list[OrganizationMember]:
-    if not (org := organizations_repo.get_by_handle(conn, handle)):
-        raise HTTPException(404, "Organization not found")
+    org = resolve_organization(conn, handle)
     return organizations_repo.list_members(conn, org.id)
 
 
@@ -59,8 +59,7 @@ def list_members(handle: str, conn: Conn) -> list[OrganizationMember]:
 def add_or_update_member(
     handle: str, user_handle: str, body: UpdateMemberBody, conn: Conn, user: CurrentUser,
 ) -> OrganizationMember:
-    if not (org := organizations_repo.get_by_handle(conn, handle)):
-        raise HTTPException(404, "Organization not found")
+    org = resolve_organization(conn, handle)
     if not organizations_repo.is_admin(conn, org.id, user.id):
         raise HTTPException(403, "Forbidden")
     if not (target := users_repo.get_by_handle(conn, user_handle)):
@@ -82,8 +81,7 @@ def add_or_update_member(
 
 @router.delete("/{handle}/members/{user_handle}")
 def remove_member(handle: str, user_handle: str, conn: Conn, user: CurrentUser) -> dict[str, bool]:
-    if not (org := organizations_repo.get_by_handle(conn, handle)):
-        raise HTTPException(404, "Organization not found")
+    org = resolve_organization(conn, handle)
     if not (target := users_repo.get_by_handle(conn, user_handle)):
         raise HTTPException(404, "User not found")
     if not organizations_repo.is_member(conn, org.id, target.id):

@@ -77,3 +77,8 @@ def update(
         values["visibility"] = visibility
     conn.execute(projects.update().where(projects.c.id == project_id).values(**values))
     return get_by_id(conn, project_id)
+
+
+def rename(conn: Connection, project_id: UUID, new_name: str) -> Project | None:
+    conn.execute(projects.update().where(projects.c.id == project_id).values(name=new_name, updated_at=utcnow()))
+    return get_by_id(conn, project_id)

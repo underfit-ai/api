@@ -13,6 +13,7 @@ import underfit_api.storage as storage_mod
 from underfit_api.config import FileStorageConfig, SqliteDatabaseConfig, config
 from underfit_api.main import app
 from underfit_api.models import User
+from underfit_api.repositories import account_aliases as account_aliases_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import metadata
@@ -68,7 +69,9 @@ def register_user(client: TestClient) -> RegisterUser:
 def create_user() -> CreateUser:
     def _create_user(email: str, handle: str, name: str = "Test User") -> User:
         with db.engine.begin() as conn:
-            return users_repo.create(conn, email, handle, name)
+            user = users_repo.create(conn, email, handle, name)
+            account_aliases_repo.create(conn, user.id, handle)
+            return user
 
     return _create_user
 
