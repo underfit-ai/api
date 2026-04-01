@@ -181,6 +181,16 @@ artifacts = sa.Table(
     sa.CheckConstraint("uploaded_file_count >= 0 AND uploaded_file_count <= declared_file_count"),
 )
 
+password_reset_tokens = sa.Table(
+    "password_reset_tokens",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("user_id", sa.Uuid, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("token_hash", sa.Text, nullable=False, unique=True),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+    sa.Column("expires_at", sa.DateTime, nullable=False),
+)
+
 account_aliases = sa.Table(
     "account_aliases",
     metadata,

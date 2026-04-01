@@ -20,6 +20,21 @@ def verify(conn: Connection, user_id: UUID, password: str) -> bool:
     ) if row else False
 
 
+def update_password(
+    conn: Connection,
+    user_id: UUID,
+    password_hash: str,
+    password_salt: str,
+    password_iterations: int,
+    password_digest: str,
+) -> None:
+    conn.execute(user_auth.update().where(user_auth.c.id == user_id).values(
+        password_hash=password_hash, password_salt=password_salt,
+        password_iterations=password_iterations, password_digest=password_digest,
+        updated_at=utcnow(),
+    ))
+
+
 def create(
     conn: Connection,
     user_id: UUID,

@@ -72,6 +72,15 @@ class BufferConfig(BaseModel):
     scalar_resolutions: list[int] = [1, 10, 100, 1000]
 
 
+class EmailConfig(BaseModel):
+    smtp_host: str = "localhost"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    from_address: str = "noreply@underfit.local"
+    starttls: bool = True
+
+
 class Config(BaseModel):
     auth_enabled: bool = True
     static_dir: str = 'static'
@@ -81,6 +90,7 @@ class Config(BaseModel):
     storage: StorageConfig = FileStorageConfig()
     backfill: BackfillConfig = BackfillConfig()
     buffer: BufferConfig = BufferConfig()
+    email: EmailConfig | None = None
 
 
 def load_config(path: Path | None = None) -> Config:
