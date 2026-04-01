@@ -62,10 +62,10 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
         ).all()
 
     assert len(segments) == 2
-    assert segments[0].start_line == 0 and segments[0].end_line == 1
-    assert segments[1].start_line == 1 and segments[1].end_line == 2
-    assert segments[0].byte_offset == 0
-    assert segments[1].byte_offset == segments[0].byte_count
+    assert (segments[0].start_line, segments[0].end_line, segments[1].start_line, segments[1].end_line) == (
+        0, 1, 1, 2,
+    )
+    assert (segments[0].byte_offset, segments[1].byte_offset) == (0, segments[0].byte_count)
     assert segments[0].storage_key == segments[1].storage_key
     assert storage.read(segments[0].storage_key).decode() == "first\nsecond\n"
 
@@ -86,8 +86,7 @@ def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
             segments = conn.execute(
                 select(log_segments).where(log_segments.c.run_id == run_id, log_segments.c.worker_id == "worker-1"),
             ).all()
-        assert len(segments) == 1
-        assert segments[0].byte_count == 5
+        assert len(segments) == 1 and segments[0].byte_count == 5
     finally:
         config.buffer.max_segment_bytes = original
 
@@ -106,8 +105,7 @@ def test_scalar_buffer_builds_resolution_tiers() -> None:
 
         r1 = buffer.read_buffered(run_id, 1)
         r2 = buffer.read_buffered(run_id, 2)
-        assert len(r1) == 10
-        assert len(r2) == 1
+        assert len(r1) == 10 and len(r2) == 1
         assert r2[0].values["loss"] == 5.5
         assert buffer.tier_line_count(conn, run_id, 2) == 1
 

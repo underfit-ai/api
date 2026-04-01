@@ -3,10 +3,10 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 import underfit_api.storage as storage_mod
-from tests.conftest import CreateRun, OwnerHeaders
+from tests.conftest import CreateRun, Headers
 
 
-def test_list_and_download_run_files(client: TestClient, owner_headers: OwnerHeaders, create_run: CreateRun) -> None:
+def test_list_and_download_run_files(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
     run = create_run(owner_headers)
 
     storage_mod.storage.write(f"{run['id']}/metrics.json", b"{\"loss\": 0.1}")
@@ -35,7 +35,7 @@ def test_list_and_download_run_files(client: TestClient, owner_headers: OwnerHea
 
 
 def test_download_missing_file_returns_404(
-    client: TestClient, owner_headers: OwnerHeaders, create_run: CreateRun,
+    client: TestClient, owner_headers: Headers, create_run: CreateRun,
 ) -> None:
     run = create_run(owner_headers)
 

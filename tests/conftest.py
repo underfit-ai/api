@@ -20,15 +20,14 @@ from underfit_api.schema import metadata
 
 os.environ.setdefault("UNDERFIT_APP_SECRET", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
-OwnerHeaders = dict[str, str]
-OutsiderHeaders = dict[str, str]
+Headers = dict[str, str]
 RegisterUser = Callable[..., Response]
 CreateUser = Callable[..., User]
-SessionForUser = Callable[[User], dict[str, str]]
+SessionForUser = Callable[[User], Headers]
 AddCollaborator = Callable[..., Response]
 CreateProject = Callable[..., dict[str, object]]
 CreateRun = Callable[..., dict[str, object]]
-SetupTuple = tuple[OwnerHeaders, str]
+SetupTuple = tuple[Headers, str]
 
 
 @pytest.fixture(autouse=True)
@@ -87,13 +86,13 @@ def session_for_user() -> SessionForUser:
 
 
 @pytest.fixture
-def owner_headers(create_user: CreateUser, session_for_user: SessionForUser) -> OwnerHeaders:
+def owner_headers(create_user: CreateUser, session_for_user: SessionForUser) -> Headers:
     owner = create_user(email="owner@example.com", handle="owner", name="Owner")
     return session_for_user(owner)
 
 
 @pytest.fixture
-def outsider_headers(create_user: CreateUser, session_for_user: SessionForUser) -> OutsiderHeaders:
+def outsider_headers(create_user: CreateUser, session_for_user: SessionForUser) -> Headers:
     outsider = create_user(email="outsider@example.com", handle="outsider", name="Outsider")
     return session_for_user(outsider)
 
@@ -157,22 +156,22 @@ def add_collaborator(client: TestClient) -> AddCollaborator:
     return _add
 
 
-def _run_endpoint(owner_headers: OwnerHeaders, create_run: CreateRun, suffix: str) -> SetupTuple:
+def _run_endpoint(owner_headers: Headers, create_run: CreateRun, suffix: str) -> SetupTuple:
     run_name = create_run(owner_headers)["name"]
     base = "/api/v1/accounts/owner/projects/underfit/runs"
     return owner_headers, f"{base}/{run_name}/{suffix}"
 
 
 @pytest.fixture
-def logs_setup(owner_headers: OwnerHeaders, create_run: CreateRun) -> SetupTuple:
+def logs_setup(owner_headers: Headers, create_run: CreateRun) -> SetupTuple:
     return _run_endpoint(owner_headers, create_run, "logs")
 
 
 @pytest.fixture
-def scalars_setup(owner_headers: OwnerHeaders, create_run: CreateRun) -> SetupTuple:
+def scalars_setup(owner_headers: Headers, create_run: CreateRun) -> SetupTuple:
     return _run_endpoint(owner_headers, create_run, "scalars")
 
 
 @pytest.fixture
-def media_setup(owner_headers: OwnerHeaders, create_run: CreateRun) -> SetupTuple:
+def media_setup(owner_headers: Headers, create_run: CreateRun) -> SetupTuple:
     return _run_endpoint(owner_headers, create_run, "media")

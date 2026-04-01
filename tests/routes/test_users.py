@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import CreateUser, OwnerHeaders, SessionForUser
+from tests.conftest import CreateUser, Headers, SessionForUser
 from underfit_api.config import config
 
 
@@ -59,7 +59,7 @@ def test_me_returns_local_user_when_auth_disabled(client: TestClient) -> None:
 
 
 def test_user_memberships_lists_orgs_and_rejects_unknown_user(
-    client: TestClient, owner_headers: OwnerHeaders,
+    client: TestClient, owner_headers: Headers,
 ) -> None:
     created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
     assert created.status_code == 201

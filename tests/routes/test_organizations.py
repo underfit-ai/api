@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import CreateUser, OutsiderHeaders, OwnerHeaders, SessionForUser
+from tests.conftest import CreateUser, Headers, SessionForUser
 
 
-def test_create_and_update_organization_as_admin(client: TestClient, owner_headers: OwnerHeaders) -> None:
+def test_create_and_update_organization_as_admin(client: TestClient, owner_headers: Headers) -> None:
     created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
     assert created.status_code == 201
     assert created.json()["handle"] == "core"
@@ -17,7 +17,7 @@ def test_create_and_update_organization_as_admin(client: TestClient, owner_heade
 
 
 def test_non_admin_cannot_update_organization(
-    client: TestClient, owner_headers: OwnerHeaders, outsider_headers: OutsiderHeaders,
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
 ) -> None:
     created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
     assert created.status_code == 201
@@ -26,7 +26,7 @@ def test_non_admin_cannot_update_organization(
     assert forbidden.status_code == 403
 
 
-def test_cannot_demote_or_remove_only_admin(client: TestClient, owner_headers: OwnerHeaders) -> None:
+def test_cannot_demote_or_remove_only_admin(client: TestClient, owner_headers: Headers) -> None:
     created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
     assert created.status_code == 201
 
@@ -38,7 +38,7 @@ def test_cannot_demote_or_remove_only_admin(client: TestClient, owner_headers: O
 
 
 def test_member_can_remove_self(
-    client: TestClient, owner_headers: OwnerHeaders, create_user: CreateUser, session_for_user: SessionForUser,
+    client: TestClient, owner_headers: Headers, create_user: CreateUser, session_for_user: SessionForUser,
 ) -> None:
     member = create_user(email="member@example.com", handle="member", name="Member")
     member_headers = session_for_user(member)

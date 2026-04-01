@@ -5,20 +5,18 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import AddCollaborator, OutsiderHeaders, OwnerHeaders
+from tests.conftest import AddCollaborator, Headers
+
+MEDIA_METADATA = json.dumps({"key": "predictions", "step": 10, "type": "image"})
+MEDIA_FILES = [("files", ("a.bin", b"file-a", "application/octet-stream"))]
 
 
 def test_media_create_list_filter_and_download(
-    client: TestClient, media_setup: tuple[OwnerHeaders, str],
+    client: TestClient, media_setup: tuple[Headers, str],
 ) -> None:
     headers, media_url = media_setup
 
-    created = client.post(
-        media_url,
-        headers=headers,
-        data={"metadata": json.dumps({"key": "predictions", "step": 10, "type": "image"})},
-        files=[("files", ("a.bin", b"file-a", "application/octet-stream"))],
-    )
+    created = client.post(media_url, headers=headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
     assert created.status_code == 200
     media_id = created.json()["id"]
 
@@ -32,52 +30,45 @@ def test_media_create_list_filter_and_download(
     assert downloaded.content == b"file-a"
 
 
-    @pytest.mark.parametrize(
-        ("metadata", "files", "expected_status"),
-        [
-            ("not-json", [("files", ("a.bin", b"file-a", "application/octet-stream"))], 400),
-            (
-                json.dumps({"key": "predictions", "type": "table"}),
-                [("files", ("a.bin", b"file-a", "application/octet-stream"))],
-                400,
-            ),
-            (json.dumps({"key": "predictions", "type": "image"}), [], 400),
-        ],
-    )
-    def test_media_validation_errors(
-        client: TestClient,
-        media_setup: tuple[OwnerHeaders, str],
-        metadata: str,
-        files: list[tuple[str, tuple[str, bytes, str]]],
-        expected_status: int,
-    ) -> None:
-        headers, media_url = media_setup
-        response = client.post(media_url, headers=headers, data={"metadata": metadata}, files=files)
-        assert response.status_code == expected_status
-
-
-def test_media_create_requires_project_access(
+@pytest.mark.parametrize(
+    ("metadata", "files", "expected_status"),
+    [
+        ("not-json", MEDIA_FILES, 400),
+        (json.dumps({"key": "predictions", "type": "table"}), MEDIA_FILES, 400),
+        (json.dumps({"key": "predictions", "type": "image"}), [], 400),
+    ],
+)
+def test_media_validation_errors(
     client: TestClient,
-    media_setup: tuple[OwnerHeaders, str],
-    outsider_headers: OutsiderHeaders,
+    media_setup: tuple[Headers, str],
+    metadata: str,
+    files: list[tuple[str, tuple[str, bytes, str]]],
+    expected_status: int,
+) -> None:
+    headers, media_url = media_setup
+    response = client.post(media_url, headers=headers, data={"metadata": metadata}, files=files)
+    assert response.status_code == expected_status
+
+
+def test_media_requires_project_access(
+    client: TestClient,
+    media_setup: tuple[Headers, str],
+    outsider_headers: Headers,
     add_collaborator: AddCollaborator,
 ) -> None:
     owner_headers, media_url = media_setup
-
     forbidden = client.post(
         media_url,
         headers=outsider_headers,
-        data={"metadata": json.dumps({"key": "predictions", "type": "image"})},
-        files=[("files", ("a.bin", b"file-a", "application/octet-stream"))],
+        data={"metadata": MEDIA_METADATA},
+        files=MEDIA_FILES,
     )
     assert forbidden.status_code == 403
-
     add_collaborator(owner_headers)
-
     allowed = client.post(
         media_url,
         headers=outsider_headers,
-        data={"metadata": json.dumps({"key": "predictions", "type": "image"})},
-        files=[("files", ("a.bin", b"file-a", "application/octet-stream"))],
+        data={"metadata": MEDIA_METADATA},
+        files=MEDIA_FILES,
     )
     assert allowed.status_code == 200
