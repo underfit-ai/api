@@ -37,6 +37,15 @@ def create_organization(body: CreateOrgBody, conn: Conn, user: CurrentUser) -> O
     return org
 
 
+@router.delete("/{handle}")
+def delete_organization(handle: str, conn: Conn, user: CurrentUser) -> dict[str, bool]:
+    org = resolve_organization(conn, handle)
+    if not organizations_repo.is_admin(conn, org.id, user.id):
+        raise HTTPException(403, "Forbidden")
+    accounts_repo.delete(conn, org.id)
+    return {"ok": True}
+
+
 @router.patch("/{handle}")
 def update_organization(handle: str, body: UpdateOrgBody, conn: Conn, user: CurrentUser) -> Organization:
     org = resolve_organization(conn, handle)

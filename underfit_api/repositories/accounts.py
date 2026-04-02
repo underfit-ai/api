@@ -49,3 +49,7 @@ def get_alias_by_handle(conn: Connection, handle: str) -> Row | None:
 
 def alias_handle_exists(conn: Connection, handle: str) -> bool:
     return get_alias_by_handle(conn, handle) is not None
+
+
+def delete(conn: Connection, account_id: UUID) -> None:
+    conn.execute(accounts.delete().where(accounts.c.id == account_id))

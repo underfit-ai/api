@@ -26,6 +26,31 @@ def test_non_admin_cannot_update_organization(
     assert forbidden.status_code == 403
 
 
+def test_admin_can_delete_organization(client: TestClient, owner_headers: Headers) -> None:
+    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
+    assert created.status_code == 201
+
+    deleted = client.delete("/api/v1/organizations/core", headers=owner_headers)
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
+
+    listed = client.get("/api/v1/organizations/core/members")
+    assert listed.status_code == 404
+
+
+def test_non_admin_cannot_delete_organization(
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
+) -> None:
+    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
+    assert created.status_code == 201
+
+    forbidden = client.delete("/api/v1/organizations/core", headers=outsider_headers)
+    assert forbidden.status_code == 403
+
+    members = client.get("/api/v1/organizations/core/members")
+    assert members.status_code == 200
+
+
 def test_cannot_demote_or_remove_only_admin(client: TestClient, owner_headers: Headers) -> None:
     created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
     assert created.status_code == 201

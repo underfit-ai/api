@@ -112,6 +112,16 @@ def admin_count(conn: Connection, org_id: UUID) -> int:
     return len(rows)
 
 
+def is_sole_admin_anywhere(conn: Connection, user_id: UUID) -> bool:
+    admin_orgs = conn.execute(
+        organization_members.select().where(
+            organization_members.c.user_id == user_id,
+            organization_members.c.role == "ADMIN",
+        ),
+    ).all()
+    return any(admin_count(conn, row.organization_id) <= 1 for row in admin_orgs)
+
+
 def list_user_memberships(conn: Connection, user_id: UUID) -> list[UserMembership]:
     j = organization_members.join(organizations, organization_members.c.organization_id == organizations.c.id).join(
         accounts, organizations.c.id == accounts.c.id,

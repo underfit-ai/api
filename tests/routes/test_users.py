@@ -107,6 +107,52 @@ def test_me_returns_local_user_when_auth_disabled(client: TestClient) -> None:
     assert response.json()["email"] == "local@underfit.local"
 
 
+def test_delete_account(client: TestClient, create_user: CreateUser, session_for_user: SessionForUser) -> None:
+    user = create_user(email="doomed@example.com", handle="doomed", name="Doomed")
+    headers = session_for_user(user)
+
+    deleted = client.delete("/api/v1/me", headers=headers)
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
+
+    response = client.get("/api/v1/me", headers=headers)
+    assert response.status_code == 401
+
+
+def test_sole_admin_cannot_delete_account(
+    client: TestClient, create_user: CreateUser, session_for_user: SessionForUser,
+) -> None:
+    user = create_user(email="admin@example.com", handle="admin", name="Admin")
+    headers = session_for_user(user)
+
+    created = client.post("/api/v1/organizations", headers=headers, json={"handle": "myorg", "name": "My Org"})
+    assert created.status_code == 201
+
+    deleted = client.delete("/api/v1/me", headers=headers)
+    assert deleted.status_code == 400
+
+    response = client.get("/api/v1/me", headers=headers)
+    assert response.status_code == 200
+
+
+def test_non_sole_admin_can_delete_account(
+    client: TestClient, create_user: CreateUser, session_for_user: SessionForUser,
+) -> None:
+    admin1 = create_user(email="admin1@example.com", handle="admin1", name="Admin One")
+    admin2 = create_user(email="admin2@example.com", handle="admin2", name="Admin Two")
+    admin1_headers = session_for_user(admin1)
+    session_for_user(admin2)
+
+    created = client.post("/api/v1/organizations", headers=admin1_headers, json={"handle": "shared", "name": "Shared"})
+    assert created.status_code == 201
+
+    client.put("/api/v1/organizations/shared/members/admin2", headers=admin1_headers, json={"role": "ADMIN"})
+
+    deleted = client.delete("/api/v1/me", headers=admin1_headers)
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
+
+
 def test_user_memberships_lists_orgs_and_rejects_unknown_user(
     client: TestClient, owner_headers: Headers,
 ) -> None:
