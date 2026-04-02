@@ -92,6 +92,7 @@ projects = sa.Table(
     sa.Column("name", sa.Text, nullable=False),
     sa.Column("description", sa.Text),
     sa.Column("visibility", sa.Text, nullable=False, server_default="private"),
+    sa.Column("pending_transfer_to", sa.Uuid, sa.ForeignKey("accounts.id"), nullable=True),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("account_id", "name"),

@@ -83,6 +83,7 @@ class Project(_Base):
     name: str
     description: str | None
     visibility: str
+    pending_transfer_to: UUID | None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 

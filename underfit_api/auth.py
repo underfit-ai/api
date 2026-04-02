@@ -3,8 +3,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import os
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+from typing import Any
 
 PBKDF2_ITERATIONS = 310_000
 PBKDF2_DIGEST = "sha256"
@@ -43,3 +46,28 @@ def hash_password(password: str, iterations: int = PBKDF2_ITERATIONS, digest: st
 def verify_password(password: str, password_hash: str, password_salt: str, iterations: int, digest: str) -> bool:
     dk = hashlib.pbkdf2_hmac(digest, password.encode(), password_salt.encode(), iterations, dklen=32)
     return hmac.compare_digest(dk.hex(), password_hash)
+
+
+def create_signed_token(payload: dict[str, Any], expires_in: timedelta) -> str:
+    payload["exp"] = (datetime.now(timezone.utc) + expires_in).isoformat()
+    data = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    sig = hmac.new(get_app_secret(), data.encode(), hashlib.sha256).hexdigest()
+    return f"{data}.{sig}"
+
+
+def verify_signed_token(token: str) -> dict[str, Any] | None:
+    parts = token.split(".", 1)
+    if len(parts) != 2:
+        return None
+    data, sig = parts
+    expected_sig = hmac.new(get_app_secret(), data.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(data))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    exp = datetime.fromisoformat(payload["exp"])
+    if datetime.now(timezone.utc) > exp:
+        return None
+    return payload

@@ -59,6 +59,8 @@ def resolve_account_and_project(
         raise HTTPException(404, "Project not found")
     if project_name.lower() != project.name:
         raise AliasRedirectError("/projects", project_name.lower(), project.name)
+    if handle.lower() != project.owner:
+        raise AliasRedirectError("/accounts", handle.lower(), project.owner)
     require_project_viewer(conn, project.id, user.id if user else None)
     return account, project
 

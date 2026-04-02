@@ -16,6 +16,7 @@ _columns = [
     projects.c.name,
     projects.c.description,
     projects.c.visibility,
+    projects.c.pending_transfer_to,
     projects.c.created_at,
     projects.c.updated_at,
 ]
@@ -81,4 +82,21 @@ def update(
 
 def rename(conn: Connection, project_id: UUID, new_name: str) -> Project | None:
     conn.execute(projects.update().where(projects.c.id == project_id).values(name=new_name, updated_at=utcnow()))
+    return get_by_id(conn, project_id)
+
+
+def set_pending_transfer(conn: Connection, project_id: UUID, to_account_id: UUID | None) -> None:
+    conn.execute(
+        projects.update().where(projects.c.id == project_id)
+        .values(pending_transfer_to=to_account_id, updated_at=utcnow()),
+    )
+
+
+def transfer(conn: Connection, project_id: UUID, new_account_id: UUID, new_name: str) -> Project | None:
+    now = utcnow()
+    conn.execute(
+        projects.update().where(projects.c.id == project_id).values(
+            account_id=new_account_id, name=new_name, pending_transfer_to=None, updated_at=now,
+        ),
+    )
     return get_by_id(conn, project_id)
