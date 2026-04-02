@@ -26,7 +26,9 @@ def test_collaborators_for_user_owned_project(
     ).status_code == 200
 
     added = add_collaborator(owner_headers, project="proj")
-    assert added.json()["userId"] == str(outsider.id)
+    assert added.json()["id"] == str(outsider.id)
+    assert added.json()["collaboratorCreatedAt"]
+    assert added.json()["collaboratorUpdatedAt"]
 
     add_collaborator(owner_headers, project="proj", expected_status=409)
 
@@ -67,4 +69,6 @@ def test_collaborators_for_organization_owned_project(
 
     admin_added = client.put(collab_path, headers=admin_headers)
     assert admin_added.status_code == 200
-    assert admin_added.json()["userId"] == str(target.id)
+    assert admin_added.json()["id"] == str(target.id)
+    assert admin_added.json()["collaboratorCreatedAt"]
+    assert admin_added.json()["collaboratorUpdatedAt"]

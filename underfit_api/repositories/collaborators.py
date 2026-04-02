@@ -2,33 +2,27 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-import sqlalchemy as sa
-from sqlalchemy import Connection
+from sqlalchemy import Connection, select
 
 from underfit_api.helpers import utcnow
-from underfit_api.models import Collaborator, User
+from underfit_api.models import ProjectCollaborator
 from underfit_api.schema import accounts, collaborators, users
 
 _join = collaborators.join(users, collaborators.c.user_id == users.c.id).join(
     accounts, users.c.id == accounts.c.id,
 )
-_columns = [
-    users.c.id,
-    accounts.c.handle,
-    accounts.c.type,
-    users.c.email,
-    users.c.name,
-    users.c.bio,
-    users.c.created_at,
-    users.c.updated_at,
-]
 
 
-def list_by_project(conn: Connection, project_id: UUID) -> list[User]:
-    rows = conn.execute(
-        sa.select(*_columns).select_from(_join).where(collaborators.c.project_id == project_id),
-    ).all()
-    return [User.model_validate(row) for row in rows]
+def list_by_project(conn: Connection, project_id: UUID) -> list[ProjectCollaborator]:
+    stmt = select(
+        users,
+        accounts.c.handle,
+        accounts.c.type,
+        collaborators.c.created_at.label("collaborator_created_at"),
+        collaborators.c.updated_at.label("collaborator_updated_at"),
+    ).select_from(_join).where(collaborators.c.project_id == project_id)
+    rows = conn.execute(stmt).all()
+    return [ProjectCollaborator.model_validate(row) for row in rows]
 
 
 def get(conn: Connection, project_id: UUID, user_id: UUID) -> bool:
@@ -40,13 +34,15 @@ def get(conn: Connection, project_id: UUID, user_id: UUID) -> bool:
     return row is not None
 
 
-def add(conn: Connection, project_id: UUID, user_id: UUID) -> Collaborator:
+def add(conn: Connection, project_id: UUID, user_id: UUID) -> ProjectCollaborator:
     now = utcnow()
-    collab_id = uuid4()
     conn.execute(collaborators.insert().values(
-        id=collab_id, project_id=project_id, user_id=user_id, created_at=now, updated_at=now,
+        id=uuid4(), project_id=project_id, user_id=user_id, created_at=now, updated_at=now,
     ))
-    return Collaborator(id=collab_id, project_id=project_id, user_id=user_id, created_at=now, updated_at=now)
+    collabs = list_by_project(conn, project_id)
+    result = next((c for c in collabs if c.id == user_id), None)
+    assert result is not None
+    return result
 
 
 def remove(conn: Connection, project_id: UUID, user_id: UUID) -> None:

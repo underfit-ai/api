@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection
+from sqlalchemy import Connection, select
 
 from underfit_api.helpers import utcnow
 from underfit_api.models import Organization, OrganizationMember, UserMembership
@@ -73,7 +73,15 @@ def list_members(conn: Connection, org_id: UUID) -> list[OrganizationMember]:
     j = organization_members.join(users, organization_members.c.user_id == users.c.id).join(
         accounts, users.c.id == accounts.c.id,
     )
-    rows = conn.execute(j.select().where(organization_members.c.organization_id == org_id)).all()
+    stmt = select(
+        users,
+        accounts.c.handle,
+        accounts.c.type,
+        organization_members.c.role,
+        organization_members.c.created_at.label("membership_created_at"),
+        organization_members.c.updated_at.label("membership_updated_at"),
+    ).select_from(j).where(organization_members.c.organization_id == org_id)
+    rows = conn.execute(stmt).all()
     return [OrganizationMember.model_validate(row) for row in rows]
 
 

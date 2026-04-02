@@ -55,26 +55,14 @@ class ApiKeyWithToken(ApiKey):
     token: str
 
 
-class OrganizationMember(_Base):
-    id: UUID
-    handle: str
-    type: str
-    email: str
-    name: str
-    bio: str | None
+class OrganizationMember(User):
     role: str
-    created_at: UTCDatetime
-    updated_at: UTCDatetime
+    membership_created_at: UTCDatetime
+    membership_updated_at: UTCDatetime
 
 
-class UserMembership(_Base):
-    id: UUID
-    handle: str
-    type: str
-    name: str
+class UserMembership(Organization):
     role: str
-    created_at: UTCDatetime
-    updated_at: UTCDatetime
 
 
 class Project(_Base):
@@ -141,12 +129,9 @@ class AuthResponse(_Base):
     session: Session
 
 
-class Collaborator(_Base):
-    id: UUID
-    project_id: UUID
-    user_id: UUID
-    created_at: UTCDatetime
-    updated_at: UTCDatetime
+class ProjectCollaborator(User):
+    collaborator_created_at: UTCDatetime
+    collaborator_updated_at: UTCDatetime
 
 
 Account = Union[User, Organization]

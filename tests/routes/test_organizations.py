@@ -49,6 +49,11 @@ def test_member_can_remove_self(
     added = client.put("/api/v1/organizations/core/members/member", headers=owner_headers, json={})
     assert added.status_code == 200
     assert added.json()["role"] == "MEMBER"
+    assert added.json()["id"] == str(member.id)
+    assert added.json()["createdAt"]
+    assert added.json()["updatedAt"]
+    assert added.json()["membershipCreatedAt"]
+    assert added.json()["membershipUpdatedAt"]
 
     removed = client.delete("/api/v1/organizations/core/members/member", headers=member_headers)
     assert removed.status_code == 200
