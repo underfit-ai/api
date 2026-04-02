@@ -17,16 +17,17 @@ import underfit_api.storage as storage_mod
 from underfit_api.auth import get_app_secret
 from underfit_api.buffer import log_buffer, scalar_buffer
 from underfit_api.config import config
+from underfit_api.routes.account_avatars import router as account_avatars_router
 from underfit_api.routes.accounts import router as accounts_router
 from underfit_api.routes.api_keys import router as api_keys_router
 from underfit_api.routes.artifacts import router as artifacts_router
 from underfit_api.routes.auth import router as auth_router
-from underfit_api.routes.avatars import router as avatars_router
-from underfit_api.routes.collaborators import router as collaborators_router
 from underfit_api.routes.files import router as files_router
 from underfit_api.routes.logs import router as logs_router
 from underfit_api.routes.media import router as media_router
+from underfit_api.routes.organization_members import router as org_members_router
 from underfit_api.routes.organizations import router as orgs_router
+from underfit_api.routes.project_collaborators import router as project_collaborators_router
 from underfit_api.routes.projects import router as projects_router
 from underfit_api.routes.resolvers import AliasRedirectError
 from underfit_api.routes.runs import router as runs_router
@@ -98,8 +99,9 @@ api.include_router(accounts_router)
 api.include_router(api_keys_router)
 api.include_router(artifacts_router)
 api.include_router(auth_router)
-api.include_router(avatars_router)
-api.include_router(collaborators_router)
+api.include_router(account_avatars_router)
+api.include_router(org_members_router)
+api.include_router(project_collaborators_router)
 api.include_router(files_router)
 api.include_router(logs_router)
 api.include_router(media_router)

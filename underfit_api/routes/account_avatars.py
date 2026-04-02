@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from PIL import Image
 
 from underfit_api.dependencies import Conn, CurrentUser
-from underfit_api.repositories import avatars as avatars_repo
+from underfit_api.repositories import account_avatars as account_avatars_repo
 from underfit_api.routes.resolvers import resolve_account
 
 router = APIRouter()
@@ -21,7 +21,7 @@ JPEG_QUALITY = 82
 @router.get("/accounts/{handle}/avatar")
 def get_avatar(handle: str, conn: Conn) -> Response:
     account = resolve_account(conn, handle)
-    if (image := avatars_repo.get(conn, account.id)) is None:
+    if (image := account_avatars_repo.get(conn, account.id)) is None:
         raise HTTPException(404, "Avatar not found")
     return Response(content=image, media_type="image/jpeg")
 
@@ -34,13 +34,13 @@ async def upload_avatar(request: Request, conn: Conn, user: CurrentUser) -> dict
     if not body:
         raise HTTPException(400, "No image provided")
     image = _process_image(body)
-    avatars_repo.upsert(conn, user.id, image)
+    account_avatars_repo.upsert(conn, user.id, image)
     return {"status": "ok"}
 
 
 @router.delete("/me/avatar")
 def delete_avatar(conn: Conn, user: CurrentUser) -> dict[str, str]:
-    avatars_repo.delete(conn, user.id)
+    account_avatars_repo.delete(conn, user.id)
     return {"status": "ok"}
 
 

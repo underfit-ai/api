@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from underfit_api.dependencies import Conn, CurrentUser
 from underfit_api.models import User, UserMembership
 from underfit_api.repositories import accounts as accounts_repo
-from underfit_api.repositories import organizations as organizations_repo
+from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import users as users_repo
 
 router = APIRouter()
@@ -42,7 +42,7 @@ def update_me(body: UpdateMeBody, conn: Conn, user: CurrentUser) -> User:
 
 @router.delete("/me")
 def delete_me(conn: Conn, user: CurrentUser) -> dict[str, bool]:
-    if organizations_repo.is_sole_admin_anywhere(conn, user.id):
+    if organization_members_repo.is_sole_admin_anywhere(conn, user.id):
         raise HTTPException(400, "Cannot delete account while you are the only admin of an organization")
     accounts_repo.delete(conn, user.id)
     return {"ok": True}
@@ -59,4 +59,4 @@ def search_users(conn: Conn, user: CurrentUser, query: Annotated[str, Query()] =
 def list_user_memberships(handle: str, conn: Conn) -> list[UserMembership]:
     if not (user := users_repo.get_by_handle(conn, handle)):
         raise HTTPException(404, "User not found")
-    return organizations_repo.list_user_memberships(conn, user.id)
+    return organization_members_repo.list_user_memberships(conn, user.id)

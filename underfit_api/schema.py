@@ -10,6 +10,24 @@ accounts = sa.Table(
     sa.Column("type", sa.Text, nullable=False, server_default="USER"),
 )
 
+account_aliases = sa.Table(
+    "account_aliases",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("handle", sa.Text, nullable=False, unique=True),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+)
+
+account_avatars = sa.Table(
+    "account_avatars",
+    metadata,
+    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("image", sa.LargeBinary, nullable=False),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+    sa.Column("updated_at", sa.DateTime, nullable=False),
+)
+
 users = sa.Table(
     "users",
     metadata,
@@ -55,15 +73,6 @@ api_keys = sa.Table(
     sa.Column("created_at", sa.DateTime, nullable=False),
 )
 
-account_avatars = sa.Table(
-    "account_avatars",
-    metadata,
-    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True),
-    sa.Column("image", sa.LargeBinary, nullable=False),
-    sa.Column("created_at", sa.DateTime, nullable=False),
-    sa.Column("updated_at", sa.DateTime, nullable=False),
-)
-
 organizations = sa.Table(
     "organizations",
     metadata,
@@ -99,8 +108,19 @@ projects = sa.Table(
     sa.CheckConstraint("visibility IN ('private', 'public')"),
 )
 
-collaborators = sa.Table(
-    "collaborators",
+project_aliases = sa.Table(
+    "project_aliases",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("project_id", sa.Uuid, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("created_at", sa.DateTime, nullable=False),
+    sa.UniqueConstraint("account_id", "name"),
+)
+
+project_collaborators = sa.Table(
+    "project_collaborators",
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("project_id", sa.Uuid, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
@@ -180,26 +200,6 @@ artifacts = sa.Table(
     sa.CheckConstraint("status IN ('open', 'finalized')"),
     sa.CheckConstraint("run_id IS NOT NULL OR step IS NULL"),
     sa.CheckConstraint("uploaded_file_count >= 0 AND uploaded_file_count <= declared_file_count"),
-)
-
-account_aliases = sa.Table(
-    "account_aliases",
-    metadata,
-    sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("handle", sa.Text, nullable=False, unique=True),
-    sa.Column("created_at", sa.DateTime, nullable=False),
-)
-
-project_aliases = sa.Table(
-    "project_aliases",
-    metadata,
-    sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("project_id", sa.Uuid, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("name", sa.Text, nullable=False),
-    sa.Column("created_at", sa.DateTime, nullable=False),
-    sa.UniqueConstraint("account_id", "name"),
 )
 
 media = sa.Table(

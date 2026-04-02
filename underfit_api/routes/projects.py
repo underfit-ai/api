@@ -13,7 +13,7 @@ from underfit_api.email import send_email
 from underfit_api.models import Project
 from underfit_api.permissions import can_view_project, require_account_admin
 from underfit_api.repositories import accounts as accounts_repo
-from underfit_api.repositories import collaborators as collaborators_repo
+from underfit_api.repositories import project_collaborators as project_collaborators_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
@@ -187,8 +187,8 @@ def accept_transfer(body: AcceptTransferBody, conn: Conn, user: CurrentUser) -> 
         projects_repo.create_alias(conn, project.id, old_account.id, project.name)
     projects_repo.create_alias(conn, project.id, payload.to_account_id, new_name)
 
-    if collaborators_repo.get(conn, project.id, user.id):
-        collaborators_repo.remove(conn, project.id, user.id)
+    if project_collaborators_repo.get(conn, project.id, user.id):
+        project_collaborators_repo.remove(conn, project.id, user.id)
 
     result = projects_repo.transfer(conn, payload.project_id, payload.to_account_id, new_name)
     assert result is not None

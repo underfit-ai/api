@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import underfit_api.db as db
 from tests.conftest import AddCollaborator, CreateUser, Headers, SessionForUser
-from underfit_api.repositories import organizations as organizations_repo
+from underfit_api.repositories import organization_members as organization_members_repo
 
 
 def test_collaborators_for_user_owned_project(
@@ -59,7 +59,7 @@ def test_collaborators_for_organization_owned_project(
     org_id = UUID(created_org.json()["id"])
 
     with db.engine.begin() as conn:
-        organizations_repo.add_member(conn, org_id, member.id, "MEMBER")
+        organization_members_repo.add_member(conn, org_id, member.id, "MEMBER")
 
     project_payload = {"name": "proj", "visibility": "private"}
     assert client.post("/api/v1/accounts/org/projects", headers=admin_headers, json=project_payload).status_code == 200

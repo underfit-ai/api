@@ -6,8 +6,8 @@ from fastapi import HTTPException
 from sqlalchemy import Connection
 
 from underfit_api.repositories import accounts as accounts_repo
-from underfit_api.repositories import collaborators as collaborators_repo
-from underfit_api.repositories import organizations as organizations_repo
+from underfit_api.repositories import organization_members as organization_members_repo
+from underfit_api.repositories import project_collaborators as project_collaborators_repo
 from underfit_api.repositories import projects as projects_repo
 
 
@@ -22,7 +22,7 @@ def _project_info(conn: Connection, project_id: UUID) -> tuple[str, UUID, str]:
 def require_account_admin(conn: Connection, account_id: UUID, account_type: str, user_id: UUID) -> None:
     if account_type == "USER" and account_id == user_id:
         return
-    if account_type == "ORGANIZATION" and organizations_repo.is_admin(conn, account_id, user_id):
+    if account_type == "ORGANIZATION" and organization_members_repo.is_admin(conn, account_id, user_id):
         return
     raise HTTPException(403, "Forbidden")
 
@@ -38,9 +38,9 @@ def require_project_contributor(
         _, account_id, account_type = _project_info(conn, project_id)
     if account_type == "USER" and account_id == user_id:
         return
-    if account_type == "ORGANIZATION" and organizations_repo.is_admin(conn, account_id, user_id):
+    if account_type == "ORGANIZATION" and organization_members_repo.is_admin(conn, account_id, user_id):
         return
-    if collaborators_repo.get(conn, project_id, user_id):
+    if project_collaborators_repo.get(conn, project_id, user_id):
         return
     raise HTTPException(403, "Forbidden")
 
@@ -61,6 +61,6 @@ def can_view_project(conn: Connection, project_id: UUID, user_id: UUID | None) -
         return False
     if account_type == "USER" and account_id == user_id:
         return True
-    if account_type == "ORGANIZATION" and organizations_repo.is_admin(conn, account_id, user_id):
+    if account_type == "ORGANIZATION" and organization_members_repo.is_admin(conn, account_id, user_id):
         return True
-    return collaborators_repo.get(conn, project_id, user_id)
+    return project_collaborators_repo.get(conn, project_id, user_id)
