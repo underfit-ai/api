@@ -39,6 +39,13 @@ def update_me(body: UpdateMeBody, conn: Conn, user: CurrentUser) -> User:
     return updated
 
 
+@router.get("/users/search")
+def search_users(conn: Conn, user: CurrentUser, query: Annotated[str, Query()] = "") -> list[User]:
+    if not query:
+        raise HTTPException(400, "Missing query")
+    return users_repo.search(conn, query)
+
+
 @router.get("/users/{handle}/memberships")
 def list_user_memberships(handle: str, conn: Conn) -> list[UserMembership]:
     if not (user := users_repo.get_by_handle(conn, handle)):

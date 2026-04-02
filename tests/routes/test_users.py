@@ -18,6 +18,55 @@ def test_email_exists_requires_email_and_checks_presence(client: TestClient, cre
     assert absent.json() == {"exists": False}
 
 
+def test_user_search_requires_auth(client: TestClient) -> None:
+    response = client.get("/api/v1/users/search", params={"query": "Ada"})
+    assert response.status_code == 401
+
+
+def test_user_search_requires_query(
+    client: TestClient, create_user: CreateUser, session_for_user: SessionForUser,
+) -> None:
+    user = create_user(email="actor@example.com", handle="actor", name="Actor")
+    headers = session_for_user(user)
+
+    response = client.get("/api/v1/users/search", headers=headers)
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "Missing query"}
+
+
+def test_user_search_by_name_and_handle_prefix(
+    client: TestClient, create_user: CreateUser, session_for_user: SessionForUser,
+) -> None:
+    actor = create_user(email="actor@example.com", handle="actor", name="Actor")
+    headers = session_for_user(actor)
+
+    create_user(email="ada@example.com", handle="ada", name="Ada")
+    create_user(email="adal@example.com", handle="adal", name="Ada Lovelace")
+    create_user(email="adalong@example.com", handle="adalong", name="Someone")
+
+    response = client.get("/api/v1/users/search", headers=headers, params={"query": "Ada"})
+
+    assert response.status_code == 200
+    assert [user["handle"] for user in response.json()] == ["ada", "adal", "adalong"]
+
+
+def test_user_search_by_email_prefix(
+    client: TestClient, create_user: CreateUser, session_for_user: SessionForUser,
+) -> None:
+    actor = create_user(email="actor@example.com", handle="actor", name="Actor")
+    headers = session_for_user(actor)
+
+    create_user(email="ada@example.com", handle="ada", name="Ada")
+    create_user(email="ada@other.com", handle="ada2", name="Ada Two")
+    create_user(email="adal@example.com", handle="adal", name="Ada L")
+
+    response = client.get("/api/v1/users/search", headers=headers, params={"query": "ada@"})
+
+    assert response.status_code == 200
+    assert [user["email"] for user in response.json()] == ["ada@example.com", "ada@other.com"]
+
+
 def test_update_me_updates_profile(
     client: TestClient, create_user: CreateUser, session_for_user: SessionForUser,
 ) -> None:
