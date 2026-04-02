@@ -7,10 +7,8 @@ from fastapi import HTTPException
 from underfit_api.dependencies import Conn
 from underfit_api.models import Account, Artifact, Organization, Project, Run, User
 from underfit_api.permissions import require_project_viewer
-from underfit_api.repositories import account_aliases as account_aliases_repo
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import artifacts as artifacts_repo
-from underfit_api.repositories import project_aliases as project_aliases_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 
@@ -23,7 +21,7 @@ class AliasRedirectError(Exception):
 
 
 def resolve_account(conn: Conn, handle: str) -> Account:
-    alias = account_aliases_repo.get_by_handle(conn, handle)
+    alias = accounts_repo.get_alias_by_handle(conn, handle)
     if not alias:
         raise HTTPException(404, "Account not found")
     account = accounts_repo.get_by_id(conn, alias.account_id)
@@ -35,7 +33,7 @@ def resolve_account(conn: Conn, handle: str) -> Account:
 
 
 def resolve_organization(conn: Conn, handle: str) -> Organization:
-    alias = account_aliases_repo.get_by_handle(conn, handle)
+    alias = accounts_repo.get_alias_by_handle(conn, handle)
     if not alias:
         raise HTTPException(404, "Organization not found")
     account = accounts_repo.get_by_id(conn, alias.account_id)
@@ -51,7 +49,7 @@ def resolve_account_and_project(
     conn: Conn, handle: str, project_name: str, user: User | None = None,
 ) -> tuple[Account, Project]:
     account = resolve_account(conn, handle)
-    alias = project_aliases_repo.get_by_account_and_name(conn, account.id, project_name)
+    alias = projects_repo.get_alias_by_account_and_name(conn, account.id, project_name)
     if not alias:
         raise HTTPException(404, "Project not found")
     project = projects_repo.get_by_id(conn, alias.project_id)

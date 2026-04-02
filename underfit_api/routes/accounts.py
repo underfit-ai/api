@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 from underfit_api.dependencies import Conn, CurrentUser
 from underfit_api.models import Account
 from underfit_api.permissions import require_account_admin
-from underfit_api.repositories import account_aliases as account_aliases_repo
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.routes.resolvers import resolve_account
 
@@ -21,7 +20,7 @@ class RenameAccountBody(BaseModel):
 
 @router.get("/{handle}/exists")
 def account_exists(handle: str, conn: Conn) -> dict[str, bool]:
-    return {"exists": account_aliases_repo.handle_exists(conn, handle)}
+    return {"exists": accounts_repo.alias_handle_exists(conn, handle)}
 
 
 @router.get("/{handle}")
@@ -34,10 +33,10 @@ def rename_account(handle: str, body: RenameAccountBody, conn: Conn, user: Curre
     account = resolve_account(conn, handle)
     require_account_admin(conn, account.id, account.type, user.id)
     new_handle = body.handle.lower()
-    if account_aliases_repo.handle_exists(conn, new_handle):
+    if accounts_repo.alias_handle_exists(conn, new_handle):
         raise HTTPException(409, "Handle already exists")
     accounts_repo.rename(conn, account.id, new_handle)
-    account_aliases_repo.create(conn, account.id, new_handle)
+    accounts_repo.create_alias(conn, account.id, new_handle)
     result = accounts_repo.get_by_id(conn, account.id)
     assert result is not None
     return result

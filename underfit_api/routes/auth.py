@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import re
-from datetime import timezone
+from datetime import timedelta, timezone
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import AfterValidator, BaseModel, Field
 
-from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, hash_password
+from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, create_signed_token, hash_password, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.email import send_email
 from underfit_api.models import AuthResponse, Session
-from underfit_api.repositories import account_aliases as account_aliases_repo
-from underfit_api.repositories import password_resets as password_resets_repo
+from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import user_auth as user_auth_repo
 from underfit_api.repositories import users as users_repo
@@ -22,6 +22,7 @@ from underfit_api.repositories.sessions import SESSION_TTL_DAYS
 router = APIRouter(prefix="/auth")
 
 SESSION_TTL_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60
+RESET_TOKEN_TTL = timedelta(minutes=30)
 
 
 def _validate_password(v: str) -> str:
@@ -78,13 +79,13 @@ class ResetPasswordBody(BaseModel):
 @router.post("/register")
 def register(body: RegisterBody, response: Response, request: Request, conn: Conn) -> AuthResponse:
     handle_lower = body.handle.lower()
-    if account_aliases_repo.handle_exists(conn, handle_lower):
+    if accounts_repo.alias_handle_exists(conn, handle_lower):
         raise HTTPException(409, "Handle already exists")
     if users_repo.email_exists(conn, body.email):
         raise HTTPException(409, "Email already exists")
 
     user = users_repo.create(conn, body.email, handle_lower, body.handle)
-    account_aliases_repo.create(conn, user.id, handle_lower)
+    accounts_repo.create_alias(conn, user.id, handle_lower)
     pw_hash, pw_salt = hash_password(body.password)
     user_auth_repo.create(conn, user.id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
 
@@ -112,7 +113,8 @@ def forgot_password(body: ForgotPasswordBody, conn: Conn) -> dict[str, str]:
     elif not config.frontend_url:
         raise HTTPException(400, "Frontend URL is not configured")
     elif user := users_repo.get_by_email(conn, body.email):
-        token = password_resets_repo.create(conn, user.id)
+        pw_prefix = user_auth_repo.get_password_hash_prefix(conn, user.id)
+        token = create_signed_token({"user_id": str(user.id), "pw": pw_prefix}, RESET_TOKEN_TTL)
         base_url = config.frontend_url.rstrip("/")
         reset_url = f"{base_url}/reset-password?token={token}"
         send_email(
@@ -126,11 +128,14 @@ def forgot_password(body: ForgotPasswordBody, conn: Conn) -> dict[str, str]:
 
 @router.post("/reset-password")
 def reset_password(body: ResetPasswordBody, conn: Conn) -> dict[str, str]:
-    if not (user_id := password_resets_repo.get_user_id(conn, body.token)):
+    payload = verify_signed_token(body.token)
+    if not payload:
+        raise HTTPException(400, "Invalid or expired reset token")
+    user_id = UUID(payload["user_id"])
+    if user_auth_repo.get_password_hash_prefix(conn, user_id) != payload["pw"]:
         raise HTTPException(400, "Invalid or expired reset token")
     pw_hash, pw_salt = hash_password(body.password)
     user_auth_repo.update_password(conn, user_id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
-    password_resets_repo.delete(conn, body.token)
     return {"status": "ok"}
 
 

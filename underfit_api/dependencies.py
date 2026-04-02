@@ -9,7 +9,7 @@ from underfit_api.auth import hash_token
 from underfit_api.config import config
 from underfit_api.db import get_conn
 from underfit_api.models import User
-from underfit_api.repositories import account_aliases as account_aliases_repo
+from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import api_keys as api_keys_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
@@ -23,7 +23,7 @@ def _get_local_user(conn: Connection) -> User:
     if existing := users_repo.get_by_email(conn, "local@underfit.local"):
         return existing
     user = users_repo.create(conn, "local@underfit.local", "local", "Local User")
-    account_aliases_repo.create(conn, user.id, "local")
+    accounts_repo.create_alias(conn, user.id, "local")
     return user
 
 

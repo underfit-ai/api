@@ -14,7 +14,6 @@ from underfit_api.models import Project
 from underfit_api.permissions import can_view_project, require_account_admin
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import collaborators as collaborators_repo
-from underfit_api.repositories import project_aliases as project_aliases_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
@@ -59,10 +58,10 @@ def create_project(handle: str, body: CreateProjectBody, conn: Conn, user: Curre
     if body.visibility not in ("private", "public"):
         raise HTTPException(400, "Invalid visibility")
     name_lower = body.name.lower()
-    if project_aliases_repo.name_exists(conn, account.id, name_lower):
+    if projects_repo.alias_name_exists(conn, account.id, name_lower):
         raise HTTPException(409, "Project already exists")
     project = projects_repo.create(conn, account.id, name_lower, body.description, body.visibility)
-    project_aliases_repo.create(conn, project.id, account.id, name_lower)
+    projects_repo.create_alias(conn, project.id, account.id, name_lower)
     return project
 
 
@@ -91,9 +90,9 @@ def rename_project(
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     new_name = body.name.lower()
-    if project_aliases_repo.name_exists(conn, account.id, new_name):
+    if projects_repo.alias_name_exists(conn, account.id, new_name):
         raise HTTPException(409, "Project name already exists")
-    project_aliases_repo.create(conn, project.id, account.id, new_name)
+    projects_repo.create_alias(conn, project.id, account.id, new_name)
     result = projects_repo.rename(conn, project.id, new_name)
     assert result is not None
     return result
@@ -179,14 +178,14 @@ def accept_transfer(body: AcceptTransferBody, conn: Conn, user: CurrentUser) -> 
         raise HTTPException(400, "Transfer has been cancelled")
 
     new_name = (body.new_name or project.name).lower()
-    if project_aliases_repo.name_exists(conn, payload.to_account_id, new_name):
+    if projects_repo.alias_name_exists(conn, payload.to_account_id, new_name):
         raise HTTPException(409, "You already have a project with that name")
 
     old_account = accounts_repo.get_by_handle(conn, project.owner)
     assert old_account is not None
-    if not project_aliases_repo.name_exists(conn, old_account.id, project.name):
-        project_aliases_repo.create(conn, project.id, old_account.id, project.name)
-    project_aliases_repo.create(conn, project.id, payload.to_account_id, new_name)
+    if not projects_repo.alias_name_exists(conn, old_account.id, project.name):
+        projects_repo.create_alias(conn, project.id, old_account.id, project.name)
+    projects_repo.create_alias(conn, project.id, payload.to_account_id, new_name)
 
     if collaborators_repo.get(conn, project.id, user.id):
         collaborators_repo.remove(conn, project.id, user.id)

@@ -6,18 +6,15 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-import underfit_api.db as db
 from tests.conftest import RegisterUser
 from underfit_api.config import EmailConfig, config
-from underfit_api.helpers import utcnow
-from underfit_api.schema import password_reset_tokens
 
 
 def _request_reset(client: TestClient, email: str = "sam@example.com") -> str:
     with patch("underfit_api.routes.auth.send_email") as mock_send:
         client.post("/api/v1/auth/forgot-password", json={"email": email})
     body = mock_send.call_args[1]["body"]
-    match = re.search(r"token=([A-Za-z0-9_-]+={0,2})", body)
+    match = re.search(r"token=([A-Za-z0-9_=-]+\.[a-f0-9]+)", body)
     assert match
     return match.group(1)
 
@@ -78,10 +75,8 @@ def test_reset_password_expired_token(client: TestClient, register_user: Registe
     config.email = EmailConfig()
     register_user(email="sam@example.com", handle="sam")
 
-    token = _request_reset(client)
-
-    with db.engine.begin() as conn:
-        conn.execute(password_reset_tokens.update().values(expires_at=utcnow() - timedelta(minutes=1)))
+    with patch("underfit_api.routes.auth.RESET_TOKEN_TTL", timedelta(seconds=-1)):
+        token = _request_reset(client)
 
     response = client.post("/api/v1/auth/reset-password", json={"token": token, "password": "newpassword1"})
     assert response.status_code == 400
@@ -100,17 +95,3 @@ def test_reset_password_token_is_single_use(client: TestClient, register_user: R
     assert second.status_code == 400
 
 
-def test_forgot_password_replaces_old_token(client: TestClient, register_user: RegisterUser) -> None:
-    config.email = EmailConfig()
-    register_user(email="sam@example.com", handle="sam")
-
-    first_token = _request_reset(client)
-    second_token = _request_reset(client)
-
-    assert first_token != second_token
-
-    old = client.post("/api/v1/auth/reset-password", json={"token": first_token, "password": "newpassword1"})
-    assert old.status_code == 400
-
-    new = client.post("/api/v1/auth/reset-password", json={"token": second_token, "password": "newpassword1"})
-    assert new.status_code == 200

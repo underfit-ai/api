@@ -20,6 +20,11 @@ def verify(conn: Connection, user_id: UUID, password: str) -> bool:
     ) if row else False
 
 
+def get_password_hash_prefix(conn: Connection, user_id: UUID, length: int = 8) -> str | None:
+    row = conn.execute(user_auth.select().where(user_auth.c.id == user_id)).first()
+    return row.password_hash[:length] if row else None
+
+
 def update_password(
     conn: Connection,
     user_id: UUID,

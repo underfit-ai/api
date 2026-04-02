@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from underfit_api.dependencies import Conn, CurrentUser
 from underfit_api.models import Organization, OrganizationMember
-from underfit_api.repositories import account_aliases as account_aliases_repo
+from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_organization
@@ -29,10 +29,10 @@ class UpdateMemberBody(BaseModel):
 @router.post("", status_code=201)
 def create_organization(body: CreateOrgBody, conn: Conn, user: CurrentUser) -> Organization:
     handle_lower = body.handle.lower()
-    if account_aliases_repo.handle_exists(conn, handle_lower):
+    if accounts_repo.alias_handle_exists(conn, handle_lower):
         raise HTTPException(409, "Handle already exists")
     org = organizations_repo.create(conn, handle_lower, body.name)
-    account_aliases_repo.create(conn, org.id, handle_lower)
+    accounts_repo.create_alias(conn, org.id, handle_lower)
     organizations_repo.add_member(conn, org.id, user.id, "ADMIN")
     return org
 
