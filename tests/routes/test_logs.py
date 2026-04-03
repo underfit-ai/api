@@ -5,10 +5,17 @@ from fastapi.testclient import TestClient
 from tests.conftest import AddCollaborator, Headers
 
 
+def _add_worker(client: TestClient, logs_url: str, headers: dict[str, str], worker_id: str) -> None:
+    workers_url = logs_url.rsplit("/", 1)[0] + "/workers"
+    resp = client.post(workers_url, headers=headers, json={"workerId": worker_id})
+    assert resp.status_code == 200
+
+
 def test_write_read_and_flush_logs(
     client: TestClient, logs_setup: tuple[Headers, str],
 ) -> None:
     headers, logs_url = logs_setup
+    _add_worker(client, logs_url, headers, "worker-1")
     lines = [
         {"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"},
         {"timestamp": "2025-01-01T00:00:01+00:00", "content": "world"},
@@ -42,6 +49,7 @@ def test_logs_reject_out_of_order_start_line(
     client: TestClient, logs_setup: tuple[Headers, str],
 ) -> None:
     headers, logs_url = logs_setup
+    _add_worker(client, logs_url, headers, "worker-1")
     payload = {"worker_id": "worker-1", "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"}]}
     world_line = {"timestamp": "2025-01-01T00:00:01+00:00", "content": "world"}
 
@@ -52,6 +60,17 @@ def test_logs_reject_out_of_order_start_line(
     assert duplicate.status_code == 409
 
 
+def test_logs_reject_unregistered_worker(
+    client: TestClient, logs_setup: tuple[Headers, str],
+) -> None:
+    headers, logs_url = logs_setup
+    resp = client.post(logs_url, headers=headers, json={
+        "worker_id": "unknown", "start_line": 0,
+        "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "hi"}],
+    })
+    assert resp.status_code == 404
+
+
 def test_logs_require_project_access(
     client: TestClient,
     logs_setup: tuple[Headers, str],
@@ -59,6 +78,7 @@ def test_logs_require_project_access(
     add_collaborator: AddCollaborator,
 ) -> None:
     owner_headers, logs_url = logs_setup
+    _add_worker(client, logs_url, owner_headers, "w")
     hi_line = {"timestamp": "2025-01-01T00:00:00+00:00", "content": "hi"}
 
     assert client.post(

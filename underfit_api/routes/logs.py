@@ -12,6 +12,7 @@ from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import UTCDatetime
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import log_segments as log_seg_repo
+from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.routes.resolvers import resolve_run
 
 router = APIRouter()
@@ -40,15 +41,17 @@ def write_logs(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
+    if not (worker := workers_repo.get(conn, run.id, body.worker_id)):
+        raise HTTPException(404, "Worker not found")
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if not body.lines:
         return {"status": "buffered"}
     parsed = [LogLine(timestamp=ln.timestamp, content=ln.content) for ln in body.lines]
-    expected = log_buffer.append(conn, run.id, body.worker_id, body.start_line, parsed)
+    expected = log_buffer.append(conn, worker.id, run.id, body.worker_id, body.start_line, parsed)
     if expected is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    log_buffer.flush_if_needed(conn, storage_mod.storage, run.id, body.worker_id)
+    log_buffer.flush_if_needed(conn, storage_mod.storage, worker.id)
     return {"status": "buffered"}
 
 
@@ -58,7 +61,9 @@ def flush_logs(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    log_buffer.flush(conn, storage_mod.storage, run.id, body.worker_id)
+    if not (worker := workers_repo.get(conn, run.id, body.worker_id)):
+        raise HTTPException(404, "Worker not found")
+    log_buffer.flush(conn, storage_mod.storage, worker.id)
     return {"status": "flushed"}
 
 
@@ -74,8 +79,10 @@ def read_logs(
     count: Annotated[int, Query()] = 10000,
 ) -> dict[str, object]:
     run = resolve_run(conn, handle, project_name, run_name, user)
+    if not (worker := workers_repo.get(conn, run.id, worker_id)):
+        raise HTTPException(404, "Worker not found")
     entries: list[dict[str, object]] = []
-    segments = log_seg_repo.list_for_range(conn, run.id, worker_id, cursor, count)
+    segments = log_seg_repo.list_for_range(conn, worker.id, cursor, count)
     for seg in segments:
         data = storage_mod.storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
         all_lines = data.decode().splitlines()
@@ -90,7 +97,7 @@ def read_logs(
             "startAt": seg.start_at.isoformat() + "Z",
             "endAt": seg.end_at.isoformat() + "Z",
         })
-    if not entries and (buffered := log_buffer.read_buffered(run.id, worker_id, cursor, count)):
+    if not entries and (buffered := log_buffer.read_buffered(worker.id, cursor, count)):
         entries.append({
             "startLine": cursor,
             "endLine": cursor + len(buffered),
@@ -100,5 +107,5 @@ def read_logs(
         })
     last_end = entries[-1]["endLine"] if entries else cursor
     next_cursor = last_end if isinstance(last_end, int) else cursor
-    has_more = bool(entries) and next_cursor < log_buffer.get_end_line(conn, run.id, worker_id)
+    has_more = bool(entries) and next_cursor < log_buffer.get_end_line(conn, worker.id)
     return {"entries": entries, "nextCursor": next_cursor, "hasMore": has_more}

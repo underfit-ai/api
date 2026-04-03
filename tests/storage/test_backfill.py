@@ -11,7 +11,17 @@ from sqlalchemy import select
 
 import underfit_api.db as db
 from underfit_api.config import BackfillConfig, BufferConfig, FileStorageConfig, config
-from underfit_api.schema import accounts, artifacts, log_segments, media, projects, runs, scalar_segments, users
+from underfit_api.schema import (
+    accounts,
+    artifacts,
+    log_segments,
+    media,
+    projects,
+    run_workers,
+    runs,
+    scalar_segments,
+    users,
+)
 from underfit_api.storage.backfill import BackfillService
 from underfit_api.storage.file import FileStorage
 
@@ -38,6 +48,10 @@ def _write_json(storage: FileStorage, key: str, data: object) -> None:
 
 def _write_text(storage: FileStorage, key: str, data: str) -> None:
     storage.write(key, data.encode())
+
+
+_log_join = log_segments.join(run_workers, log_segments.c.run_worker_id == run_workers.c.id)
+_scalar_join = scalar_segments.join(run_workers, scalar_segments.c.run_worker_id == run_workers.c.id)
 
 
 def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -72,7 +86,9 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
 
         with db.engine.begin() as conn:
             run_rows = conn.execute(select(runs).where(runs.c.id == run_id)).all()
-            log_rows = conn.execute(select(log_segments).where(log_segments.c.run_id == run_id)).all()
+            log_rows = conn.execute(
+                select(log_segments).select_from(_log_join).where(run_workers.c.run_id == run_id),
+            ).all()
 
         assert len(run_rows) == 1
         assert run_rows[0].name == "rt-run"
@@ -119,13 +135,12 @@ def test_backfill_ingests_run_logs_and_scalars() -> None:
     )
 
     assert len(log_rows) == len(scalar_rows) == 1
-    assert (log_rows[0].run_id, log_rows[0].worker_id) == (run_id, "worker-1")
     assert (log_rows[0].start_line, log_rows[0].end_line, log_rows[0].byte_offset, log_rows[0].byte_count) == (
         0, 2, 0, len(log_content.encode()),
     )
 
     scalar = scalar_rows[0]
-    assert (scalar.run_id, scalar.resolution, scalar.start_line, scalar.end_line) == (run_id, 0, 0, 2)
+    assert (scalar.resolution, scalar.start_line, scalar.end_line) == (0, 0, 2)
     assert (scalar.start_at.isoformat(), scalar.end_at.isoformat()) == (
         "2025-01-01T00:00:00", "2025-01-01T00:00:01",
     )
@@ -152,10 +167,12 @@ def test_backfill_appends_without_duplicate_segments() -> None:
 
     with db.engine.begin() as conn:
         log_rows = conn.execute(
-            select(log_segments).where(log_segments.c.run_id == run_id, log_segments.c.worker_id == "worker-1"),
+            select(log_segments).select_from(_log_join)
+            .where(run_workers.c.run_id == run_id, run_workers.c.worker_id == "worker-1"),
         ).all()
         scalar_rows = conn.execute(
-            select(scalar_segments).where(scalar_segments.c.run_id == run_id, scalar_segments.c.resolution == 0),
+            select(scalar_segments).select_from(_scalar_join)
+            .where(run_workers.c.run_id == run_id, scalar_segments.c.resolution == 0),
         ).all()
 
     assert len(log_rows) == len(scalar_rows) == 1
@@ -189,10 +206,12 @@ def test_backfill_rebuilds_segments_after_truncation() -> None:
 
     with db.engine.begin() as conn:
         log_rows = conn.execute(
-            select(log_segments).where(log_segments.c.run_id == run_id, log_segments.c.worker_id == "worker-1"),
+            select(log_segments).select_from(_log_join)
+            .where(run_workers.c.run_id == run_id, run_workers.c.worker_id == "worker-1"),
         ).all()
         scalar_rows = conn.execute(
-            select(scalar_segments).where(scalar_segments.c.run_id == run_id, scalar_segments.c.resolution == 0),
+            select(scalar_segments).select_from(_scalar_join)
+            .where(run_workers.c.run_id == run_id, scalar_segments.c.resolution == 0),
         ).all()
 
     assert len(log_rows) == len(scalar_rows) == 1
@@ -229,15 +248,13 @@ def test_backfill_skips_orphan_data_and_stops_scalar_at_invalid_json() -> None:
     with db.engine.begin() as conn:
         run_rows = conn.execute(select(runs).order_by(runs.c.id)).all()
         log_rows = conn.execute(select(log_segments)).all()
-        scalar_rows = conn.execute(select(scalar_segments).order_by(scalar_segments.c.run_id)).all()
+        scalar_rows = conn.execute(select(scalar_segments)).all()
 
     assert [row.id for row in run_rows] == [valid_run_id]
     assert log_rows == []
     assert len(scalar_rows) == 1
     scalar = scalar_rows[0]
-    assert (scalar.run_id, scalar.start_line, scalar.end_line, scalar.end_at.isoformat()) == (
-        valid_run_id, 0, 2, "2025-01-01T00:00:01",
-    )
+    assert (scalar.start_line, scalar.end_line, scalar.end_at.isoformat()) == (0, 2, "2025-01-01T00:00:01")
 
 
 def test_backfill_skips_run_with_invalid_run_json_status() -> None:

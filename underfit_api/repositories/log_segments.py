@@ -11,10 +11,10 @@ from underfit_api.helpers import utcnow
 from underfit_api.schema import log_segments
 
 
-def get_end_line(conn: Connection, run_id: UUID, worker_id: str) -> int:
+def get_end_line(conn: Connection, run_worker_id: UUID) -> int:
     row = conn.execute(
         log_segments.select()
-        .where(log_segments.c.run_id == run_id, log_segments.c.worker_id == worker_id)
+        .where(log_segments.c.run_worker_id == run_worker_id)
         .order_by(log_segments.c.end_line.desc())
         .limit(1),
     ).first()
@@ -23,8 +23,7 @@ def get_end_line(conn: Connection, run_id: UUID, worker_id: str) -> int:
 
 def insert(
     conn: Connection,
-    run_id: UUID,
-    worker_id: str,
+    run_worker_id: UUID,
     start_line: int,
     end_line: int,
     start_at: datetime,
@@ -35,8 +34,7 @@ def insert(
 ) -> None:
     conn.execute(log_segments.insert().values(
         id=uuid4(),
-        run_id=run_id,
-        worker_id=worker_id,
+        run_worker_id=run_worker_id,
         start_line=start_line,
         end_line=end_line,
         start_at=start_at,
@@ -48,12 +46,11 @@ def insert(
     ))
 
 
-def list_for_range(conn: Connection, run_id: UUID, worker_id: str, cursor: int, count: int) -> Sequence[Row]:
+def list_for_range(conn: Connection, run_worker_id: UUID, cursor: int, count: int) -> Sequence[Row]:
     return conn.execute(
         log_segments.select()
         .where(
-            log_segments.c.run_id == run_id,
-            log_segments.c.worker_id == worker_id,
+            log_segments.c.run_worker_id == run_worker_id,
             log_segments.c.end_line > cursor,
             log_segments.c.start_line < cursor + count,
         )
