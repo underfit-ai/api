@@ -152,10 +152,10 @@ run_workers = sa.Table(
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("run_id", sa.Uuid, sa.ForeignKey("runs.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("worker_id", sa.Text, nullable=False),
+    sa.Column("worker_label", sa.Text, nullable=False),
     sa.Column("status", sa.Text, nullable=False),
     sa.Column("joined_at", sa.DateTime, nullable=False),
-    sa.UniqueConstraint("run_id", "worker_id"),
+    sa.UniqueConstraint("run_id", "worker_label"),
     sa.CheckConstraint("status IN ('queued', 'running', 'finished', 'failed', 'cancelled')"),
 )
 
@@ -163,7 +163,7 @@ log_segments = sa.Table(
     "log_segments",
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("run_worker_id", sa.Uuid, sa.ForeignKey("run_workers.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("worker_id", sa.Uuid, sa.ForeignKey("run_workers.id", ondelete="CASCADE"), nullable=False),
     sa.Column("start_line", sa.Integer, nullable=False),
     sa.Column("end_line", sa.Integer, nullable=False),
     sa.Column("start_at", sa.DateTime, nullable=False),
@@ -172,14 +172,14 @@ log_segments = sa.Table(
     sa.Column("byte_count", sa.Integer, nullable=False),
     sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
-    sa.UniqueConstraint("run_worker_id", "start_line"),
+    sa.UniqueConstraint("worker_id", "start_line"),
 )
 
 scalar_segments = sa.Table(
     "scalar_segments",
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("run_worker_id", sa.Uuid, sa.ForeignKey("run_workers.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("worker_id", sa.Uuid, sa.ForeignKey("run_workers.id", ondelete="CASCADE"), nullable=False),
     sa.Column("resolution", sa.Integer, nullable=False),
     sa.Column("start_line", sa.Integer, nullable=False),
     sa.Column("end_line", sa.Integer, nullable=False),
@@ -189,7 +189,7 @@ scalar_segments = sa.Table(
     sa.Column("byte_count", sa.Integer, nullable=False),
     sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
-    sa.UniqueConstraint("run_worker_id", "resolution", "start_line"),
+    sa.UniqueConstraint("worker_id", "resolution", "start_line"),
 )
 
 artifacts = sa.Table(

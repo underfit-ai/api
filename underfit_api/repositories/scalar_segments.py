@@ -11,10 +11,10 @@ from underfit_api.helpers import utcnow
 from underfit_api.schema import scalar_segments
 
 
-def get_end_line(conn: Connection, run_worker_id: UUID, resolution: int) -> int:
+def get_end_line(conn: Connection, worker_id: UUID, resolution: int) -> int:
     row = conn.execute(
         scalar_segments.select()
-        .where(scalar_segments.c.run_worker_id == run_worker_id, scalar_segments.c.resolution == resolution)
+        .where(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution)
         .order_by(scalar_segments.c.end_line.desc())
         .limit(1),
     ).first()
@@ -23,7 +23,7 @@ def get_end_line(conn: Connection, run_worker_id: UUID, resolution: int) -> int:
 
 def insert(
     conn: Connection,
-    run_worker_id: UUID,
+    worker_id: UUID,
     resolution: int,
     start_line: int,
     end_line: int,
@@ -35,7 +35,7 @@ def insert(
 ) -> None:
     conn.execute(scalar_segments.insert().values(
         id=uuid4(),
-        run_worker_id=run_worker_id,
+        worker_id=worker_id,
         resolution=resolution,
         start_line=start_line,
         end_line=end_line,
@@ -48,9 +48,9 @@ def insert(
     ))
 
 
-def list_by_resolution(conn: Connection, run_worker_id: UUID, resolution: int) -> Sequence[Row]:
+def list_by_resolution(conn: Connection, worker_id: UUID, resolution: int) -> Sequence[Row]:
     return conn.execute(
         scalar_segments.select()
-        .where(scalar_segments.c.run_worker_id == run_worker_id, scalar_segments.c.resolution == resolution)
+        .where(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution)
         .order_by(scalar_segments.c.start_line),
     ).all()

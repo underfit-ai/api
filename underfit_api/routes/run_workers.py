@@ -17,7 +17,7 @@ VALID_STATUSES = {"queued", "running", "finished", "failed", "cancelled"}
 
 class AddWorkerBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_id: str
+    worker_label: str
     status: str = "queued"
 
 
@@ -33,9 +33,9 @@ def add_worker(
     require_project_contributor(conn, run.project_id, user.id)
     if body.status not in VALID_STATUSES:
         raise HTTPException(400, "Invalid status")
-    if workers_repo.get(conn, run.id, body.worker_id):
+    if workers_repo.get(conn, run.id, body.worker_label):
         raise HTTPException(409, "Worker already exists")
-    return workers_repo.create(conn, run.id, body.worker_id, body.status, is_primary=False)
+    return workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=False)
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/workers")
@@ -44,15 +44,15 @@ def list_workers(handle: str, project_name: str, run_name: str, conn: Conn, user
     return workers_repo.list_by_run(conn, run.id)
 
 
-@router.put("/accounts/{handle}/projects/{project_name}/runs/{run_name}/workers/{worker_id}")
+@router.put("/accounts/{handle}/projects/{project_name}/runs/{run_name}/workers/{worker_label}")
 def update_worker(
-    handle: str, project_name: str, run_name: str, worker_id: str,
+    handle: str, project_name: str, run_name: str, worker_label: str,
     body: UpdateWorkerBody, conn: Conn, user: CurrentUser,
 ) -> Worker:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
     if body.status not in VALID_STATUSES:
         raise HTTPException(400, "Invalid status")
-    if not (worker := workers_repo.update_status(conn, run.id, worker_id, body.status)):
+    if not (worker := workers_repo.update_status(conn, run.id, worker_label, body.status)):
         raise HTTPException(404, "Worker not found")
     return worker

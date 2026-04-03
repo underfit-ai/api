@@ -17,14 +17,14 @@ from underfit_api.schema import log_segments, scalar_segments
 from underfit_api.storage.file import FileStorage
 
 
-def _create_worker(worker_id: str = "0") -> tuple[UUID, UUID]:
-    """Returns (run_worker_id, run_id)."""
+def _create_worker(worker_label: str = "0") -> tuple[UUID, UUID]:
+    """Returns (worker_id, run_id)."""
     with db.engine.begin() as conn:
         user = users_repo.create(conn, email="owner@example.com", handle="owner", name="Owner")
         project = projects_repo.create(conn, user.id, "underfit", None, "private")
         run = runs_repo.create(conn, project.id, user.id, "running", None)
         assert run is not None
-        worker = workers_repo.create(conn, run.id, worker_id, "running", is_primary=True)
+        worker = workers_repo.create(conn, run.id, worker_label, "running", is_primary=True)
         return worker.id, run.id
 
 
@@ -60,7 +60,7 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
 
         segments = conn.execute(
             select(log_segments)
-            .where(log_segments.c.run_worker_id == rwid)
+            .where(log_segments.c.worker_id == rwid)
             .order_by(log_segments.c.start_line),
         ).all()
 
@@ -87,7 +87,7 @@ def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
             ]) is None
             buffer.flush_if_needed(conn, storage, rwid)
             segments = conn.execute(
-                select(log_segments).where(log_segments.c.run_worker_id == rwid),
+                select(log_segments).where(log_segments.c.worker_id == rwid),
             ).all()
         assert len(segments) == 1 and segments[0].byte_count == 5
     finally:
@@ -134,7 +134,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
             by_res = {
                 row.resolution: row
                 for row in conn.execute(
-                    select(scalar_segments).where(scalar_segments.c.run_worker_id == rwid),
+                    select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
                 ).all()
             }
             assert 0 in by_res
@@ -145,7 +145,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
             by_res_after = {
                 row.resolution: row
                 for row in conn.execute(
-                    select(scalar_segments).where(scalar_segments.c.run_worker_id == rwid),
+                    select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
                 ).all()
             }
             assert 2 in by_res_after

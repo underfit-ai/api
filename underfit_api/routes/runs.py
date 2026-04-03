@@ -20,7 +20,7 @@ MAX_JSON_BYTES = 65536
 
 
 class CreateRunBody(BaseModel):
-    worker_id: str = "0"
+    worker_label: str = "0"
     status: str = "queued"
     config: dict[str, object] | None = None
 
@@ -58,7 +58,7 @@ def create_run(handle: str, project_name: str, body: CreateRunBody, conn: Conn, 
     _validate_config(body.config)
     if not (run := runs_repo.create(conn, project.id, user.id, body.status, body.config)):
         raise HTTPException(500, "Unable to allocate unique run name")
-    workers_repo.create(conn, run.id, body.worker_id, body.status, is_primary=True)
+    workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=True)
     return run
 
 

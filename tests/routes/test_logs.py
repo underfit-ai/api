@@ -5,9 +5,9 @@ from fastapi.testclient import TestClient
 from tests.conftest import AddCollaborator, Headers
 
 
-def _add_worker(client: TestClient, logs_url: str, headers: dict[str, str], worker_id: str) -> None:
+def _add_worker(client: TestClient, logs_url: str, headers: dict[str, str], worker_label: str) -> None:
     workers_url = logs_url.rsplit("/", 1)[0] + "/workers"
-    resp = client.post(workers_url, headers=headers, json={"workerId": worker_id})
+    resp = client.post(workers_url, headers=headers, json={"workerLabel": worker_label})
     assert resp.status_code == 200
 
 
@@ -22,13 +22,13 @@ def test_write_read_and_flush_logs(
     ]
     tail = {"timestamp": "2025-01-01T00:00:02+00:00", "content": "tail"}
 
-    first = client.post(logs_url, headers=headers, json={"worker_id": "worker-1", "start_line": 0, "lines": lines})
+    first = client.post(logs_url, headers=headers, json={"worker_label": "worker-1", "start_line": 0, "lines": lines})
     assert first.status_code == 200
 
-    second = client.post(logs_url, headers=headers, json={"worker_id": "worker-1", "start_line": 2, "lines": [tail]})
+    second = client.post(logs_url, headers=headers, json={"worker_label": "worker-1", "start_line": 2, "lines": [tail]})
     assert second.status_code == 200
 
-    first_page = client.get(logs_url, headers=headers, params={"workerId": "worker-1", "count": 2})
+    first_page = client.get(logs_url, headers=headers, params={"workerLabel": "worker-1", "count": 2})
     first_json = first_page.json()
     assert first_page.status_code == 200
     assert (
@@ -37,10 +37,10 @@ def test_write_read_and_flush_logs(
         and first_json["hasMore"] is True
     )
 
-    flush = client.post(f"{logs_url}/flush", headers=headers, json={"worker_id": "worker-1"})
+    flush = client.post(f"{logs_url}/flush", headers=headers, json={"worker_label": "worker-1"})
     assert flush.status_code == 200
 
-    second_page = client.get(logs_url, headers=headers, params={"workerId": "worker-1", "cursor": 2})
+    second_page = client.get(logs_url, headers=headers, params={"workerLabel": "worker-1", "cursor": 2})
     second_json = second_page.json()
     assert second_page.status_code == 200 and second_json["entries"][0]["content"] == "tail"
 
@@ -50,7 +50,7 @@ def test_logs_reject_out_of_order_start_line(
 ) -> None:
     headers, logs_url = logs_setup
     _add_worker(client, logs_url, headers, "worker-1")
-    payload = {"worker_id": "worker-1", "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"}]}
+    payload = {"worker_label": "worker-1", "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"}]}
     world_line = {"timestamp": "2025-01-01T00:00:01+00:00", "content": "world"}
 
     first = client.post(logs_url, headers=headers, json={**payload, "start_line": 0})
@@ -65,7 +65,7 @@ def test_logs_reject_unregistered_worker(
 ) -> None:
     headers, logs_url = logs_setup
     resp = client.post(logs_url, headers=headers, json={
-        "worker_id": "unknown", "start_line": 0,
+        "worker_label": "unknown", "start_line": 0,
         "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "hi"}],
     })
     assert resp.status_code == 404
@@ -84,11 +84,11 @@ def test_logs_require_project_access(
     assert client.post(
         logs_url,
         headers=outsider_headers,
-        json={"worker_id": "w", "start_line": 0, "lines": []},
+        json={"worker_label": "w", "start_line": 0, "lines": []},
     ).status_code == 403
     add_collaborator(owner_headers)
     assert client.post(
         logs_url,
         headers=outsider_headers,
-        json={"worker_id": "w", "start_line": 0, "lines": [hi_line]},
+        json={"worker_label": "w", "start_line": 0, "lines": [hi_line]},
     ).status_code == 200

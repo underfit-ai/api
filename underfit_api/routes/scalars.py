@@ -29,14 +29,14 @@ class ScalarInput(BaseModel):
 
 class WriteScalarsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_id: str = "0"
+    worker_label: str = "0"
     start_line: int
     scalars: list[ScalarInput]
 
 
 class FlushScalarsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_id: str = "0"
+    worker_label: str = "0"
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
@@ -45,14 +45,16 @@ def write_scalars(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    if not (worker := workers_repo.get(conn, run.id, body.worker_id)):
+    if not (worker := workers_repo.get(conn, run.id, body.worker_label)):
         raise HTTPException(404, "Worker not found")
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if not body.scalars:
         return {"status": "buffered"}
     parsed = [ScalarPoint(step=s.step, values=s.values, timestamp=s.timestamp) for s in body.scalars]
-    if (expected := scalar_buffer.append(conn, worker.id, run.id, body.worker_id, body.start_line, parsed)) is not None:
+    if (expected := scalar_buffer.append(
+        conn, worker.id, run.id, body.worker_label, body.start_line, parsed,
+    )) is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
     scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker.id)
     return {"status": "buffered"}
@@ -64,7 +66,7 @@ def flush_scalars(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    if not (worker := workers_repo.get(conn, run.id, body.worker_id)):
+    if not (worker := workers_repo.get(conn, run.id, body.worker_label)):
         raise HTTPException(404, "Worker not found")
     scalar_buffer.flush(conn, storage_mod.storage, worker.id)
     return {"status": "flushed"}
@@ -77,12 +79,12 @@ def read_scalars(
     run_name: str,
     conn: Conn,
     user: MaybeUser,
-    worker_id: Annotated[str, Query(alias="workerId")] = "0",
+    worker_label: Annotated[str, Query(alias="workerLabel")] = "0",
     resolution: Annotated[int | None, Query()] = None,
     max_points: Annotated[int | None, Query(alias="maxPoints")] = None,
 ) -> list[Scalar]:
     run = resolve_run(conn, handle, project_name, run_name, user)
-    if not (worker := workers_repo.get(conn, run.id, worker_id)):
+    if not (worker := workers_repo.get(conn, run.id, worker_label)):
         raise HTTPException(404, "Worker not found")
     if resolution is not None and max_points is not None:
         raise HTTPException(400, "Cannot specify both resolution and maxPoints")

@@ -50,8 +50,8 @@ def _write_text(storage: FileStorage, key: str, data: str) -> None:
     storage.write(key, data.encode())
 
 
-_log_join = log_segments.join(run_workers, log_segments.c.run_worker_id == run_workers.c.id)
-_scalar_join = scalar_segments.join(run_workers, scalar_segments.c.run_worker_id == run_workers.c.id)
+_log_join = log_segments.join(run_workers, log_segments.c.worker_id == run_workers.c.id)
+_scalar_join = scalar_segments.join(run_workers, scalar_segments.c.worker_id == run_workers.c.id)
 
 
 def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -168,7 +168,7 @@ def test_backfill_appends_without_duplicate_segments() -> None:
     with db.engine.begin() as conn:
         log_rows = conn.execute(
             select(log_segments).select_from(_log_join)
-            .where(run_workers.c.run_id == run_id, run_workers.c.worker_id == "worker-1"),
+            .where(run_workers.c.run_id == run_id, run_workers.c.worker_label == "worker-1"),
         ).all()
         scalar_rows = conn.execute(
             select(scalar_segments).select_from(_scalar_join)
@@ -207,7 +207,7 @@ def test_backfill_rebuilds_segments_after_truncation() -> None:
     with db.engine.begin() as conn:
         log_rows = conn.execute(
             select(log_segments).select_from(_log_join)
-            .where(run_workers.c.run_id == run_id, run_workers.c.worker_id == "worker-1"),
+            .where(run_workers.c.run_id == run_id, run_workers.c.worker_label == "worker-1"),
         ).all()
         scalar_rows = conn.execute(
             select(scalar_segments).select_from(_scalar_join)

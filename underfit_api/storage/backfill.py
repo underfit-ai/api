@@ -199,15 +199,15 @@ class BackfillService:
         ))
         return project_id
 
-    def _ensure_worker(self, conn: Connection, run_id: UUID, worker_id: str) -> UUID:
+    def _ensure_worker(self, conn: Connection, run_id: UUID, worker_label: str) -> UUID:
         row = conn.execute(
-            run_workers.select().where(run_workers.c.run_id == run_id, run_workers.c.worker_id == worker_id),
+            run_workers.select().where(run_workers.c.run_id == run_id, run_workers.c.worker_label == worker_label),
         ).first()
         if row:
             return row.id
         rwid = uuid4()
         conn.execute(run_workers.insert().values(
-            id=rwid, run_id=run_id, worker_id=worker_id, status="finished", joined_at=utcnow(),
+            id=rwid, run_id=run_id, worker_label=worker_label, status="finished", joined_at=utcnow(),
         ))
         return rwid
 
@@ -229,7 +229,7 @@ class BackfillService:
         return latest.id, latest.byte_count, byte_end, latest.end_line
 
     def _build_segments(
-        self, conn: Connection, table: sa.Table, run_worker_id: UUID, storage_key: str,
+        self, conn: Connection, table: sa.Table, worker_id: UUID, storage_key: str,
         line_sizes: list[int], timestamps: list[datetime], byte_start: int, line_start: int,
         latest_id: UUID | None, latest_byte_count: int, extra_cols: dict[str, object],
     ) -> None:
@@ -264,7 +264,7 @@ class BackfillService:
                 i += 1
             n = i - chunk_start
             conn.execute(table.insert().values(
-                id=uuid4(), run_worker_id=run_worker_id,
+                id=uuid4(), worker_id=worker_id,
                 start_line=line_cursor, end_line=line_cursor + n,
                 start_at=timestamps[chunk_start], end_at=timestamps[i - 1],
                 byte_offset=byte_cursor, byte_count=chunk_bytes,
@@ -275,9 +275,9 @@ class BackfillService:
 
     # ---- log ingestion ----
 
-    def _ingest_log(self, conn: Connection, run_worker_id: UUID, storage_key: str) -> None:
+    def _ingest_log(self, conn: Connection, worker_id: UUID, storage_key: str) -> None:
         file_size = self._storage.size(storage_key)
-        scope = log_segments.c.run_worker_id == run_worker_id
+        scope = log_segments.c.worker_id == worker_id
         seg_id, seg_bytes, byte_pos, line_pos = self._get_position(conn, log_segments, file_size, scope)
         if byte_pos >= file_size:
             return
@@ -290,7 +290,7 @@ class BackfillService:
 
         now = utcnow()
         self._build_segments(
-            conn, log_segments, run_worker_id, storage_key,
+            conn, log_segments, worker_id, storage_key,
             [len(line) + 1 for line in raw_lines], [now] * len(raw_lines),
             byte_pos, line_pos, seg_id, seg_bytes, {},
         )
@@ -306,9 +306,9 @@ class BackfillService:
         except ValueError:
             return None
 
-    def _ingest_scalar(self, conn: Connection, run_worker_id: UUID, resolution: int, storage_key: str) -> None:
+    def _ingest_scalar(self, conn: Connection, worker_id: UUID, resolution: int, storage_key: str) -> None:
         file_size = self._storage.size(storage_key)
-        scope = sa.and_(scalar_segments.c.run_worker_id == run_worker_id, scalar_segments.c.resolution == resolution)
+        scope = sa.and_(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution)
         seg_id, seg_bytes, byte_pos, line_pos = self._get_position(conn, scalar_segments, file_size, scope)
         if byte_pos >= file_size:
             return
@@ -330,7 +330,7 @@ class BackfillService:
             return
 
         self._build_segments(
-            conn, scalar_segments, run_worker_id, storage_key,
+            conn, scalar_segments, worker_id, storage_key,
             [len(line) + 1 for line in valid_lines], timestamps,
             byte_pos, line_pos, seg_id, seg_bytes, {"resolution": resolution},
         )

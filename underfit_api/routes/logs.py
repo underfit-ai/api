@@ -25,14 +25,14 @@ class LogLineInput(BaseModel):
 
 class WriteLogsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_id: str
+    worker_label: str
     start_line: int
     lines: list[LogLineInput]
 
 
 class FlushLogsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_id: str
+    worker_label: str
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs")
@@ -41,14 +41,14 @@ def write_logs(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    if not (worker := workers_repo.get(conn, run.id, body.worker_id)):
+    if not (worker := workers_repo.get(conn, run.id, body.worker_label)):
         raise HTTPException(404, "Worker not found")
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if not body.lines:
         return {"status": "buffered"}
     parsed = [LogLine(timestamp=ln.timestamp, content=ln.content) for ln in body.lines]
-    expected = log_buffer.append(conn, worker.id, run.id, body.worker_id, body.start_line, parsed)
+    expected = log_buffer.append(conn, worker.id, run.id, body.worker_label, body.start_line, parsed)
     if expected is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
     log_buffer.flush_if_needed(conn, storage_mod.storage, worker.id)
@@ -61,7 +61,7 @@ def flush_logs(
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    if not (worker := workers_repo.get(conn, run.id, body.worker_id)):
+    if not (worker := workers_repo.get(conn, run.id, body.worker_label)):
         raise HTTPException(404, "Worker not found")
     log_buffer.flush(conn, storage_mod.storage, worker.id)
     return {"status": "flushed"}
@@ -74,12 +74,12 @@ def read_logs(
     run_name: str,
     conn: Conn,
     user: MaybeUser,
-    worker_id: Annotated[str, Query(alias="workerId")],
+    worker_label: Annotated[str, Query(alias="workerLabel")],
     cursor: Annotated[int, Query()] = 0,
     count: Annotated[int, Query()] = 10000,
 ) -> dict[str, object]:
     run = resolve_run(conn, handle, project_name, run_name, user)
-    if not (worker := workers_repo.get(conn, run.id, worker_id)):
+    if not (worker := workers_repo.get(conn, run.id, worker_label)):
         raise HTTPException(404, "Worker not found")
     entries: list[dict[str, object]] = []
     segments = log_seg_repo.list_for_range(conn, worker.id, cursor, count)

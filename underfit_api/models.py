@@ -92,7 +92,7 @@ class Run(_Base):
 class Worker(_Base):
     id: UUID
     run_id: UUID
-    worker_id: str
+    worker_label: str
     is_primary: bool
     status: str
     joined_at: UTCDatetime
