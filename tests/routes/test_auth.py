@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import RegisterUser
+from underfit_api.config import config
+from underfit_api.main import app
 
 
 def test_register_login_logout_flow(client: TestClient, register_user: RegisterUser) -> None:
@@ -54,3 +57,32 @@ def test_register_rejects_invalid_input(client: TestClient) -> None:
     for payload in bad_payloads:
         response = client.post("/api/v1/auth/register", json=payload)
         assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    ("base_url", "secure_override", "frontend_url", "expect_secure"),
+    [
+        ("http://localhost", True, None, True),
+        ("https://example.com", False, None, False),
+        ("http://localhost", None, None, False),
+        ("https://example.com", None, None, True),
+        ("http://testserver", None, "https://frontend.example.com", True),
+    ],
+)
+def test_session_cookie_secure_flag(
+    base_url: str,
+    secure_override: bool | None,
+    frontend_url: str | None,
+    expect_secure: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "secure_cookies", secure_override)
+    monkeypatch.setattr(config, "frontend_url", frontend_url)
+    with TestClient(app, base_url=base_url) as client:
+        email = f"user@{base_url.replace('://', '_')}.com"
+        response = client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "handle": email.split("@", maxsplit=1)[0], "password": "password123"},
+        )
+    assert response.status_code == 200
+    assert ("Secure" in response.headers["set-cookie"]) is expect_secure

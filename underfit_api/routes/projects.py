@@ -4,7 +4,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from underfit_api.auth import create_signed_token, verify_signed_token
 from underfit_api.config import config
@@ -165,7 +165,7 @@ def accept_transfer(body: AcceptTransferBody, conn: Conn, user: CurrentUser) -> 
         raise HTTPException(400, "Invalid or expired transfer token")
     try:
         payload = TransferTokenPayload.model_validate(raw)
-    except ValueError:
+    except (ValueError, ValidationError):
         raise HTTPException(400, "Invalid or expired transfer token") from None
 
     if user.id != payload.to_account_id:

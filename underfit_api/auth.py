@@ -49,8 +49,9 @@ def verify_password(password: str, password_hash: str, password_salt: str, itera
 
 
 def create_signed_token(payload: dict[str, Any], expires_in: timedelta) -> str:
-    payload["exp"] = (datetime.now(timezone.utc) + expires_in).isoformat()
-    data = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    data_payload = payload.copy()
+    data_payload["exp"] = (datetime.now(timezone.utc) + expires_in).isoformat()
+    data = base64.urlsafe_b64encode(json.dumps(data_payload).encode()).decode()
     sig = hmac.new(get_app_secret(), data.encode(), hashlib.sha256).hexdigest()
     return f"{data}.{sig}"
 
@@ -65,9 +66,10 @@ def verify_signed_token(token: str) -> dict[str, Any] | None:
         return None
     try:
         payload = json.loads(base64.urlsafe_b64decode(data))
-    except (json.JSONDecodeError, ValueError):
+        exp_raw = payload["exp"]
+        exp = datetime.fromisoformat(exp_raw)
+    except (json.JSONDecodeError, ValueError, KeyError, TypeError):
         return None
-    exp = datetime.fromisoformat(payload["exp"])
     if datetime.now(timezone.utc) > exp:
         return None
     return payload
