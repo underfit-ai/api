@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Run
 from underfit_api.permissions import can_view_project, require_project_contributor
+from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_project, resolve_run
@@ -19,6 +20,7 @@ MAX_JSON_BYTES = 65536
 
 
 class CreateRunBody(BaseModel):
+    worker_id: str = "0"
     status: str = "queued"
     config: dict[str, object] | None = None
 
@@ -56,6 +58,7 @@ def create_run(handle: str, project_name: str, body: CreateRunBody, conn: Conn, 
     _validate_config(body.config)
     if not (run := runs_repo.create(conn, project.id, user.id, body.status, body.config)):
         raise HTTPException(500, "Unable to allocate unique run name")
+    workers_repo.create(conn, run.id, body.worker_id, body.status, is_primary=True)
     return run
 
 

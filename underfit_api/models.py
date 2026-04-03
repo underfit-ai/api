@@ -89,6 +89,15 @@ class Run(_Base):
     updated_at: UTCDatetime
 
 
+class Worker(_Base):
+    id: UUID
+    run_id: UUID
+    worker_id: str
+    is_primary: bool
+    status: str
+    joined_at: UTCDatetime
+
+
 class Artifact(_Base):
     id: UUID
     project_id: UUID

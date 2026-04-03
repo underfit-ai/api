@@ -98,7 +98,7 @@ def test_backfill_ingests_run_logs_and_scalars() -> None:
         "config": {"lr": 0.01, "seed": 7},
     })
     _write_text(storage, f"{run_id}/logs/worker-1.log", log_content)
-    _write_text(storage, f"{run_id}/scalars/raw.jsonl", scalar_content)
+    _write_text(storage, f"{run_id}/scalars/0/raw.jsonl", scalar_content)
 
     _scan(service, storage)
 
@@ -141,13 +141,13 @@ def test_backfill_appends_without_duplicate_segments() -> None:
 
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial B"})
     _write_text(storage, f"{run_id}/logs/worker-1.log", "l0\nl1\n")
-    _write_text(storage, f"{run_id}/scalars/raw.jsonl", f"{json.dumps(scalar_a0)}\n{json.dumps(scalar_a1)}\n")
+    _write_text(storage, f"{run_id}/scalars/0/raw.jsonl", f"{json.dumps(scalar_a0)}\n{json.dumps(scalar_a1)}\n")
     _scan(service, storage)
 
     appended_log = "l0\nl1\nl2\n"
     appended_scalars = f"{json.dumps(scalar_a0)}\n{json.dumps(scalar_a1)}\n{json.dumps(scalar_a2)}\n"
     _write_text(storage, f"{run_id}/logs/worker-1.log", appended_log)
-    _write_text(storage, f"{run_id}/scalars/raw.jsonl", appended_scalars)
+    _write_text(storage, f"{run_id}/scalars/0/raw.jsonl", appended_scalars)
     _scan(service, storage)
 
     with db.engine.begin() as conn:
@@ -176,7 +176,7 @@ def test_backfill_rebuilds_segments_after_truncation() -> None:
     _write_text(storage, f"{run_id}/logs/worker-1.log", "a\nb\nc\n")
     _write_text(
         storage,
-        f"{run_id}/scalars/raw.jsonl",
+        f"{run_id}/scalars/0/raw.jsonl",
         "{\"timestamp\":\"2025-01-01T00:00:00Z\"}\n{\"timestamp\":\"2025-01-01T00:00:01Z\"}\n",
     )
     _scan(service, storage)
@@ -184,7 +184,7 @@ def test_backfill_rebuilds_segments_after_truncation() -> None:
     truncated_log = "x\n"
     truncated_scalars = "{\"timestamp\":\"2025-01-02T00:00:00Z\"}\n"
     _write_text(storage, f"{run_id}/logs/worker-1.log", truncated_log)
-    _write_text(storage, f"{run_id}/scalars/raw.jsonl", truncated_scalars)
+    _write_text(storage, f"{run_id}/scalars/0/raw.jsonl", truncated_scalars)
     _scan(service, storage)
 
     with db.engine.begin() as conn:
@@ -213,7 +213,7 @@ def test_backfill_skips_orphan_data_and_stops_scalar_at_invalid_json() -> None:
     valid_run_id = uuid4()
 
     _write_text(storage, f"{orphan_run_id}/logs/worker-1.log", "orphaned\n")
-    _write_text(storage, f"{orphan_run_id}/scalars/raw.jsonl", '{"timestamp":"2025-01-01T00:00:00Z"}\n')
+    _write_text(storage, f"{orphan_run_id}/scalars/0/raw.jsonl", '{"timestamp":"2025-01-01T00:00:00Z"}\n')
 
     scalar_lines = (
         '{"step":0,"timestamp":"2025-01-01T00:00:00Z"}\n'
@@ -222,7 +222,7 @@ def test_backfill_skips_orphan_data_and_stops_scalar_at_invalid_json() -> None:
         '{"step":2,"timestamp":"2025-01-01T00:00:02Z"}\n'
     )
     _write_json(storage, f"{valid_run_id}/run.json", {"project": "Vision", "name": "Trial D", "status": "finished"})
-    _write_text(storage, f"{valid_run_id}/scalars/raw.jsonl", scalar_lines)
+    _write_text(storage, f"{valid_run_id}/scalars/0/raw.jsonl", scalar_lines)
 
     _scan(service, storage)
 

@@ -21,7 +21,7 @@ from underfit_api.storage.types import Storage
 logger = logging.getLogger(__name__)
 
 _LOG = re.compile(r"^([^/]+)/logs/(.+)\.log$")
-_SCALAR = re.compile(r"^([^/]+)/scalars/(raw|r(\d+))\.jsonl$")
+_SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/(raw|r(\d+))\.jsonl$")
 _ARTIFACT = re.compile(r"^([^/]+)/artifacts/([^/]+)/manifest\.json$")
 _MEDIA = re.compile(r"^([^/]+)/media/([^/]+)/\d+$")
 
@@ -120,7 +120,7 @@ class BackfillService:
                     elif m := _SCALAR.match(key):
                         tier = self._scalar_tier_from_match(m)
                         if tier is not None:
-                            self._ingest_scalar(conn, run_id, tier, key)
+                            self._ingest_scalar(conn, run_id, m.group(2), tier, key)
                     elif m := _ARTIFACT.match(key):
                         self._ingest_artifact(conn, run_id, m.group(2))
                     elif m := _MEDIA.match(key):
@@ -274,17 +274,23 @@ class BackfillService:
     # ---- scalar ingestion ----
 
     def _scalar_tier_from_match(self, m: re.Match[str]) -> int | None:
-        if m.group(2) == "raw":
+        if m.group(3) == "raw":
             return 0
-        stride = int(m.group(3))
+        stride = int(m.group(4))
         try:
             return self._scalar_resolutions.index(stride) + 1
         except ValueError:
             return None
 
-    def _ingest_scalar(self, conn: Connection, run_id: UUID, resolution: int, storage_key: str) -> None:
+    def _ingest_scalar(
+        self, conn: Connection, run_id: UUID, worker_id: str, resolution: int, storage_key: str,
+    ) -> None:
         file_size = self._storage.size(storage_key)
-        scope = sa.and_(scalar_segments.c.run_id == run_id, scalar_segments.c.resolution == resolution)
+        scope = sa.and_(
+            scalar_segments.c.run_id == run_id,
+            scalar_segments.c.worker_id == worker_id,
+            scalar_segments.c.resolution == resolution,
+        )
         seg_id, seg_bytes, byte_pos, line_pos = self._get_position(conn, scalar_segments, file_size, scope)
         if byte_pos >= file_size:
             return
@@ -308,7 +314,7 @@ class BackfillService:
         self._build_segments(
             conn, scalar_segments, run_id, storage_key,
             [len(line) + 1 for line in valid_lines], timestamps,
-            byte_pos, line_pos, seg_id, seg_bytes, {"resolution": resolution},
+            byte_pos, line_pos, seg_id, seg_bytes, {"worker_id": worker_id, "resolution": resolution},
         )
 
     # ---- artifact ingestion ----

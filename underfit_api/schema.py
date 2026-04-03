@@ -135,6 +135,8 @@ runs = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("project_id", sa.Uuid, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
     sa.Column("user_id", sa.Uuid, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("primary_worker_id", sa.Uuid,
+              sa.ForeignKey("run_workers.id", ondelete="SET NULL", use_alter=True), nullable=True),
     sa.Column("name", sa.Text, nullable=False),
     sa.Column("status", sa.Text, nullable=False),
     sa.Column("config", sa.JSON),
@@ -142,6 +144,18 @@ runs = sa.Table(
     sa.Column("updated_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("project_id", "name"),
     sa.UniqueConstraint("project_id", "id"),
+    sa.CheckConstraint("status IN ('queued', 'running', 'finished', 'failed', 'cancelled')"),
+)
+
+run_workers = sa.Table(
+    "run_workers",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("run_id", sa.Uuid, sa.ForeignKey("runs.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("worker_id", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("joined_at", sa.DateTime, nullable=False),
+    sa.UniqueConstraint("run_id", "worker_id"),
     sa.CheckConstraint("status IN ('queued', 'running', 'finished', 'failed', 'cancelled')"),
 )
 
@@ -167,6 +181,7 @@ scalar_segments = sa.Table(
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("run_id", sa.Uuid, sa.ForeignKey("runs.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("worker_id", sa.Text, nullable=False),
     sa.Column("resolution", sa.Integer, nullable=False),
     sa.Column("start_line", sa.Integer, nullable=False),
     sa.Column("end_line", sa.Integer, nullable=False),
@@ -176,7 +191,7 @@ scalar_segments = sa.Table(
     sa.Column("byte_count", sa.Integer, nullable=False),
     sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
-    sa.UniqueConstraint("run_id", "resolution", "start_line"),
+    sa.UniqueConstraint("run_id", "worker_id", "resolution", "start_line"),
 )
 
 artifacts = sa.Table(

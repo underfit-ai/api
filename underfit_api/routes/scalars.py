@@ -28,8 +28,14 @@ class ScalarInput(BaseModel):
 
 class WriteScalarsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    worker_id: str = "0"
     start_line: int
     scalars: list[ScalarInput]
+
+
+class FlushScalarsBody(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    worker_id: str = "0"
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
@@ -43,19 +49,19 @@ def write_scalars(
     if not body.scalars:
         return {"status": "buffered"}
     parsed = [ScalarPoint(step=s.step, values=s.values, timestamp=s.timestamp) for s in body.scalars]
-    if (expected := scalar_buffer.append(conn, run.id, body.start_line, parsed)) is not None:
+    if (expected := scalar_buffer.append(conn, run.id, body.worker_id, body.start_line, parsed)) is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    scalar_buffer.flush_if_needed(conn, storage_mod.storage, run.id)
+    scalar_buffer.flush_if_needed(conn, storage_mod.storage, run.id, body.worker_id)
     return {"status": "buffered"}
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars/flush")
 def flush_scalars(
-    handle: str, project_name: str, run_name: str, conn: Conn, user: CurrentUser,
+    handle: str, project_name: str, run_name: str, body: FlushScalarsBody, conn: Conn, user: CurrentUser,
 ) -> dict[str, str]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    scalar_buffer.flush(conn, storage_mod.storage, run.id)
+    scalar_buffer.flush(conn, storage_mod.storage, run.id, body.worker_id)
     return {"status": "flushed"}
 
 
@@ -66,6 +72,7 @@ def read_scalars(
     run_name: str,
     conn: Conn,
     user: MaybeUser,
+    worker_id: Annotated[str, Query(alias="workerId")] = "0",
     resolution: Annotated[int | None, Query()] = None,
     max_points: Annotated[int | None, Query(alias="maxPoints")] = None,
 ) -> list[Scalar]:
@@ -74,22 +81,22 @@ def read_scalars(
         raise HTTPException(400, "Cannot specify both resolution and maxPoints")
     tier = resolution if resolution is not None else 0
     if max_points is not None:
-        tier = _select_tier(conn, run, max_points)
+        tier = _select_tier(conn, run, worker_id, max_points)
     max_tier = len(config.buffer.scalar_resolutions)
     if tier < 0 or tier > max_tier:
         raise HTTPException(400, f"Resolution must be 0-{max_tier}")
-    return _read_tier(conn, run, tier)
+    return _read_tier(conn, run, worker_id, tier)
 
 
-def _select_tier(conn: Conn, run: Run, max_points: int) -> int:
+def _select_tier(conn: Conn, run: Run, worker_id: str, max_points: int) -> int:
     for res in range(len(config.buffer.scalar_resolutions), -1, -1):
-        if scalar_buffer.tier_line_count(conn, run.id, res) >= max_points:
+        if scalar_buffer.tier_line_count(conn, run.id, worker_id, res) >= max_points:
             return res
     return 0
 
 
-def _read_tier(conn: Conn, run: Run, resolution: int) -> list[Scalar]:
-    segments = scalar_seg_repo.list_by_resolution(conn, run.id, resolution)
+def _read_tier(conn: Conn, run: Run, worker_id: str, resolution: int) -> list[Scalar]:
+    segments = scalar_seg_repo.list_by_resolution(conn, run.id, worker_id, resolution)
     scalars: list[Scalar] = []
     for seg in segments:
         data = storage_mod.storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
@@ -101,6 +108,6 @@ def _read_tier(conn: Conn, run: Run, resolution: int) -> list[Scalar]:
                     values=parsed["values"],
                     timestamp=datetime.fromisoformat(parsed["timestamp"].replace("Z", "+00:00")),
                 ))
-    for point in scalar_buffer.read_buffered(run.id, resolution):
+    for point in scalar_buffer.read_buffered(run.id, worker_id, resolution):
         scalars.append(Scalar(step=point.step, values=point.values, timestamp=point.timestamp))
     return scalars

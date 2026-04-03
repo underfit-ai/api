@@ -30,6 +30,7 @@ from underfit_api.routes.organizations import router as orgs_router
 from underfit_api.routes.project_collaborators import router as project_collaborators_router
 from underfit_api.routes.projects import router as projects_router
 from underfit_api.routes.resolvers import AliasRedirectError
+from underfit_api.routes.run_workers import router as workers_router
 from underfit_api.routes.runs import router as runs_router
 from underfit_api.routes.scalars import router as scalars_router
 from underfit_api.routes.users import router as users_router
@@ -110,6 +111,7 @@ api.include_router(projects_router)
 api.include_router(runs_router)
 api.include_router(scalars_router)
 api.include_router(users_router)
+api.include_router(workers_router)
 
 app.mount("/api/v1", api)
 

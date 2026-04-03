@@ -101,13 +101,13 @@ def test_scalar_buffer_builds_resolution_tiers() -> None:
             ScalarPoint(step=i, values={"loss": float(i + 1)}, timestamp=t0 + timedelta(seconds=i))
             for i in range(10)
         ]
-        assert buffer.append(conn, run_id, 0, points) is None
+        assert buffer.append(conn, run_id, "0", 0, points) is None
 
-        r1 = buffer.read_buffered(run_id, 1)
-        r2 = buffer.read_buffered(run_id, 2)
+        r1 = buffer.read_buffered(run_id, "0", 1)
+        r2 = buffer.read_buffered(run_id, "0", 2)
         assert len(r1) == 10 and len(r2) == 1
         assert r2[0].values["loss"] == 5.5
-        assert buffer.tier_line_count(conn, run_id, 2) == 1
+        assert buffer.tier_line_count(conn, run_id, "0", 2) == 1
 
 
 def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(tmp_path: Path) -> None:
@@ -119,14 +119,14 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
 
     try:
         with db.engine.begin() as conn:
-            assert buffer.append(conn, run_id, 0, [
+            assert buffer.append(conn, run_id, "0", 0, [
                 ScalarPoint(
                     step=0,
                     values={"loss": 1.0},
                     timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
                 ),
             ]) is None
-            buffer.flush_if_needed(conn, storage, run_id)
+            buffer.flush_if_needed(conn, storage, run_id, "0")
 
             by_res = {
                 row.resolution: row
@@ -138,7 +138,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
             assert 1 in by_res
             assert 2 not in by_res
 
-            buffer.flush(conn, storage, run_id)
+            buffer.flush(conn, storage, run_id, "0")
             by_res_after = {
                 row.resolution: row
                 for row in conn.execute(
