@@ -11,7 +11,7 @@ from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.email import send_email
 from underfit_api.models import OkResponse, Project
-from underfit_api.permissions import can_view_project, require_account_admin
+from underfit_api.permissions import require_account_admin
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
 from underfit_api.repositories import projects as projects_repo
@@ -41,14 +41,13 @@ class RenameProjectBody(BaseModel):
 
 @router.get("/me/projects")
 def list_my_projects(conn: Conn, user: CurrentUser) -> list[Project]:
-    return projects_repo.list_by_user_run_count(conn, user.id)
+    return projects_repo.list_related_to_user(conn, user.id)
 
 
 @router.get("/accounts/{handle}/projects")
 def list_account_projects(handle: str, conn: Conn, user: MaybeUser) -> list[Project]:
     account = resolve_account(conn, handle)
-    projects = projects_repo.list_by_account(conn, account.id)
-    return [p for p in projects if can_view_project(conn, p.id, user.id if user else None)]
+    return projects_repo.list_visible_by_account(conn, account.id, user.id if user else None)
 
 
 @router.post("/accounts/{handle}/projects")

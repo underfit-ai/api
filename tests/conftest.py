@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +15,7 @@ from underfit_api.config import FileStorageConfig, SqliteDatabaseConfig, config
 from underfit_api.main import app
 from underfit_api.models import User
 from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import metadata
@@ -27,6 +29,8 @@ SessionForUser = Callable[[User], Headers]
 AddCollaborator = Callable[..., Response]
 CreateProject = Callable[..., dict[str, object]]
 CreateRun = Callable[..., dict[str, object]]
+CreateOrg = Callable[..., dict[str, object]]
+CreateOrgMember = Callable[..., Headers]
 SetupTuple = tuple[Headers, str]
 
 
@@ -122,6 +126,27 @@ def create_run(create_project: CreateProject, client: TestClient) -> CreateRun:
         response = client.post(url, headers=headers, json={"status": status})
         assert response.status_code == 200
         return response.json()
+
+    return _create
+
+
+@pytest.fixture
+def create_org(client: TestClient) -> CreateOrg:
+    def _create(headers: Headers, handle: str = "core", name: str = "Core") -> dict[str, object]:
+        response = client.post("/api/v1/organizations", headers=headers, json={"handle": handle, "name": name})
+        assert response.status_code == 201
+        return response.json()
+
+    return _create
+
+
+@pytest.fixture
+def create_org_member(create_user: CreateUser, session_for_user: SessionForUser) -> CreateOrgMember:
+    def _create(org_id: str, email: str, handle: str, name: str, *, role: str = "MEMBER") -> Headers:
+        user = create_user(email=email, handle=handle, name=name)
+        with db.engine.begin() as conn:
+            organization_members_repo.add_member(conn, UUID(org_id), user.id, role)
+        return session_for_user(user)
 
     return _create
 
