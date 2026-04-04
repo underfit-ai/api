@@ -10,20 +10,12 @@ classifiers = ["Programming Language :: Python :: 3"]
 license = "MIT"
 license-files = ["LICENSE"]
 
-[project.urls]
-Homepage = "https://github.com/underfit-ai/api"
-Issues = "https://github.com/underfit-ai/api/issues"
-
-[build-system]
-requires = ["setuptools>=45", "wheel"]
-build-backend = "setuptools.build_meta"
-
 dependencies = [
-    "fastapi>=0.135",
-    "uvicorn>=0.42",
+    "fastapi>=0.128",
+    "uvicorn>=0.39",
     "pydantic>=2.11",
     "sqlalchemy>=2,<3",
-    "python-multipart>=0.0.22",
+    "python-multipart>=0.0.20",
     "pillow>=11",
     'tomli>=2; python_version<"3.11"',
     "watchdog>=6",
@@ -36,7 +28,16 @@ testing = [
     "ty",
     "pytest",
     "httpx",
+    "moto[s3]",
 ]
+
+[project.urls]
+Homepage = "https://github.com/underfit-ai/api"
+Issues = "https://github.com/underfit-ai/api/issues"
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-data]
 "underfit_api" = ["py.typed", "static/**/*", "wordlists/*"]
