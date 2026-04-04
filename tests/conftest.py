@@ -134,11 +134,13 @@ def create_project() -> CreateProject:
 
 @pytest.fixture
 def create_run(create_project: CreateProject) -> CreateRun:
-    def _create(handle: str, project_name: str, user_handle: str, status: str = "running") -> Run:
+    def _create(
+        handle: str, project_name: str, user_handle: str, status: str = "running", name: str | None = None,
+    ) -> Run:
         project = create_project(handle=handle, name=project_name)
         with db.engine.begin() as conn:
             assert (user := users_repo.get_by_handle(conn, user_handle)) is not None
-            assert (run := runs_repo.create(conn, project.id, user.id, status, None)) is not None
+            assert (run := runs_repo.create(conn, project.id, user.id, status, None, name=name)) is not None
             run_workers_repo.create(conn, run.id, worker_label="0", status=status, is_primary=True)
             return run
 
