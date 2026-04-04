@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import CreateUser, Headers, SessionForUser
+from tests.conftest import CreateOrg, CreateUser, Headers, SessionForUser
 
 BASE = "/api/v1/accounts"
 
@@ -43,11 +43,7 @@ def test_rename_account(client: TestClient, owner_headers: Headers, outsider_hea
 
 @pytest.mark.parametrize("handle", ["outsider", "other"])
 def test_rename_account_conflicts(
-    handle: str,
-    client: TestClient,
-    owner_headers: Headers,
-    create_user: CreateUser,
-    session_for_user: SessionForUser,
+    handle: str, client: TestClient, owner_headers: Headers, create_user: CreateUser, session_for_user: SessionForUser,
 ) -> None:
     other = create_user(email="other@example.com", handle="other", name="Other")
     other_headers = session_for_user(other)
@@ -56,9 +52,8 @@ def test_rename_account_conflicts(
     assert client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": handle}).status_code == 409
 
 
-def test_rename_org_handle_redirects(client: TestClient, owner_headers: Headers) -> None:
-    payload = {"handle": "my-org", "name": "My Org"}
-    assert client.post("/api/v1/organizations", headers=owner_headers, json=payload).status_code == 201
+def test_rename_org_handle_redirects(client: TestClient, owner_headers: Headers, create_org: CreateOrg) -> None:
+    create_org(owner_headers, handle="my-org", name="My Org")
     client.post(f"{BASE}/my-org/rename", headers=owner_headers, json={"handle": "new-org"})
 
     response = client.get("/api/v1/organizations/my-org/members", follow_redirects=False)

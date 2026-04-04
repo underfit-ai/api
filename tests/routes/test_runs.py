@@ -9,7 +9,7 @@ RUNS = "/api/v1/accounts/owner/projects/underfit/runs"
 
 
 def test_run_lifecycle(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
-    create_project(owner_headers)
+    create_project(handle="owner", name="underfit")
 
     created = client.post(RUNS, headers=owner_headers, json={"status": "running", "config": {"lr": 0.001}})
     assert created.status_code == 200
@@ -41,20 +41,16 @@ def test_run_lifecycle(client: TestClient, owner_headers: Headers, create_projec
     (True, {"status": "running", "config": {"blob": "x" * 70000}}, 400),
 ])
 def test_run_create_validation(
-    auth: bool,
-    payload: dict[str, object],
-    status: int,
-    client: TestClient,
-    owner_headers: Headers,
-    create_project: CreateProject,
+    auth: bool, payload: dict[str, object], status: int,
+    client: TestClient, owner_headers: Headers, create_project: CreateProject,
 ) -> None:
-    create_project(owner_headers)
+    create_project(handle="owner", name="underfit")
     headers = owner_headers if auth else None
     assert client.post(RUNS, headers=headers, json=payload).status_code == status
 
 
 def test_run_update_validation(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
-    create_project(owner_headers)
+    create_project(handle="owner", name="underfit")
     created = client.post(RUNS, headers=owner_headers, json={"status": "running"})
     assert created.status_code == 200
     run = created.json()
@@ -62,17 +58,14 @@ def test_run_update_validation(client: TestClient, owner_headers: Headers, creat
 
 
 def test_run_access_controls(
-    client: TestClient,
-    create_project: CreateProject,
-    owner_headers: Headers,
-    outsider_headers: Headers,
-    add_collaborator: AddCollaborator,
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
+    create_project: CreateProject, add_collaborator: AddCollaborator,
 ) -> None:
-    create_project(owner_headers)
+    create_project(handle="owner", name="underfit")
     assert client.post(RUNS, headers=outsider_headers, json={"status": "running"}).status_code == 403
     run = client.post(RUNS, headers=owner_headers, json={"status": "running"}).json()
     assert client.put(f"{RUNS}/{run['name']}", headers=outsider_headers, json={"status": "finished"}).status_code == 403
-    add_collaborator(owner_headers)
+    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
     assert client.post(RUNS, headers=outsider_headers, json={"status": "running"}).status_code == 200
 
     allowed_update = client.put(f"{RUNS}/{run['name']}", headers=outsider_headers, json={"status": "finished"})
