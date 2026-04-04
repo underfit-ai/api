@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import AddCollaborator, CreateRun, Headers
+from tests.conftest import AddCollaborator, CreateRun, CreateUser, Headers
+from underfit_api.models import Run
 
 RUNS = "/api/v1/accounts/owner/projects/underfit/runs"
 
 
-def _workers_url(run: dict[str, object]) -> str:
-    return f"{RUNS}/{run['name']}/workers"
+def _workers_url(run: Run) -> str:
+    return f"{RUNS}/{run.name}/workers"
 
 
 def test_primary_worker_created_with_run(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    run = create_run(owner_headers)
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
     resp = client.get(_workers_url(run), headers=owner_headers)
     assert resp.status_code == 200
     workers = resp.json()
@@ -23,16 +24,16 @@ def test_primary_worker_created_with_run(client: TestClient, owner_headers: Head
 
 
 def test_custom_primary_worker_id(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    create_run(owner_headers)
+    create_run(handle="owner", project_name="underfit", user_handle="owner")
     run = client.post(RUNS, headers=owner_headers, json={"status": "running", "worker_label": "rank-0"}).json()
-    workers = client.get(_workers_url(run), headers=owner_headers).json()
+    workers = client.get(f"{RUNS}/{run['name']}/workers", headers=owner_headers).json()
     assert len(workers) == 1
     assert workers[0]["workerLabel"] == "rank-0"
     assert workers[0]["isPrimary"] is True
 
 
 def test_add_and_list_workers(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    run = create_run(owner_headers)
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
     url = _workers_url(run)
     resp = client.post(url, headers=owner_headers, json={"workerLabel": "1", "status": "running"})
     assert resp.status_code == 200
@@ -49,27 +50,25 @@ def test_add_and_list_workers(client: TestClient, owner_headers: Headers, create
 
 
 def test_duplicate_worker_rejected(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    run = create_run(owner_headers)
-    url = _workers_url(run)
-    client.post(url, headers=owner_headers, json={"workerLabel": "1"})
-    assert client.post(url, headers=owner_headers, json={"workerLabel": "1"}).status_code == 409
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
+    client.post(_workers_url(run), headers=owner_headers, json={"workerLabel": "1"})
+    assert client.post(_workers_url(run), headers=owner_headers, json={"workerLabel": "1"}).status_code == 409
 
 
 def test_update_worker_status(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    run = create_run(owner_headers)
-    url = _workers_url(run)
-    client.post(url, headers=owner_headers, json={"workerLabel": "1", "status": "running"})
-    resp = client.put(f"{url}/1", headers=owner_headers, json={"status": "finished"})
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
+    client.post(_workers_url(run), headers=owner_headers, json={"workerLabel": "1", "status": "running"})
+    resp = client.put(f"{_workers_url(run)}/1", headers=owner_headers, json={"status": "finished"})
     assert resp.status_code == 200 and resp.json()["status"] == "finished"
-    assert client.put(f"{url}/99", headers=owner_headers, json={"status": "finished"}).status_code == 404
+    assert client.put(f"{_workers_url(run)}/2", headers=owner_headers, json={"status": "finished"}).status_code == 404
 
 
 def test_worker_access_controls(
-    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
+    client: TestClient, outsider_headers: Headers, create_user: CreateUser,
     create_run: CreateRun, add_collaborator: AddCollaborator,
 ) -> None:
-    run = create_run(owner_headers)
-    url = _workers_url(run)
-    assert client.post(url, headers=outsider_headers, json={"workerLabel": "1"}).status_code == 403
-    add_collaborator(owner_headers)
-    assert client.post(url, headers=outsider_headers, json={"workerLabel": "1"}).status_code == 200
+    create_user(email="owner@example.com", handle="owner", name="Owner")
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
+    assert client.post(_workers_url(run), headers=outsider_headers, json={"workerLabel": "1"}).status_code == 403
+    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
+    assert client.post(_workers_url(run), headers=outsider_headers, json={"workerLabel": "1"}).status_code == 200

@@ -57,10 +57,7 @@ def test_register_rejects_invalid_input(client: TestClient, payload: dict[str, s
     ("http://testserver", None, "https://frontend.example.com", True),
 ])
 def test_session_cookie_secure_flag(
-    base_url: str,
-    secure_override: bool | None,
-    frontend_url: str | None,
-    expect_secure: bool,
+    base_url: str, secure_override: bool | None, frontend_url: str | None, expect_secure: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "secure_cookies", secure_override)

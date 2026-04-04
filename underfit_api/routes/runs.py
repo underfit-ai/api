@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Run
@@ -17,9 +17,11 @@ router = APIRouter()
 
 VALID_STATUSES = {"queued", "running", "finished", "failed", "cancelled"}
 MAX_JSON_BYTES = 65536
+RUN_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
 
 class CreateRunBody(BaseModel):
+    name: str | None = Field(default=None, pattern=RUN_NAME_PATTERN)
     worker_label: str = "0"
     status: str = "queued"
     config: dict[str, object] | None = None
@@ -56,7 +58,10 @@ def create_run(handle: str, project_name: str, body: CreateRunBody, conn: Conn, 
     if body.status not in VALID_STATUSES:
         raise HTTPException(400, "Invalid status")
     _validate_config(body.config)
-    if not (run := runs_repo.create(conn, project.id, user.id, body.status, body.config)):
+    name = body.name.lower() if body.name is not None else None
+    if not (run := runs_repo.create(conn, project.id, user.id, body.status, body.config, name=name)):
+        if name is not None:
+            raise HTTPException(409, "Run already exists")
         raise HTTPException(500, "Unable to allocate unique run name")
     workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=True)
     return run

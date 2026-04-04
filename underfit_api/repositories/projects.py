@@ -7,7 +7,7 @@ from sqlalchemy import Connection, Row, func
 
 from underfit_api.helpers import utcnow
 from underfit_api.models import Project
-from underfit_api.schema import accounts, project_aliases, projects, runs
+from underfit_api.schema import accounts, organization_members, project_aliases, project_collaborators, projects, runs
 
 _join = projects.join(accounts, projects.c.account_id == accounts.c.id)
 _columns = [
@@ -20,6 +20,21 @@ _columns = [
     projects.c.created_at,
     projects.c.updated_at,
 ]
+
+
+def _is_collaborator(user_id: UUID) -> sa.Exists:
+    return sa.exists(sa.select(1).where(
+        project_collaborators.c.project_id == projects.c.id,
+        project_collaborators.c.user_id == user_id,
+    ))
+
+
+def _is_org_admin(user_id: UUID) -> sa.Exists:
+    return sa.exists(sa.select(1).where(
+        organization_members.c.organization_id == projects.c.account_id,
+        organization_members.c.user_id == user_id,
+        organization_members.c.role == "ADMIN",
+    ))
 
 
 def get_by_id(conn: Connection, project_id: UUID) -> Project | None:
@@ -36,27 +51,35 @@ def get_by_account_and_name(conn: Connection, account_id: UUID, name: str) -> Pr
     return Project.model_validate(row) if row else None
 
 
-def list_by_account(conn: Connection, account_id: UUID) -> list[Project]:
+def list_visible_by_account(conn: Connection, account_id: UUID, viewer_id: UUID | None) -> list[Project]:
+    visibility_filters: list[sa.ColumnElement[bool]] = [projects.c.visibility == "public"]
+    if viewer_id is not None:
+        visibility_filters.extend([
+            projects.c.account_id == viewer_id,
+            _is_collaborator(viewer_id),
+            _is_org_admin(viewer_id),
+        ])
     rows = conn.execute(
         sa.select(*_columns).select_from(_join)
-        .where(projects.c.account_id == account_id)
+        .where(projects.c.account_id == account_id, sa.or_(*visibility_filters))
         .order_by(projects.c.created_at.desc()),
     ).all()
     return [Project.model_validate(row) for row in rows]
 
 
-def list_by_user_run_count(conn: Connection, user_id: UUID) -> list[Project]:
+def list_related_to_user(conn: Connection, user_id: UUID) -> list[Project]:
     run_count = func.count(runs.c.id).label("run_count")
     j = _join.outerjoin(runs, (runs.c.project_id == projects.c.id) & (runs.c.user_id == user_id))
     rows = conn.execute(
-        sa.select(*_columns, run_count).select_from(j).group_by(projects.c.id).order_by(run_count.desc()),
+        sa.select(*_columns, run_count).select_from(j)
+        .where(sa.or_(projects.c.account_id == user_id, _is_collaborator(user_id), _is_org_admin(user_id)))
+        .group_by(projects.c.id)
+        .order_by(run_count.desc(), projects.c.updated_at.desc()),
     ).all()
     return [Project.model_validate(row) for row in rows]
 
 
-def create(
-    conn: Connection, account_id: UUID, name: str, description: str | None, visibility: str,
-) -> Project:
+def create(conn: Connection, account_id: UUID, name: str, description: str | None, visibility: str) -> Project:
     project_id = uuid4()
     now = utcnow()
     conn.execute(projects.insert().values(
@@ -68,9 +91,7 @@ def create(
     return result
 
 
-def update(
-    conn: Connection, project_id: UUID, description: str | None, visibility: str | None,
-) -> Project | None:
+def update(conn: Connection, project_id: UUID, description: str | None, visibility: str | None) -> Project | None:
     values: dict[str, object] = {"updated_at": utcnow()}
     if description is not None:
         values["description"] = description

@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from underfit_api.auth import get_app_secret, hash_token
+from underfit_api.config import config
 
 
 def test_health_returns_status_and_version(client: TestClient) -> None:
@@ -22,6 +23,21 @@ def test_unknown_route_returns_json_404(client: TestClient) -> None:
     assert response.status_code == 404
     assert "application/json" in response.headers["content-type"]
     assert response.json() == {"error": "Route not found"}
+
+
+def test_backfill_blocks_api_write_methods_but_not_get(client: TestClient) -> None:
+    config.backfill.enabled = True
+
+    health = client.get("/api/v1/health")
+    register = client.post("/api/v1/auth/register", json={
+        "email": "sam@example.com",
+        "handle": "sam",
+        "password": "password123",
+    })
+
+    assert health.status_code == 200
+    assert register.status_code == 409
+    assert register.json() == {"error": "API write endpoints are disabled while backfill is enabled"}
 
 
 @pytest.mark.parametrize(("secret", "message"), [

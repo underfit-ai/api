@@ -26,7 +26,7 @@ def transfer_setup(
     recipient = create_user(email="recipient@example.com", handle="recipient", name="Recipient")
     owner_headers = session_for_user(owner)
     recipient_headers = session_for_user(recipient)
-    create_project(owner_headers, handle="owner", name="myproject")
+    create_project(handle="owner", name="myproject")
     return owner_headers, recipient_headers
 
 
@@ -112,7 +112,7 @@ def test_transfer_with_name_conflict(
     client: TestClient, transfer_setup: TransferSetup, create_project: CreateProject,
 ) -> None:
     owner_headers, recipient_headers = transfer_setup
-    create_project(recipient_headers, handle="recipient", name="myproject")
+    create_project(handle="recipient", name="myproject")
     token = _initiate(client, owner_headers)
     assert client.post(TRANSFER, headers=recipient_headers, json={"token": token}).status_code == 409
     response = client.post(TRANSFER, headers=recipient_headers, json={"token": token, "new_name": "renamed"})

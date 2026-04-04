@@ -34,11 +34,8 @@ def test_media_create_list_filter_and_download(client: TestClient, media_setup: 
     (json.dumps({"key": "predictions", "type": "image"}), [], 400),
 ])
 def test_media_validation_errors(
-    client: TestClient,
-    media_setup: tuple[Headers, str],
-    metadata: str,
-    files: list[tuple[str, tuple[str, bytes, str]]],
-    expected_status: int,
+    client: TestClient, media_setup: tuple[Headers, str], metadata: str,
+    files: list[tuple[str, tuple[str, bytes, str]]], expected_status: int,
 ) -> None:
     headers, media_url = media_setup
     response = client.post(media_url, headers=headers, data={"metadata": metadata}, files=files)
@@ -46,14 +43,11 @@ def test_media_validation_errors(
 
 
 def test_media_requires_project_access(
-    client: TestClient,
-    media_setup: tuple[Headers, str],
-    outsider_headers: Headers,
-    add_collaborator: AddCollaborator,
+    client: TestClient, media_setup: tuple[Headers, str], outsider_headers: Headers, add_collaborator: AddCollaborator,
 ) -> None:
-    owner_headers, media_url = media_setup
+    _, media_url = media_setup
     response = client.post(media_url, headers=outsider_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
     assert response.status_code == 403
-    add_collaborator(owner_headers)
+    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
     response = client.post(media_url, headers=outsider_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
     assert response.status_code == 200

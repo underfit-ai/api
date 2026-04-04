@@ -41,17 +41,14 @@ def test_scalars_validate_cursor_inputs(client: TestClient, scalars_setup: tuple
 
 
 def test_scalars_require_project_access(
-    client: TestClient,
-    scalars_setup: tuple[Headers, str],
-    outsider_headers: Headers,
-    add_collaborator: AddCollaborator,
+    client: TestClient, scalars_setup: tuple[Headers, str],
+    outsider_headers: Headers, add_collaborator: AddCollaborator,
 ) -> None:
-    owner_headers, scalars_url = scalars_setup
-
+    _, scalars_url = scalars_setup
     payload = {
         "start_line": 0,
         "scalars": [{"step": 1, "values": {"loss": 0.1}, "timestamp": "2025-01-01T00:00:00+00:00"}],
     }
     assert client.post(scalars_url, headers=outsider_headers, json=payload).status_code == 403
-    add_collaborator(owner_headers)
+    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
     assert client.post(scalars_url, headers=outsider_headers, json=payload).status_code == 200

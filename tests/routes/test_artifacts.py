@@ -14,11 +14,11 @@ ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/artifacts"
 
 
 def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    run = create_run(owner_headers)
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
     payload_1 = {"step": 3, "name": "artifact", "type": "dataset"}
     assert client.post(ARTIFACTS, headers=owner_headers, json=payload_1).status_code == 400
 
-    payload_2 = {"run_id": run["id"], "step": 10, "name": "checkpoint", "type": "model", "metadata": {"tag": "best"}}
+    payload_2 = {"run_id": str(run.id), "step": 10, "name": "checkpoint", "type": "model", "metadata": {"tag": "best"}}
     created = client.post(ARTIFACTS, headers=owner_headers, json=payload_2)
     assert created.status_code == 200
     artifact = created.json()
@@ -74,8 +74,8 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
 
 
 def test_artifact_finalize(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    run = create_run(owner_headers)
-    payload_1 = {"run_id": run["id"], "name": "checkpoint", "type": "model"}
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
+    payload_1 = {"run_id": str(run.id), "name": "checkpoint", "type": "model"}
     artifact = client.post(ARTIFACTS, headers=owner_headers, json=payload_1).json()
     file_base = f"/api/v1/artifacts/{artifact['id']}/files"
 
@@ -96,17 +96,14 @@ def test_artifact_finalize(client: TestClient, owner_headers: Headers, create_ru
 
 
 def test_artifact_access_controls(
-    client: TestClient,
-    owner_headers: Headers,
-    outsider_headers: Headers,
-    add_collaborator: AddCollaborator,
-    create_run: CreateRun,
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
+    add_collaborator: AddCollaborator, create_run: CreateRun,
 ) -> None:
-    run = create_run(owner_headers)
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
     forbidden_payload = {"name": "ckpt", "type": "model"}
     assert client.post(ARTIFACTS, headers=outsider_headers, json=forbidden_payload).status_code == 403
 
-    artifact_payload = {"run_id": run["id"], "step": 1, "name": "checkpoint", "type": "model"}
+    artifact_payload = {"run_id": str(run.id), "step": 1, "name": "checkpoint", "type": "model"}
     artifact = client.post(ARTIFACTS, headers=owner_headers, json=artifact_payload).json()
     base = f"/api/v1/artifacts/{artifact['id']}"
     assert client.put(f"{base}/files/weights.bin", headers=outsider_headers, content=b"x").status_code == 403
@@ -114,7 +111,7 @@ def test_artifact_access_controls(
     empty_files = {"manifest": {"files": []}}
     assert client.post(f"{base}/finalize", headers=outsider_headers, json=empty_files).status_code == 403
 
-    add_collaborator(owner_headers)
+    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
 
     allowed_payload = {"name": "ckpt", "type": "model"}
     created = client.post(ARTIFACTS, headers=outsider_headers, json=allowed_payload)

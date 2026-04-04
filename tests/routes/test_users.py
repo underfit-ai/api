@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import CreateUser, Headers, SessionForUser
+from tests.conftest import CreateOrg, CreateOrgMember, CreateUser, Headers, SessionForUser
 
 ORGS = "/api/v1/organizations"
 
@@ -42,31 +42,30 @@ def test_update_profile(client: TestClient, create_user: CreateUser, session_for
     assert (response.json()["name"], response.json()["bio"]) == ("Sam Tester", "Building models.")
 
 
-def test_delete_account(client: TestClient, create_user: CreateUser, session_for_user: SessionForUser) -> None:
+def test_delete_account(
+    client: TestClient, create_org: CreateOrg, create_org_member: CreateOrgMember,
+    create_user: CreateUser, session_for_user: SessionForUser,
+) -> None:
     doomed = create_user(email="doomed@example.com", handle="doomed", name="Doomed")
     doomed_headers = session_for_user(doomed)
     deleted = client.delete("/api/v1/me", headers=doomed_headers)
     assert deleted.status_code == 200 and deleted.json() == {"status": "ok"}
     assert client.get("/api/v1/me", headers=doomed_headers).status_code == 401
 
-    admin = create_user(email="admin@example.com", handle="admin", name="Admin")
-    admin_headers = session_for_user(admin)
-    assert client.post(ORGS, headers=admin_headers, json={"handle": "myorg", "name": "My Org"}).status_code == 201
+    admin_headers = session_for_user(create_user(email="admin@example.com", handle="admin", name="Admin"))
+    create_org(admin_headers, handle="myorg", name="My Org")
     assert client.delete("/api/v1/me", headers=admin_headers).status_code == 400
     assert client.get("/api/v1/me", headers=admin_headers).status_code == 200
 
-    admin1 = create_user(email="admin1@example.com", handle="admin1", name="Admin One")
-    admin2 = create_user(email="admin2@example.com", handle="admin2", name="Admin Two")
-    admin1_headers = session_for_user(admin1)
-    session_for_user(admin2)
-    assert client.post(ORGS, headers=admin1_headers, json={"handle": "shared", "name": "Shared"}).status_code == 201
-    client.put("/api/v1/organizations/shared/members/admin2", headers=admin1_headers, json={"role": "ADMIN"})
+    admin1_headers = session_for_user(create_user(email="admin1@example.com", handle="admin1", name="Admin One"))
+    shared = create_org(admin1_headers, handle="shared", name="Shared")
+    create_org_member(shared["id"], "admin2@example.com", "admin2", "Admin Two", role="ADMIN")
     deleted = client.delete("/api/v1/me", headers=admin1_headers)
     assert deleted.status_code == 200 and deleted.json() == {"status": "ok"}
 
 
-def test_list_user_memberships(client: TestClient, owner_headers: Headers) -> None:
-    assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
+def test_list_user_memberships(client: TestClient, owner_headers: Headers, create_org: CreateOrg) -> None:
+    create_org(owner_headers)
     memberships = client.get("/api/v1/users/owner/memberships")
     assert memberships.status_code == 200
     assert len(memberships.json()) == 1

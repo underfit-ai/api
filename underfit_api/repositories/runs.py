@@ -29,19 +29,34 @@ _columns = [
 _wordlists_dir = Path(__file__).resolve().parent.parent / "wordlists"
 _adjectives = (_wordlists_dir / "adjectives.txt").read_text().splitlines()
 _nouns = (_wordlists_dir / "nouns.txt").read_text().splitlines()
+_RANDOM_NAME_ATTEMPTS = 3
 
 
-def _generate_name(conn: Connection, project_id: UUID) -> str | None:
-    for _ in range(8):
-        adj = _adjectives[secrets.randbelow(len(_adjectives))]
-        noun = _nouns[secrets.randbelow(len(_nouns))]
-        name = f"{adj}-{noun}"
-        exists = conn.execute(
-            runs.select().where(runs.c.project_id == project_id, runs.c.name == name),
-        ).first()
-        if exists is None:
+def name_exists(conn: Connection, project_id: UUID, name: str) -> bool:
+    row = conn.execute(sa.select(runs.c.id).where(runs.c.project_id == project_id, runs.c.name == name.lower())).first()
+    return row is not None
+
+
+def _random_name() -> str:
+    adj = _adjectives[secrets.randbelow(len(_adjectives))]
+    noun = _nouns[secrets.randbelow(len(_nouns))]
+    return f"{adj}-{noun}"
+
+
+def _generate_name(conn: Connection, project_id: UUID) -> str:
+    name = _random_name()
+    if not name_exists(conn, project_id, name):
+        return name
+    for _ in range(_RANDOM_NAME_ATTEMPTS - 1):
+        name = _random_name()
+        if not name_exists(conn, project_id, name):
             return name
-    return None
+    suffix = 2
+    candidate = f"{name}-{suffix}"
+    while name_exists(conn, project_id, candidate):
+        suffix += 1
+        candidate = f"{name}-{suffix}"
+    return candidate
 
 
 def get_by_id(conn: Connection, run_id: UUID) -> Run | None:
@@ -78,9 +93,10 @@ def list_by_user(conn: Connection, user_id: UUID) -> list[Run]:
 
 def create(
     conn: Connection, project_id: UUID, user_id: UUID,
-    status: str, config: dict[str, object] | None,
+    status: str, config: dict[str, object] | None, name: str | None = None,
 ) -> Run | None:
-    if not (name := _generate_name(conn, project_id)):
+    name = _generate_name(conn, project_id) if name is None else name.lower()
+    if name_exists(conn, project_id, name):
         return None
     run_id = uuid4()
     now = utcnow()

@@ -56,10 +56,7 @@ def test_logs_reject_unregistered_worker(client: TestClient, logs_setup: tuple[H
 
 
 def test_logs_require_project_access(
-    client: TestClient,
-    logs_setup: tuple[Headers, str],
-    outsider_headers: Headers,
-    add_collaborator: AddCollaborator,
+    client: TestClient, logs_setup: tuple[Headers, str], outsider_headers: Headers, add_collaborator: AddCollaborator,
 ) -> None:
     owner_headers, logs_url = logs_setup
     _add_worker(client, logs_url, owner_headers, "w")
@@ -67,5 +64,5 @@ def test_logs_require_project_access(
     payload = {"worker_label": "w", "start_line": 0, "lines": [hi_line]}
 
     assert client.post(logs_url, headers=outsider_headers, json=payload).status_code == 403
-    add_collaborator(owner_headers)
+    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
     assert client.post(logs_url, headers=outsider_headers, json=payload).status_code == 200

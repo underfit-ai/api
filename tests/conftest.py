@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,8 +13,13 @@ import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.config import FileStorageConfig, SqliteDatabaseConfig, config
 from underfit_api.main import app
-from underfit_api.models import User
+from underfit_api.models import Project, ProjectCollaborator, Run, User
 from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.repositories import organization_members as organization_members_repo
+from underfit_api.repositories import project_collaborators as project_collaborators_repo
+from underfit_api.repositories import projects as projects_repo
+from underfit_api.repositories import run_workers as run_workers_repo
+from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import metadata
@@ -24,9 +30,11 @@ Headers = dict[str, str]
 RegisterUser = Callable[..., Response]
 CreateUser = Callable[..., User]
 SessionForUser = Callable[[User], Headers]
-AddCollaborator = Callable[..., Response]
-CreateProject = Callable[..., dict[str, object]]
-CreateRun = Callable[..., dict[str, object]]
+AddCollaborator = Callable[..., ProjectCollaborator]
+CreateProject = Callable[..., Project]
+CreateRun = Callable[..., Run]
+CreateOrg = Callable[..., dict[str, object]]
+CreateOrgMember = Callable[..., Headers]
 SetupTuple = tuple[Headers, str]
 
 
@@ -36,6 +44,7 @@ def _reset_state(tmp_path: Path) -> Iterator[None]:
     config.database = SqliteDatabaseConfig(path=str(tmp_path / "test.sqlite"))
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
     config.auth_enabled = True
+    config.backfill.enabled = False
     config.email = None
     db.engine = db.build_engine()
     storage_mod.storage = storage_mod.build_storage()
@@ -82,69 +91,76 @@ def session_for_user() -> SessionForUser:
 
 @pytest.fixture
 def owner_headers(create_user: CreateUser, session_for_user: SessionForUser) -> Headers:
-    owner = create_user(email="owner@example.com", handle="owner", name="Owner")
-    return session_for_user(owner)
+    return session_for_user(create_user(email="owner@example.com", handle="owner", name="Owner"))
 
 
 @pytest.fixture
 def outsider_headers(create_user: CreateUser, session_for_user: SessionForUser) -> Headers:
-    outsider = create_user(email="outsider@example.com", handle="outsider", name="Outsider")
-    return session_for_user(outsider)
+    return session_for_user(create_user(email="outsider@example.com", handle="outsider", name="Outsider"))
 
 
 @pytest.fixture
-def create_project(client: TestClient) -> CreateProject:
-    def _create(
-        headers: dict[str, str],
-        handle: str = "owner",
-        name: str = "underfit",
-        description: str = "tracking",
-        visibility: str = "private",
-    ) -> dict[str, object]:
-        payload = {"name": name, "description": description, "visibility": visibility}
-        response = client.post(f"/api/v1/accounts/{handle}/projects", headers=headers, json=payload)
-        assert response.status_code == 200
+def create_org(client: TestClient) -> CreateOrg:
+    def _create(headers: Headers, handle: str = "core", name: str = "Core") -> dict[str, object]:
+        response = client.post("/api/v1/organizations", headers=headers, json={"handle": handle, "name": name})
+        assert response.status_code == 201
         return response.json()
 
     return _create
 
 
 @pytest.fixture
-def create_run(create_project: CreateProject, client: TestClient) -> CreateRun:
-    def _create(
-        headers: dict[str, str],
-        handle: str = "owner",
-        project_name: str = "underfit",
-        status: str = "running",
-    ) -> dict[str, object]:
-        create_project(headers, handle=handle, name=project_name)
-        url = f"/api/v1/accounts/{handle}/projects/{project_name}/runs"
-        response = client.post(url, headers=headers, json={"status": status})
-        assert response.status_code == 200
-        return response.json()
+def create_org_member(create_user: CreateUser, session_for_user: SessionForUser) -> CreateOrgMember:
+    def _create(org_id: str, email: str, handle: str, name: str, *, role: str = "MEMBER") -> Headers:
+        user = create_user(email=email, handle=handle, name=name)
+        with db.engine.begin() as conn:
+            organization_members_repo.add_member(conn, UUID(org_id), user.id, role)
+        return session_for_user(user)
 
     return _create
 
 
 @pytest.fixture
-def add_collaborator(client: TestClient) -> AddCollaborator:
-    def _add(
-        headers: dict[str, str],
-        account: str = "owner",
-        project: str = "underfit",
-        user_handle: str = "outsider",
-        expected_status: int = 200,
-    ) -> Response:
-        url = f"/api/v1/accounts/{account}/projects/{project}/collaborators/{user_handle}"
-        response = client.put(url, headers=headers)
-        assert response.status_code == expected_status
-        return response
+def create_project() -> CreateProject:
+    def _create(handle: str, name: str, description: str = "tracking", visibility: str = "private") -> Project:
+        with db.engine.begin() as conn:
+            assert (account := accounts_repo.get_by_handle(conn, handle)) is not None
+            project = projects_repo.create(conn, account.id, name.lower(), description, visibility)
+            projects_repo.create_alias(conn, project.id, account.id, name.lower())
+            return project
+
+    return _create
+
+
+@pytest.fixture
+def create_run(create_project: CreateProject) -> CreateRun:
+    def _create(
+        handle: str, project_name: str, user_handle: str, status: str = "running", name: str | None = None,
+    ) -> Run:
+        project = create_project(handle=handle, name=project_name)
+        with db.engine.begin() as conn:
+            assert (user := users_repo.get_by_handle(conn, user_handle)) is not None
+            assert (run := runs_repo.create(conn, project.id, user.id, status, None, name=name)) is not None
+            run_workers_repo.create(conn, run.id, worker_label="0", status=status, is_primary=True)
+            return run
+
+    return _create
+
+
+@pytest.fixture
+def add_collaborator() -> AddCollaborator:
+    def _add(handle: str, project_name: str, user_handle: str) -> ProjectCollaborator:
+        with db.engine.begin() as conn:
+            assert (account := accounts_repo.get_by_handle(conn, handle)) is not None
+            assert (project := projects_repo.get_by_account_and_name(conn, account.id, project_name)) is not None
+            assert (user := users_repo.get_by_handle(conn, user_handle)) is not None
+            return project_collaborators_repo.add(conn, project.id, user.id)
 
     return _add
 
 
 def _run_endpoint(owner_headers: Headers, create_run: CreateRun, suffix: str) -> SetupTuple:
-    run_name = create_run(owner_headers)["name"]
+    run_name = create_run(handle="owner", project_name="underfit", user_handle="owner").name
     base = "/api/v1/accounts/owner/projects/underfit/runs"
     return owner_headers, f"{base}/{run_name}/{suffix}"
 
