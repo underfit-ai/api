@@ -9,8 +9,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import RequestResponseEndpoint
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
@@ -39,6 +40,8 @@ from underfit_api.schema import metadata
 from underfit_api.storage.backfill import BackfillService
 
 logger = logging.getLogger(__name__)
+BACKFILL_WRITE_ERROR = "API write endpoints are disabled while backfill is enabled"
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def _flush_once() -> None:
@@ -97,6 +100,15 @@ app.add_middleware(
 )
 
 api = FastAPI()
+
+
+@api.middleware("http")
+async def block_api_writes_during_backfill(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    if config.backfill.enabled and request.method in WRITE_METHODS:
+        return JSONResponse(status_code=409, content={"error": BACKFILL_WRITE_ERROR})
+    return await call_next(request)
+
+
 api.include_router(accounts_router)
 api.include_router(api_keys_router)
 api.include_router(artifacts_router)

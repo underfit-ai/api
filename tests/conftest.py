@@ -44,6 +44,7 @@ def _reset_state(tmp_path: Path) -> Iterator[None]:
     config.database = SqliteDatabaseConfig(path=str(tmp_path / "test.sqlite"))
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
     config.auth_enabled = True
+    config.backfill.enabled = False
     config.email = None
     db.engine = db.build_engine()
     storage_mod.storage = storage_mod.build_storage()
