@@ -10,7 +10,7 @@ from underfit_api.auth import create_signed_token, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.email import send_email
-from underfit_api.models import Project
+from underfit_api.models import OkResponse, Project
 from underfit_api.permissions import can_view_project, require_account_admin
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
@@ -115,7 +115,7 @@ class TransferTokenPayload(BaseModel):
 @router.post("/accounts/{handle}/projects/{project_name}/transfer")
 def initiate_transfer(
     handle: str, project_name: str, body: InitiateTransferBody, conn: Conn, user: CurrentUser,
-) -> dict[str, str]:
+) -> OkResponse:
     if not config.email:
         raise HTTPException(400, "Email is not configured")
     if not config.frontend_url:
@@ -145,17 +145,17 @@ def initiate_transfer(
             f"This link expires in 7 days."
         ),
     )
-    return {"status": "ok"}
+    return OkResponse()
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}/transfer")
-def cancel_transfer(handle: str, project_name: str, conn: Conn, user: CurrentUser) -> dict[str, str]:
+def cancel_transfer(handle: str, project_name: str, conn: Conn, user: CurrentUser) -> OkResponse:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     if not project.pending_transfer_to:
         raise HTTPException(400, "No pending transfer")
     projects_repo.set_pending_transfer(conn, project.id, None)
-    return {"status": "ok"}
+    return OkResponse()
 
 
 @router.post("/transfer")

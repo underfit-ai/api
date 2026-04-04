@@ -17,6 +17,7 @@ import underfit_api.storage as storage_mod
 from underfit_api.auth import get_app_secret
 from underfit_api.buffer import log_buffer, scalar_buffer
 from underfit_api.config import config
+from underfit_api.models import HealthResponse
 from underfit_api.routes.account_avatars import router as account_avatars_router
 from underfit_api.routes.accounts import router as accounts_router
 from underfit_api.routes.api_keys import router as api_keys_router
@@ -142,8 +143,8 @@ def alias_redirect_handler(request: Request, exc: AliasRedirectError) -> Redirec
 
 
 @api.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "version": "v1"}
+def health() -> HealthResponse:
+    return HealthResponse()
 
 
 if (_static_dir := Path(__file__).parent / config.static_dir).is_dir():

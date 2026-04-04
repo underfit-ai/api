@@ -24,7 +24,7 @@ def test_delete_organization(client: TestClient, owner_headers: Headers, outside
     assert client.delete(CORE, headers=outsider_headers).status_code == 403
     assert client.get(MEMBERS).status_code == 200
     deleted = client.delete(CORE, headers=owner_headers)
-    assert deleted.status_code == 200 and deleted.json() == {"ok": True}
+    assert deleted.status_code == 200 and deleted.json() == {"status": "ok"}
     assert client.get(MEMBERS).status_code == 404
 
 
@@ -42,6 +42,6 @@ def test_member_can_remove_self(
     assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
     assert client.put(f"{MEMBERS}/member", headers=owner_headers, json={}).status_code == 200
     removed = client.delete(f"{MEMBERS}/member", headers=member_headers)
-    assert removed.status_code == 200 and removed.json() == {"ok": True}
+    assert removed.status_code == 200 and removed.json() == {"status": "ok"}
     listed = client.get(MEMBERS)
     assert listed.status_code == 200 and [entry["handle"] for entry in listed.json()] == ["owner"]

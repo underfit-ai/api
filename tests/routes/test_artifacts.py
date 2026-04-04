@@ -56,7 +56,7 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
     }
     finalized = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=payload_4)
     assert finalized.status_code == 200
-    assert finalized.json() == {"success": True}
+    assert finalized.json() == {"status": "ok"}
 
     artifact = client.get(f"/api/v1/artifacts/{artifact['id']}", headers=owner_headers).json()
     assert artifact["storedSizeBytes"] == 9
@@ -125,7 +125,7 @@ def test_artifact_access_controls(
     manifest_payload = {"manifest": {"files": ["a.bin"]}}
     finalized = client.post(f"{collaborator_base}/finalize", headers=outsider_headers, json=manifest_payload)
     assert finalized.status_code == 200
-    assert finalized.json() == {"success": True}
+    assert finalized.json() == {"status": "ok"}
 
 
 @pytest.mark.parametrize(("path", "normalized"), [

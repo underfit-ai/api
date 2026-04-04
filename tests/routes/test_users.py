@@ -46,7 +46,7 @@ def test_delete_account(client: TestClient, create_user: CreateUser, session_for
     doomed = create_user(email="doomed@example.com", handle="doomed", name="Doomed")
     doomed_headers = session_for_user(doomed)
     deleted = client.delete("/api/v1/me", headers=doomed_headers)
-    assert deleted.status_code == 200 and deleted.json() == {"ok": True}
+    assert deleted.status_code == 200 and deleted.json() == {"status": "ok"}
     assert client.get("/api/v1/me", headers=doomed_headers).status_code == 401
 
     admin = create_user(email="admin@example.com", handle="admin", name="Admin")
@@ -62,7 +62,7 @@ def test_delete_account(client: TestClient, create_user: CreateUser, session_for
     assert client.post(ORGS, headers=admin1_headers, json={"handle": "shared", "name": "Shared"}).status_code == 201
     client.put("/api/v1/organizations/shared/members/admin2", headers=admin1_headers, json={"role": "ADMIN"})
     deleted = client.delete("/api/v1/me", headers=admin1_headers)
-    assert deleted.status_code == 200 and deleted.json() == {"ok": True}
+    assert deleted.status_code == 200 and deleted.json() == {"status": "ok"}
 
 
 def test_list_user_memberships(client: TestClient, owner_headers: Headers) -> None:

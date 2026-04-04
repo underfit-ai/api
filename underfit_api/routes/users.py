@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from underfit_api.dependencies import Conn, CurrentUser
-from underfit_api.models import User, UserMembership
+from underfit_api.models import ExistsResponse, OkResponse, User, UserMembership
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import users as users_repo
@@ -20,10 +20,10 @@ class UpdateMeBody(BaseModel):
 
 
 @router.get("/emails/exists")
-def email_exists(conn: Conn, email: Annotated[str, Query()] = "") -> dict[str, bool]:
+def email_exists(conn: Conn, email: Annotated[str, Query()] = "") -> ExistsResponse:
     if not email:
         raise HTTPException(400, "Missing email")
-    return {"exists": users_repo.email_exists(conn, email)}
+    return ExistsResponse(exists=users_repo.email_exists(conn, email))
 
 
 @router.get("/me")
@@ -41,11 +41,11 @@ def update_me(body: UpdateMeBody, conn: Conn, user: CurrentUser) -> User:
 
 
 @router.delete("/me")
-def delete_me(conn: Conn, user: CurrentUser) -> dict[str, bool]:
+def delete_me(conn: Conn, user: CurrentUser) -> OkResponse:
     if organization_members_repo.is_sole_admin_anywhere(conn, user.id):
         raise HTTPException(400, "Cannot delete account while you are the only admin of an organization")
     accounts_repo.delete(conn, user.id)
-    return {"ok": True}
+    return OkResponse()
 
 
 @router.get("/users/search")

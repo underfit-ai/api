@@ -7,6 +7,7 @@ from fastapi.responses import Response
 from PIL import Image
 
 from underfit_api.dependencies import Conn, CurrentUser
+from underfit_api.models import OkResponse
 from underfit_api.repositories import account_avatars as account_avatars_repo
 from underfit_api.routes.resolvers import resolve_account
 
@@ -27,7 +28,7 @@ def get_avatar(handle: str, conn: Conn) -> Response:
 
 
 @router.put("/me/avatar")
-async def upload_avatar(request: Request, conn: Conn, user: CurrentUser) -> dict[str, str]:
+async def upload_avatar(request: Request, conn: Conn, user: CurrentUser) -> OkResponse:
     body = await request.body()
     if len(body) > MAX_UPLOAD_BYTES:
         raise HTTPException(400, "Image too large")
@@ -35,13 +36,13 @@ async def upload_avatar(request: Request, conn: Conn, user: CurrentUser) -> dict
         raise HTTPException(400, "No image provided")
     image = _process_image(body)
     account_avatars_repo.upsert(conn, user.id, image)
-    return {"status": "ok"}
+    return OkResponse()
 
 
 @router.delete("/me/avatar")
-def delete_avatar(conn: Conn, user: CurrentUser) -> dict[str, str]:
+def delete_avatar(conn: Conn, user: CurrentUser) -> OkResponse:
     account_avatars_repo.delete(conn, user.id)
-    return {"status": "ok"}
+    return OkResponse()
 
 
 def _process_image(data: bytes) -> bytes:

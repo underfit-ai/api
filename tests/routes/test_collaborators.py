@@ -35,7 +35,7 @@ def test_collaborators_for_user_owned_project(
     assert listed.status_code == 200
     assert [user["handle"] for user in listed.json()] == ["outsider"]
     removed = client.delete(f"{proj_base}/collaborators/outsider", headers=owner_headers)
-    assert removed.status_code == 200 and removed.json() == {"ok": True}
+    assert removed.status_code == 200 and removed.json() == {"status": "ok"}
 
 
 def test_collaborators_for_organization_owned_project(

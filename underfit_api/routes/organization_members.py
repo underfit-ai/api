@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from underfit_api.dependencies import Conn, CurrentUser
-from underfit_api.models import OrganizationMember
+from underfit_api.models import OkResponse, OrganizationMember
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_organization
@@ -48,7 +48,7 @@ def add_or_update_member(
 
 
 @router.delete("/{handle}/members/{user_handle}")
-def remove_member(handle: str, user_handle: str, conn: Conn, user: CurrentUser) -> dict[str, bool]:
+def remove_member(handle: str, user_handle: str, conn: Conn, user: CurrentUser) -> OkResponse:
     org = resolve_organization(conn, handle)
     if not (target := users_repo.get_by_handle(conn, user_handle)):
         raise HTTPException(404, "User not found")
@@ -64,4 +64,4 @@ def remove_member(handle: str, user_handle: str, conn: Conn, user: CurrentUser) 
     if is_last_admin:
         raise HTTPException(400, "Cannot remove only admin")
     organization_members_repo.remove_member(conn, org.id, target.id)
-    return {"ok": True}
+    return OkResponse()

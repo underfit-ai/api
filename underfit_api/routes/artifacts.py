@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
-from underfit_api.models import Artifact
+from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import artifacts as artifacts_repo
 from underfit_api.repositories import runs as runs_repo
@@ -158,7 +158,7 @@ def delete_file(artifact_id: UUID, file_path: str, conn: Conn, user: CurrentUser
 
 
 @router.post("/artifacts/{artifact_id}/finalize")
-def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, conn: Conn, user: CurrentUser) -> dict[str, bool]:
+def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, conn: Conn, user: CurrentUser) -> OkResponse:
     artifact = resolve_artifact(conn, artifact_id, user)
     require_project_contributor(conn, artifact.project_id, user.id)
     if artifact.finalized_at is not None:
@@ -176,4 +176,4 @@ def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, conn: Conn,
     manifest = Manifest(files=files, references=refs)
     storage_mod.storage.write(f"{artifact.storage_key}/manifest.json", manifest.model_dump_json().encode())
     artifacts_repo.finalize(conn, artifact.id, stored_size_bytes)
-    return {"success": True}
+    return OkResponse()

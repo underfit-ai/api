@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated, Union
+from typing import Annotated, Literal, Union
 from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, PlainSerializer
@@ -134,6 +134,41 @@ class Scalar(_Base):
 class AuthResponse(_Base):
     user: User
     session: Session
+
+
+class ExistsResponse(_Base):
+    exists: bool
+
+
+class OkResponse(_Base):
+    status: Literal["ok"] = "ok"
+
+
+class BufferedResponse(_Base):
+    status: Literal["buffered"] = "buffered"
+
+
+class FlushedResponse(_Base):
+    status: Literal["flushed"] = "flushed"
+
+
+class HealthResponse(_Base):
+    status: Literal["ok"] = "ok"
+    version: Literal["v1"] = "v1"
+
+
+class LogEntry(_Base):
+    start_line: int
+    end_line: int
+    content: str
+    start_at: UTCDatetime
+    end_at: UTCDatetime
+
+
+class LogEntriesResponse(_Base):
+    entries: list[LogEntry]
+    next_cursor: int
+    has_more: bool
 
 
 class ProjectCollaborator(User):

@@ -12,7 +12,7 @@ from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, create_signed_to
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.email import send_email
-from underfit_api.models import AuthResponse, Session
+from underfit_api.models import AuthResponse, OkResponse, Session
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import user_auth as user_auth_repo
@@ -107,7 +107,7 @@ def login(body: LoginBody, response: Response, request: Request, conn: Conn) -> 
 
 
 @router.post("/forgot-password")
-def forgot_password(body: ForgotPasswordBody, conn: Conn) -> dict[str, str]:
+def forgot_password(body: ForgotPasswordBody, conn: Conn) -> OkResponse:
     if not config.email:
         raise HTTPException(400, "Email is not configured")
     elif not config.frontend_url:
@@ -123,11 +123,11 @@ def forgot_password(body: ForgotPasswordBody, conn: Conn) -> dict[str, str]:
             subject="Reset your password",
             body=f"Click the link below to reset your password:\n\n{reset_url}\n\nThis link expires in 30 minutes.",
         )
-    return {"status": "ok"}
+    return OkResponse()
 
 
 @router.post("/reset-password")
-def reset_password(body: ResetPasswordBody, conn: Conn) -> dict[str, str]:
+def reset_password(body: ResetPasswordBody, conn: Conn) -> OkResponse:
     payload = verify_signed_token(body.token)
     if not payload:
         raise HTTPException(400, "Invalid or expired reset token")
@@ -136,7 +136,7 @@ def reset_password(body: ResetPasswordBody, conn: Conn) -> dict[str, str]:
         raise HTTPException(400, "Invalid or expired reset token")
     pw_hash, pw_salt = hash_password(body.password)
     user_auth_repo.update_password(conn, user_id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
-    return {"status": "ok"}
+    return OkResponse()
 
 
 @router.post("/logout")
@@ -145,8 +145,8 @@ def logout(
     request: Request,
     conn: Conn,
     session_token: SessionTokenCookie = None,
-) -> dict[str, str]:
+) -> OkResponse:
     if session_token:
         sessions_repo.delete_by_token(conn, session_token)
     response.delete_cookie("session_token", samesite="lax", secure=_cookie_secure(request))
-    return {"status": "ok"}
+    return OkResponse()

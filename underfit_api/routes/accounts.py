@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from underfit_api.dependencies import Conn, CurrentUser
-from underfit_api.models import Account
+from underfit_api.models import Account, ExistsResponse
 from underfit_api.permissions import require_account_admin
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.routes.resolvers import resolve_account
@@ -19,8 +19,8 @@ class RenameAccountBody(BaseModel):
 
 
 @router.get("/{handle}/exists")
-def account_exists(handle: str, conn: Conn) -> dict[str, bool]:
-    return {"exists": accounts_repo.alias_handle_exists(conn, handle)}
+def account_exists(handle: str, conn: Conn) -> ExistsResponse:
+    return ExistsResponse(exists=accounts_repo.alias_handle_exists(conn, handle))
 
 
 @router.get("/{handle}")
