@@ -5,21 +5,13 @@ from fastapi.testclient import TestClient
 from tests.conftest import AddCollaborator, Headers
 
 
-def test_write_and_read_scalars_with_auto_resolution(
-    client: TestClient, scalars_setup: tuple[Headers, str],
-) -> None:
+def test_write_and_read_scalars_with_auto_resolution(client: TestClient, scalars_setup: tuple[Headers, str]) -> None:
     headers, scalars_url = scalars_setup
-
     points = [
-        {
-            "step": i,
-            "values": {"loss": round(1.0 - i * 0.01, 4)},
-            "timestamp": f"2025-01-01T00:00:{i:02d}+00:00",
-        }
+        {"step": i, "values": {"loss": round(1.0 - i * 0.01, 4)}, "timestamp": f"2025-01-01T00:00:{i:02d}+00:00"}
         for i in range(20)
     ]
-    written = client.post(scalars_url, headers=headers, json={"start_line": 0, "scalars": points})
-    assert written.status_code == 200
+    assert client.post(scalars_url, headers=headers, json={"start_line": 0, "scalars": points}).status_code == 200
 
     full = client.get(scalars_url, headers=headers)
     assert full.status_code == 200
@@ -30,10 +22,9 @@ def test_write_and_read_scalars_with_auto_resolution(
     assert len(reduced.json()) == 2
 
 
-def test_scalars_validate_cursor_inputs(
-    client: TestClient, scalars_setup: tuple[Headers, str],
-) -> None:
+def test_scalars_validate_cursor_inputs(client: TestClient, scalars_setup: tuple[Headers, str]) -> None:
     headers, scalars_url = scalars_setup
+
     payload = {
         "start_line": 0,
         "scalars": [{"step": 1, "values": {"loss": 0.1}, "timestamp": "2025-01-01T00:00:00+00:00"}],

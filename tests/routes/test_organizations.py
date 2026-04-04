@@ -4,62 +4,34 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import CreateUser, Headers, SessionForUser
 
+ORGS = "/api/v1/organizations"
+CORE = f"{ORGS}/core"
+MEMBERS = f"{CORE}/members"
 
-def test_create_and_update_organization_as_admin(client: TestClient, owner_headers: Headers) -> None:
-    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
+
+def test_create_update_organization(client: TestClient, owner_headers: Headers, outsider_headers: Headers) -> None:
+    created = client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"})
     assert created.status_code == 201
     assert created.json()["handle"] == "core"
     assert created.json()["name"] == "Core"
-
-    updated = client.patch("/api/v1/organizations/core", headers=owner_headers, json={"name": "Core Team"})
-    assert updated.status_code == 200
-    assert updated.json()["name"] == "Core Team"
-
-
-def test_non_admin_cannot_update_organization(
-    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
-) -> None:
-    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
-    assert created.status_code == 201
-
-    forbidden = client.patch("/api/v1/organizations/core", headers=outsider_headers, json={"name": "Nope"})
-    assert forbidden.status_code == 403
+    assert client.patch(CORE, headers=outsider_headers, json={"name": "Nope"}).status_code == 403
+    updated = client.patch(CORE, headers=owner_headers, json={"name": "Core Team"})
+    assert updated.status_code == 200 and updated.json()["name"] == "Core Team"
 
 
-def test_admin_can_delete_organization(client: TestClient, owner_headers: Headers) -> None:
-    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
-    assert created.status_code == 201
-
-    deleted = client.delete("/api/v1/organizations/core", headers=owner_headers)
-    assert deleted.status_code == 200
-    assert deleted.json() == {"ok": True}
-
-    listed = client.get("/api/v1/organizations/core/members")
-    assert listed.status_code == 404
-
-
-def test_non_admin_cannot_delete_organization(
-    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
-) -> None:
-    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
-    assert created.status_code == 201
-
-    forbidden = client.delete("/api/v1/organizations/core", headers=outsider_headers)
-    assert forbidden.status_code == 403
-
-    members = client.get("/api/v1/organizations/core/members")
-    assert members.status_code == 200
+def test_delete_organization(client: TestClient, owner_headers: Headers, outsider_headers: Headers) -> None:
+    assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
+    assert client.delete(CORE, headers=outsider_headers).status_code == 403
+    assert client.get(MEMBERS).status_code == 200
+    deleted = client.delete(CORE, headers=owner_headers)
+    assert deleted.status_code == 200 and deleted.json() == {"ok": True}
+    assert client.get(MEMBERS).status_code == 404
 
 
 def test_cannot_demote_or_remove_only_admin(client: TestClient, owner_headers: Headers) -> None:
-    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
-    assert created.status_code == 201
-
-    demoted = client.put("/api/v1/organizations/core/members/owner", headers=owner_headers, json={"role": "MEMBER"})
-    assert demoted.status_code == 400
-
-    removed = client.delete("/api/v1/organizations/core/members/owner", headers=owner_headers)
-    assert removed.status_code == 400
+    assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
+    assert client.put(f"{MEMBERS}/owner", headers=owner_headers, json={"role": "MEMBER"}).status_code == 400
+    assert client.delete(f"{MEMBERS}/owner", headers=owner_headers).status_code == 400
 
 
 def test_member_can_remove_self(
@@ -67,23 +39,9 @@ def test_member_can_remove_self(
 ) -> None:
     member = create_user(email="member@example.com", handle="member", name="Member")
     member_headers = session_for_user(member)
-
-    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "core", "name": "Core"})
-    assert created.status_code == 201
-
-    added = client.put("/api/v1/organizations/core/members/member", headers=owner_headers, json={})
-    assert added.status_code == 200
-    assert added.json()["role"] == "MEMBER"
-    assert added.json()["id"] == str(member.id)
-    assert added.json()["createdAt"]
-    assert added.json()["updatedAt"]
-    assert added.json()["membershipCreatedAt"]
-    assert added.json()["membershipUpdatedAt"]
-
-    removed = client.delete("/api/v1/organizations/core/members/member", headers=member_headers)
-    assert removed.status_code == 200
-    assert removed.json() == {"ok": True}
-
-    listed = client.get("/api/v1/organizations/core/members")
-    assert listed.status_code == 200
-    assert [entry["handle"] for entry in listed.json()] == ["owner"]
+    assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
+    assert client.put(f"{MEMBERS}/member", headers=owner_headers, json={}).status_code == 200
+    removed = client.delete(f"{MEMBERS}/member", headers=member_headers)
+    assert removed.status_code == 200 and removed.json() == {"ok": True}
+    listed = client.get(MEMBERS)
+    assert listed.status_code == 200 and [entry["handle"] for entry in listed.json()] == ["owner"]

@@ -28,8 +28,7 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
 
     file_base = f"/api/v1/artifacts/{artifact['id']}/files"
 
-    uploaded_1 = client.put(file_base + "/weights.bin", headers=owner_headers, content=b"weights")
-    assert uploaded_1.status_code == 200
+    assert client.put(file_base + "/weights.bin", headers=owner_headers, content=b"weights").status_code == 200
 
     head_1 = client.head(file_base + "/weights.bin", headers=owner_headers)
     assert head_1.status_code == 200
@@ -88,8 +87,7 @@ def test_artifact_finalize(client: TestClient, owner_headers: Headers, create_ru
     assert extra.status_code == 409
     assert extra.json() == {"missing": [], "extra": ["extra.bin"]}
 
-    deleted = client.delete(file_base + "/extra.bin", headers=owner_headers)
-    assert deleted.status_code == 200
+    assert client.delete(file_base + "/extra.bin", headers=owner_headers).status_code == 200
     assert client.head(file_base + "/extra.bin", headers=owner_headers).status_code == 404
 
     payload_3 = {"manifest": {"files": ["weights.bin"]}}
@@ -130,27 +128,24 @@ def test_artifact_access_controls(
     assert finalized.json() == {"success": True}
 
 
-@pytest.mark.parametrize(
-    ("path", "ok", "normalized"),
-    [
-        ("models/cafe\u0301 report (v1) [final]!.json", True, "models/caf\u00e9 report (v1) [final]!.json"),
-        (".hidden/ok.txt", True, ".hidden/ok.txt"),
-        ("..\\weights.bin", False, None),
-        ("\\etc\\passwd", False, None),
-        ("dir//file.txt", False, None),
-        ("dir/./file.txt", False, None),
-        ("dir/../file.txt", False, None),
-        ("dir /file.txt", False, None),
-        ("dir/ file.txt", False, None),
-        ("dir/file.txt ", False, None),
-        ("dir/file.txt.", False, None),
-        ("dir/\tfile.txt", False, None),
-        ("dir/\nfile.txt", False, None),
-    ],
-)
-def test_validate_artifact_path(path: str, ok: bool, normalized: str | None) -> None:
-    if ok:
+@pytest.mark.parametrize(("path", "normalized"), [
+    ("models/cafe\u0301 report (v1) [final]!.json", "models/caf\u00e9 report (v1) [final]!.json"),
+    (".hidden/ok.txt", ".hidden/ok.txt"),
+    ("..\\weights.bin", None),
+    ("\\etc\\passwd", None),
+    ("dir//file.txt", None),
+    ("dir/./file.txt", None),
+    ("dir/../file.txt", None),
+    ("dir /file.txt", None),
+    ("dir/ file.txt", None),
+    ("dir/file.txt ", None),
+    ("dir/file.txt.", None),
+    ("dir/\tfile.txt", None),
+    ("dir/\nfile.txt", None),
+])
+def test_validate_artifact_path(path: str, normalized: str | None) -> None:
+    if normalized:
         assert _validate_path(path) == normalized
-        return
-    with pytest.raises(HTTPException):
-        _validate_path(path)
+    else:
+        with pytest.raises(HTTPException):
+            _validate_path(path)

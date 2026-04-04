@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import AddCollaborator, CreateProject, Headers
@@ -7,9 +8,7 @@ from tests.conftest import AddCollaborator, CreateProject, Headers
 RUNS = "/api/v1/accounts/owner/projects/underfit/runs"
 
 
-def test_run_lifecycle_and_listing(
-    client: TestClient, owner_headers: Headers, create_project: CreateProject,
-) -> None:
+def test_run_lifecycle(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(owner_headers)
 
     created = client.post(RUNS, headers=owner_headers, json={"status": "running", "config": {"lr": 0.001}})
@@ -36,26 +35,30 @@ def test_run_lifecycle_and_listing(
     assert user_runs.json()[0]["id"] == run["id"]
 
 
+@pytest.mark.parametrize(("auth", "payload", "status"), [
+    (False, {"status": "running"}, 401),
+    (True, {"status": "unknown"}, 400),
+    (True, {"status": "running", "config": {"blob": "x" * 70000}}, 400),
+])
 def test_run_create_validation(
-    client: TestClient, owner_headers: Headers, create_project: CreateProject,
+    auth: bool,
+    payload: dict[str, object],
+    status: int,
+    client: TestClient,
+    owner_headers: Headers,
+    create_project: CreateProject,
 ) -> None:
     create_project(owner_headers)
+    headers = owner_headers if auth else None
+    assert client.post(RUNS, headers=headers, json=payload).status_code == status
 
-    cases = [
-        ({}, {"status": "running"}, 401),
-        (owner_headers, {"status": "unknown"}, 400),
-        (owner_headers, {"status": "running", "config": {"blob": "x" * 70000}}, 400),
-    ]
-    for headers, payload, status in cases:
-        resp = client.post(RUNS, headers=headers or None, json=payload)
-        assert resp.status_code == status
 
+def test_run_update_validation(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+    create_project(owner_headers)
     created = client.post(RUNS, headers=owner_headers, json={"status": "running"})
     assert created.status_code == 200
     run = created.json()
-
-    updated = client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"status": "unknown"})
-    assert updated.status_code == 400
+    assert client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"status": "unknown"}).status_code == 400
 
 
 def test_run_access_controls(
@@ -66,16 +69,12 @@ def test_run_access_controls(
     add_collaborator: AddCollaborator,
 ) -> None:
     create_project(owner_headers)
-    forbidden_create = client.post(RUNS, headers=outsider_headers, json={"status": "running"})
-    assert forbidden_create.status_code == 403
+    assert client.post(RUNS, headers=outsider_headers, json={"status": "running"}).status_code == 403
     run = client.post(RUNS, headers=owner_headers, json={"status": "running"}).json()
-    forbidden_update = client.put(f"{RUNS}/{run['name']}", headers=outsider_headers, json={"status": "finished"})
-    assert forbidden_update.status_code == 403
-
+    assert client.put(f"{RUNS}/{run['name']}", headers=outsider_headers, json={"status": "finished"}).status_code == 403
     add_collaborator(owner_headers)
+    assert client.post(RUNS, headers=outsider_headers, json={"status": "running"}).status_code == 200
 
-    allowed_create = client.post(RUNS, headers=outsider_headers, json={"status": "running"})
-    assert allowed_create.status_code == 200
     allowed_update = client.put(f"{RUNS}/{run['name']}", headers=outsider_headers, json={"status": "finished"})
     assert allowed_update.status_code == 200
     assert allowed_update.json()["status"] == "finished"

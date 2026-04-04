@@ -11,9 +11,7 @@ MEDIA_METADATA = json.dumps({"key": "predictions", "step": 10, "type": "image"})
 MEDIA_FILES = [("files", ("a.bin", b"file-a", "application/octet-stream"))]
 
 
-def test_media_create_list_filter_and_download(
-    client: TestClient, media_setup: tuple[Headers, str],
-) -> None:
+def test_media_create_list_filter_and_download(client: TestClient, media_setup: tuple[Headers, str]) -> None:
     headers, media_url = media_setup
 
     created = client.post(media_url, headers=headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
@@ -30,14 +28,11 @@ def test_media_create_list_filter_and_download(
     assert downloaded.content == b"file-a"
 
 
-@pytest.mark.parametrize(
-    ("metadata", "files", "expected_status"),
-    [
-        ("not-json", MEDIA_FILES, 400),
-        (json.dumps({"key": "predictions", "type": "table"}), MEDIA_FILES, 400),
-        (json.dumps({"key": "predictions", "type": "image"}), [], 400),
-    ],
-)
+@pytest.mark.parametrize(("metadata", "files", "expected_status"), [
+    ("not-json", MEDIA_FILES, 400),
+    (json.dumps({"key": "predictions", "type": "table"}), MEDIA_FILES, 400),
+    (json.dumps({"key": "predictions", "type": "image"}), [], 400),
+])
 def test_media_validation_errors(
     client: TestClient,
     media_setup: tuple[Headers, str],
@@ -57,18 +52,8 @@ def test_media_requires_project_access(
     add_collaborator: AddCollaborator,
 ) -> None:
     owner_headers, media_url = media_setup
-    forbidden = client.post(
-        media_url,
-        headers=outsider_headers,
-        data={"metadata": MEDIA_METADATA},
-        files=MEDIA_FILES,
-    )
-    assert forbidden.status_code == 403
+    response = client.post(media_url, headers=outsider_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
+    assert response.status_code == 403
     add_collaborator(owner_headers)
-    allowed = client.post(
-        media_url,
-        headers=outsider_headers,
-        data={"metadata": MEDIA_METADATA},
-        files=MEDIA_FILES,
-    )
-    assert allowed.status_code == 200
+    response = client.post(media_url, headers=outsider_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
+    assert response.status_code == 200

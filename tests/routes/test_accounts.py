@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import CreateUser, Headers, SessionForUser
@@ -24,7 +25,8 @@ def test_account_exists_and_get_by_handle(client: TestClient, create_user: Creat
     assert not_found.status_code == 404
 
 
-def test_rename_account(client: TestClient, owner_headers: Headers) -> None:
+def test_rename_account(client: TestClient, owner_headers: Headers, outsider_headers: Headers) -> None:
+    assert client.post(f"{BASE}/owner/rename", headers=outsider_headers, json={"handle": "hacked"}).status_code == 403
     renamed = client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": "new-owner"})
     assert renamed.status_code == 200
     assert renamed.json()["handle"] == "new-owner"
@@ -35,9 +37,13 @@ def test_rename_account(client: TestClient, owner_headers: Headers) -> None:
     response = client.get(f"{BASE}/owner", headers=owner_headers, follow_redirects=False)
     assert response.status_code == 307
     assert "/accounts/new-owner" in response.headers["location"]
+    payload = {"email": "new@example.com", "handle": "owner", "password": "password123"}
+    assert client.post("/api/v1/auth/register", json=payload).status_code == 409
 
 
+@pytest.mark.parametrize("handle", ["outsider", "other"])
 def test_rename_account_conflicts(
+    handle: str,
     client: TestClient,
     owner_headers: Headers,
     create_user: CreateUser,
@@ -47,42 +53,16 @@ def test_rename_account_conflicts(
     other_headers = session_for_user(other)
     client.post(f"{BASE}/other/rename", headers=other_headers, json={"handle": "other-new"})
     create_user(email="outsider@example.com", handle="outsider", name="Outsider")
-
-    for handle in ("outsider", "other"):
-        conflict = client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": handle})
-        assert conflict.status_code == 409
+    assert client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": handle}).status_code == 409
 
 
-def test_rename_account_requires_admin(
-    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
-) -> None:
-    forbidden = client.post(f"{BASE}/owner/rename", headers=outsider_headers, json={"handle": "hacked"})
-    assert forbidden.status_code == 403
-
-
-def test_cannot_create_account_with_old_alias_handle(
-    client: TestClient, owner_headers: Headers,
-) -> None:
-    client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": "new-owner"})
-
-    conflict = client.post(
-        "/api/v1/auth/register",
-        json={"email": "new@example.com", "handle": "owner", "password": "password123"},
-    )
-    assert conflict.status_code == 409
-
-
-def test_rename_org_handle_redirects(
-    client: TestClient, owner_headers: Headers,
-) -> None:
-    created = client.post("/api/v1/organizations", headers=owner_headers, json={"handle": "my-org", "name": "My Org"})
-    assert created.status_code == 201
-
+def test_rename_org_handle_redirects(client: TestClient, owner_headers: Headers) -> None:
+    payload = {"handle": "my-org", "name": "My Org"}
+    assert client.post("/api/v1/organizations", headers=owner_headers, json=payload).status_code == 201
     client.post(f"{BASE}/my-org/rename", headers=owner_headers, json={"handle": "new-org"})
 
     response = client.get("/api/v1/organizations/my-org/members", follow_redirects=False)
     assert response.status_code == 307
     assert "/organizations/new-org" in response.headers["location"]
 
-    members = client.get("/api/v1/organizations/new-org/members")
-    assert members.status_code == 200
+    assert client.get("/api/v1/organizations/new-org/members").status_code == 200

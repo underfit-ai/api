@@ -24,20 +24,19 @@ def test_unknown_route_returns_json_404(client: TestClient) -> None:
     assert response.json() == {"error": "Route not found"}
 
 
-def test_get_app_secret_requires_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("UNDERFIT_APP_SECRET", raising=False)
+@pytest.mark.parametrize(("secret", "message"), [
+    (None, "UNDERFIT_APP_SECRET is required"),
+    (base64.urlsafe_b64encode(b"short-secret").decode(), "at least 32 bytes"),
+])
+def test_get_app_secret_validation(secret: str | None, message: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    if secret is None:
+        monkeypatch.delenv("UNDERFIT_APP_SECRET", raising=False)
+    else:
+        monkeypatch.setenv("UNDERFIT_APP_SECRET", secret)
     get_app_secret.cache_clear()
     with pytest.raises(RuntimeError) as excinfo:
         get_app_secret()
-    assert "UNDERFIT_APP_SECRET is required" in str(excinfo.value)
-
-
-def test_get_app_secret_rejects_short_secret(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("UNDERFIT_APP_SECRET", base64.urlsafe_b64encode(b"short-secret").decode())
-    get_app_secret.cache_clear()
-    with pytest.raises(RuntimeError) as excinfo:
-        get_app_secret()
-    assert "at least 32 bytes" in str(excinfo.value)
+    assert message in str(excinfo.value)
 
 
 def test_hash_token_changes_when_secret_changes(monkeypatch: pytest.MonkeyPatch) -> None:

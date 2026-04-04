@@ -11,6 +11,9 @@ Underfit is an open-source model reporting dashboard for tracking experiments, m
 - Prefer minimal, clear abstractions over clever ones.
 - Use absolute imports only, no relative imports.
 - Tests are located in a top-level `tests` folder.
+- Prefer behavior-focused tests that cover a related flow end-to-end over multiple tiny tests with repeated setup.
+- Avoid obvious intermediates and redundant test assertions for schema shape.
+- After every refactor, remove or merge tests that no longer cover unique behavior.
 
 ## Committing changes
 

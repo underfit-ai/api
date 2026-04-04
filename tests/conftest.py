@@ -52,15 +52,9 @@ def client() -> Iterator[TestClient]:
 
 @pytest.fixture
 def register_user(client: TestClient) -> RegisterUser:
-    def _register(
-        email: str = "sam@example.com",
-        handle: str = "sam",
-        password: str = "",
-    ) -> Response:
-        return client.post(
-            "/api/v1/auth/register",
-            json={"email": email, "handle": handle, "password": password or "password123"},
-        )
+    def _register(email: str = "sam@example.com", handle: str = "sam", password: str | None = None) -> Response:
+        payload = {"email": email, "handle": handle, "password": password or "password123"}
+        return client.post("/api/v1/auth/register", json=payload)
 
     return _register
 
@@ -107,11 +101,8 @@ def create_project(client: TestClient) -> CreateProject:
         description: str = "tracking",
         visibility: str = "private",
     ) -> dict[str, object]:
-        response = client.post(
-            f"/api/v1/accounts/{handle}/projects",
-            headers=headers,
-            json={"name": name, "description": description, "visibility": visibility},
-        )
+        payload = {"name": name, "description": description, "visibility": visibility}
+        response = client.post(f"/api/v1/accounts/{handle}/projects", headers=headers, json=payload)
         assert response.status_code == 200
         return response.json()
 
@@ -127,11 +118,8 @@ def create_run(create_project: CreateProject, client: TestClient) -> CreateRun:
         status: str = "running",
     ) -> dict[str, object]:
         create_project(headers, handle=handle, name=project_name)
-        response = client.post(
-            f"/api/v1/accounts/{handle}/projects/{project_name}/runs",
-            headers=headers,
-            json={"status": status},
-        )
+        url = f"/api/v1/accounts/{handle}/projects/{project_name}/runs"
+        response = client.post(url, headers=headers, json={"status": status})
         assert response.status_code == 200
         return response.json()
 
@@ -147,10 +135,8 @@ def add_collaborator(client: TestClient) -> AddCollaborator:
         user_handle: str = "outsider",
         expected_status: int = 200,
     ) -> Response:
-        response = client.put(
-            f"/api/v1/accounts/{account}/projects/{project}/collaborators/{user_handle}",
-            headers=headers,
-        )
+        url = f"/api/v1/accounts/{account}/projects/{project}/collaborators/{user_handle}"
+        response = client.put(url, headers=headers)
         assert response.status_code == expected_status
         return response
 
