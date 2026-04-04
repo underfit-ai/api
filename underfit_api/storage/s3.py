@@ -4,12 +4,13 @@ import asyncio
 import tempfile
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import datetime, timezone
+from email.utils import format_datetime
 
 import boto3
 from botocore.exceptions import ClientError
 
 from underfit_api.config import S3StorageConfig
-from underfit_api.storage.types import AppendResult, DirEntry
+from underfit_api.storage.types import AppendResult, DirEntry, FileStat
 
 
 class S3Storage:
@@ -140,6 +141,11 @@ class S3Storage:
                 )
             raise
 
+    def delete(self, key: str) -> None:
+        if not self.exists(key):
+            raise FileNotFoundError(f"File not found: {key}")
+        self._client.delete_object(Bucket=self._bucket, Key=self._key(key))
+
     def exists(self, key: str) -> bool:
         try:
             self._client.head_object(Bucket=self._bucket, Key=self._key(key))
@@ -157,6 +163,20 @@ class S3Storage:
                 raise FileNotFoundError(f"File not found: {key}") from e
             raise
         return resp["ContentLength"]  # type: ignore[no-any-return]
+
+    def stat(self, key: str) -> FileStat:
+        try:
+            resp = self._client.head_object(Bucket=self._bucket, Key=self._key(key))
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                raise FileNotFoundError(f"File not found: {key}") from e
+            raise
+        last_modified = format_datetime(resp["LastModified"].astimezone(timezone.utc), usegmt=True)
+        return FileStat(
+            size=resp["ContentLength"],
+            last_modified=last_modified,
+            etag=resp.get("ETag"),
+        )
 
     def list_dir(self, prefix: str) -> list[DirEntry]:
         full_prefix = self._key(prefix).rstrip("/") + "/"

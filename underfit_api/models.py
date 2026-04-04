@@ -105,10 +105,8 @@ class Artifact(_Base):
     step: int | None
     name: str
     type: str
-    status: str
     storage_key: str
-    declared_file_count: int
-    uploaded_file_count: int
+    stored_size_bytes: int | None
     created_at: UTCDatetime
     updated_at: UTCDatetime
     finalized_at: UTCDatetime | None

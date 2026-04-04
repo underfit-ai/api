@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import Connection
 
@@ -25,16 +25,15 @@ def list_by_project(conn: Connection, project_id: UUID) -> list[Artifact]:
 
 def create(
     conn: Connection,
+    artifact_id: UUID,
     project_id: UUID,
     run_id: UUID | None,
     step: int | None,
     name: str,
     artifact_type: str,
     storage_key: str,
-    declared_file_count: int,
     metadata: dict[str, object] | None,
 ) -> Artifact:
-    artifact_id = uuid4()
     now = utcnow()
     conn.execute(artifacts.insert().values(
         id=artifact_id,
@@ -43,10 +42,8 @@ def create(
         step=step,
         name=name,
         type=artifact_type,
-        status="open",
         storage_key=storage_key,
-        declared_file_count=declared_file_count,
-        uploaded_file_count=0,
+        stored_size_bytes=None,
         created_at=now,
         updated_at=now,
         metadata=metadata,
@@ -56,23 +53,11 @@ def create(
     return result
 
 
-def increment_uploaded(conn: Connection, artifact_id: UUID) -> Artifact | None:
-    updated = conn.execute(
-        artifacts.update()
-        .where(artifacts.c.id == artifact_id, artifacts.c.uploaded_file_count < artifacts.c.declared_file_count)
-        .values(uploaded_file_count=artifacts.c.uploaded_file_count + 1, updated_at=utcnow())
-        .returning(artifacts),
-    ).first()
-    if updated:
-        return Artifact.model_validate(updated)
-    return get_by_id(conn, artifact_id)
-
-
-def finalize(conn: Connection, artifact_id: UUID) -> Artifact | None:
+def finalize(conn: Connection, artifact_id: UUID, stored_size_bytes: int) -> Artifact | None:
     now = utcnow()
     conn.execute(
         artifacts.update()
         .where(artifacts.c.id == artifact_id)
-        .values(status="finalized", finalized_at=now, updated_at=now),
+        .values(finalized_at=now, stored_size_bytes=stored_size_bytes, updated_at=now),
     )
     return get_by_id(conn, artifact_id)

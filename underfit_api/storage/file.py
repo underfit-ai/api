@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import datetime, timezone
+from email.utils import format_datetime
 from pathlib import Path
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -9,7 +10,7 @@ from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from underfit_api.config import FileStorageConfig
-from underfit_api.storage.types import AppendResult, DirEntry
+from underfit_api.storage.types import AppendResult, DirEntry, FileStat
 
 
 class _StorageHandler(FileSystemEventHandler):
@@ -79,11 +80,25 @@ class FileStorage:
             f.write(content)
             return AppendResult(byte_offset=offset, byte_count=len(content))
 
+    def delete(self, key: str) -> None:
+        path = self._resolve(key)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {key}")
+        path.unlink()
+
     def exists(self, key: str) -> bool:
         return self._resolve(key).exists()
 
     def size(self, key: str) -> int:
         return self._resolve(key).stat().st_size
+
+    def stat(self, key: str) -> FileStat:
+        path = self._resolve(key)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {key}")
+        stat = path.stat()
+        last_modified = format_datetime(datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc), usegmt=True)
+        return FileStat(size=stat.st_size, last_modified=last_modified, etag=None)
 
     def list_dir(self, prefix: str) -> list[DirEntry]:
         path = self._resolve(prefix)

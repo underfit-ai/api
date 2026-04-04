@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 _LOG = re.compile(r"^([^/]+)/logs/(.+)\.log$")
 _SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/(raw|r(\d+))\.jsonl$")
-_ARTIFACT = re.compile(r"^([^/]+)/artifacts/([^/]+)/manifest\.json$")
+_ARTIFACT = re.compile(r"^([^/]+)/artifacts/([^/]+)/(manifest|artifact)\.json$")
 _MEDIA = re.compile(r"^([^/]+)/media/([^/]+)/\d+$")
 
 
@@ -344,7 +344,7 @@ class BackfillService:
             return
 
         existing = conn.execute(artifacts.select().where(artifacts.c.id == artifact_id)).first()
-        if existing is not None and existing.status == "finalized":
+        if existing is not None and existing.finalized_at is not None:
             return
 
         manifest_key = f"{run_id}/artifacts/{artifact_id_str}/manifest.json"
@@ -357,29 +357,37 @@ class BackfillService:
             return
 
         files_list = manifest.get("files", [])
+        declared_paths = {file for file in files_list if isinstance(file, str) and file}
         storage_prefix = f"{run_id}/artifacts/{artifact_id_str}"
+        metadata_key = f"{storage_prefix}/artifact.json"
+        metadata: dict[str, object] = {}
+        if self._storage.exists(metadata_key):
+            try:
+                metadata = json.loads(self._storage.read(metadata_key))
+            except (json.JSONDecodeError, FileNotFoundError):
+                metadata = {}
         now = utcnow()
 
         if existing is None:
             conn.execute(artifacts.insert().values(
                 id=artifact_id, project_id=run_row.project_id, run_id=run_id,
-                step=manifest.get("step"), name=manifest.get("name", artifact_id_str),
-                type=manifest.get("type", "dataset"), status="open",
-                storage_key=storage_prefix, declared_file_count=len(files_list),
-                uploaded_file_count=0, created_at=now, updated_at=now,
-                metadata=manifest.get("metadata"),
+                step=metadata.get("step"), name=metadata.get("name", artifact_id_str),
+                type=metadata.get("type", "dataset"),
+                storage_key=storage_prefix, stored_size_bytes=None, created_at=now, updated_at=now,
+                metadata=metadata.get("metadata"),
             ))
 
         files_dir = f"{storage_prefix}/files"
-        uploaded = len(self._storage.list_files(files_dir)) if self._storage.exists(files_dir) else 0
-        declared = len(files_list)
-        uploaded = min(uploaded, declared)
-        finalized = uploaded >= declared > 0
+        uploaded_paths = {
+            path[len(files_dir) + 1:]
+            for path in self._storage.list_files(files_dir)
+        } if self._storage.exists(files_dir) else set()
+        finalized = uploaded_paths == declared_paths
+        stored_size_bytes = sum(self._storage.size(f"{files_dir}/{path}") for path in uploaded_paths)
 
         conn.execute(artifacts.update().where(artifacts.c.id == artifact_id).values(
-            uploaded_file_count=uploaded,
-            status="finalized" if finalized else "open",
             finalized_at=now if finalized else None,
+            stored_size_bytes=stored_size_bytes if finalized else None,
             updated_at=now,
         ))
 
@@ -403,7 +411,7 @@ class BackfillService:
         media_type = "image"
         meta: dict[str, object] | None = None
 
-        metadata_key = f"{media_dir}/metadata.json"
+        metadata_key = f"{media_dir}/media.json"
         if self._storage.exists(metadata_key):
             try:
                 sidecar = json.loads(self._storage.read(metadata_key))

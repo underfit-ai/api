@@ -280,18 +280,20 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     media_id = uuid4()
 
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial E"})
-    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {
+    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {
         "name": "dataset-v1",
         "type": "dataset",
         "step": 10,
         "metadata": {"format": "parquet"},
-        "files": [{"path": "a.bin"}, {"path": "b.bin"}],
     })
-    _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/0", "a")
+    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {
+        "files": ["a.bin", "b.bin"],
+    })
+    _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/a.bin", "a")
 
     _write_text(storage, f"{run_id}/media/{media_id}/0", "m0")
     _write_text(storage, f"{run_id}/media/{media_id}/1", "m1")
-    _write_json(storage, f"{run_id}/media/{media_id}/metadata.json", {
+    _write_json(storage, f"{run_id}/media/{media_id}/media.json", {
         "key": "samples",
         "step": 7,
         "type": "image",
@@ -305,13 +307,16 @@ def test_backfill_updates_artifact_and_media_records() -> None:
         media_row = conn.execute(select(media).where(media.c.id == media_id)).first()
 
     assert artifact_row is not None and media_row is not None
-    assert (artifact_row.run_id, artifact_row.name, artifact_row.status) == (run_id, "dataset-v1", "open")
-    assert (artifact_row.declared_file_count, artifact_row.uploaded_file_count) == (2, 1)
+    assert (artifact_row.run_id, artifact_row.name, artifact_row.step, artifact_row.metadata) == (
+        run_id, "dataset-v1", 10, {"format": "parquet"},
+    )
+    assert artifact_row.finalized_at is None
+    assert artifact_row.stored_size_bytes is None
     assert (media_row.run_id, media_row.key, media_row.step, media_row.type, media_row.count, media_row.metadata) == (
         run_id, "samples", 7, "image", 2, {"split": "val"},
     )
 
-    _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/1", "b")
+    _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/b.bin", "b")
     _write_text(storage, f"{run_id}/media/{media_id}/2", "m2")
     _scan(service, storage)
 
@@ -320,5 +325,6 @@ def test_backfill_updates_artifact_and_media_records() -> None:
         media_row = conn.execute(select(media).where(media.c.id == media_id)).first()
 
     assert artifact_row is not None and media_row is not None
-    assert (artifact_row.status, artifact_row.uploaded_file_count, media_row.count) == ("finalized", 2, 3)
+    assert media_row.count == 3
+    assert artifact_row.stored_size_bytes == 2
     assert artifact_row.finalized_at is not None
