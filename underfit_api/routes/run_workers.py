@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
+from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Worker
 from underfit_api.permissions import require_project_contributor
@@ -35,7 +36,8 @@ def add_worker(
         raise HTTPException(400, "Invalid status")
     if workers_repo.get(conn, run.id, body.worker_label):
         raise HTTPException(409, "Worker already exists")
-    return workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=False)
+    worker = workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=False)
+    return worker.model_copy(update={"worker_token": create_worker_token(worker.id)})
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/workers")

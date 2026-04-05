@@ -5,6 +5,7 @@ import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Run
 from underfit_api.permissions import can_view_project, require_project_contributor
@@ -63,8 +64,8 @@ def create_run(handle: str, project_name: str, body: CreateRunBody, conn: Conn, 
         if name is not None:
             raise HTTPException(409, "Run already exists")
         raise HTTPException(500, "Unable to allocate unique run name")
-    workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=True)
-    return run
+    worker = workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=True)
+    return run.model_copy(update={"worker_token": create_worker_token(worker.id)})
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}")

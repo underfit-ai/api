@@ -85,6 +85,7 @@ class Run(_Base):
     name: str
     status: str
     config: dict[str, object] | None
+    worker_token: str | None = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 
@@ -93,6 +94,7 @@ class Worker(_Base):
     id: UUID
     run_id: UUID
     worker_label: str
+    worker_token: str | None = None
     is_primary: bool
     status: str
     joined_at: UTCDatetime

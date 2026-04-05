@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from tests.conftest import AddCollaborator, CreateRun, CreateUser, Headers
+from underfit_api.auth import verify_signed_token
 from underfit_api.models import Run
 
 RUNS = "/api/v1/accounts/owner/projects/underfit/runs"
@@ -27,6 +28,8 @@ def test_custom_primary_worker_id(client: TestClient, owner_headers: Headers, cr
     create_run(handle="owner", project_name="underfit", user_handle="owner")
     run = client.post(RUNS, headers=owner_headers, json={"status": "running", "worker_label": "rank-0"}).json()
     workers = client.get(f"{RUNS}/{run['name']}/workers", headers=owner_headers).json()
+    token = verify_signed_token(run["workerToken"])
+    assert token is not None and token["worker_id"] == workers[0]["id"]
     assert len(workers) == 1
     assert workers[0]["workerLabel"] == "rank-0"
     assert workers[0]["isPrimary"] is True
@@ -37,6 +40,8 @@ def test_add_and_list_workers(client: TestClient, owner_headers: Headers, create
     url = _workers_url(run)
     resp = client.post(url, headers=owner_headers, json={"workerLabel": "1", "status": "running"})
     assert resp.status_code == 200
+    token = verify_signed_token(resp.json()["workerToken"])
+    assert token is not None and token["worker_id"] == resp.json()["id"]
     assert resp.json()["workerLabel"] == "1"
     assert resp.json()["isPrimary"] is False
 
