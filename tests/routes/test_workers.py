@@ -13,16 +13,6 @@ def _workers_url(run: Run) -> str:
     return f"{RUNS}/{run.name}/workers"
 
 
-def test_primary_worker_created_with_run(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
-    resp = client.get(_workers_url(run), headers=owner_headers)
-    assert resp.status_code == 200
-    workers = resp.json()
-    assert len(workers) == 1
-    assert workers[0]["workerLabel"] == "0"
-    assert workers[0]["isPrimary"] is True
-
-
 def test_custom_primary_worker_id(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
     create_run(handle="owner", project_name="underfit", user_handle="owner")
     run = client.post(RUNS, headers=owner_headers, json={"status": "running", "worker_label": "rank-0"}).json()

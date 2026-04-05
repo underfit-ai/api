@@ -7,27 +7,33 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Json
 
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
-from underfit_api.models import Media
+from underfit_api.models import Media, MediaType
 from underfit_api.repositories import media as media_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.routes.resolvers import resolve_run
 
 router = APIRouter()
 
-VALID_MEDIA_TYPES = {"image", "video", "audio", "html"}
 MAX_JSON_BYTES = 65536
 
 
+class CreateMediaMetadata(BaseModel):
+    key: str
+    step: int | None = None
+    type: MediaType
+    metadata: dict[str, object] | None = None
+
+
+MediaMetadata = Annotated[Json[CreateMediaMetadata], Form()]
+MediaFiles = Annotated[list[UploadFile], File()]
+
+
 @router.post("/ingest/media")
-async def create_media(
-    conn: Conn,
-    worker: CurrentWorker,
-    metadata: Annotated[str, Form()],
-    files: Annotated[list[UploadFile], File()],
-) -> Media:
+async def create_media(conn: Conn, worker: CurrentWorker, metadata: MediaMetadata, files: MediaFiles) -> Media:
     if not workers_repo.touch(conn, worker):
         raise HTTPException(401, "Unauthorized")
     run_worker = workers_repo.get_by_id(conn, worker)
@@ -36,19 +42,7 @@ async def create_media(
         raise HTTPException(403, "Only the primary worker can upload media")
     if not files:
         raise HTTPException(400, "No files provided")
-    try:
-        meta = json.loads(metadata)
-    except json.JSONDecodeError as e:
-        raise HTTPException(400, "Invalid metadata JSON") from e
-    key = meta.get("key")
-    if not key or not isinstance(key, str):
-        raise HTTPException(400, "metadata.key is required")
-    media_type = meta.get("type")
-    if media_type not in VALID_MEDIA_TYPES:
-        raise HTTPException(400, "Invalid media type")
-    step = meta.get("step")
-    extra_metadata = meta.get("metadata")
-    if extra_metadata is not None and len(json.dumps(extra_metadata)) > MAX_JSON_BYTES:
+    if metadata.metadata is not None and len(json.dumps(metadata.metadata)) > MAX_JSON_BYTES:
         raise HTTPException(400, "Metadata too large")
     media_id = uuid4()
     storage_key = f"{run_worker.run_id}/media/{media_id}"
@@ -60,24 +54,19 @@ async def create_media(
     return media_repo.create(
         conn,
         run_id=run_worker.run_id,
-        key=key,
-        step=step,
-        media_type=media_type,
+        key=metadata.key,
+        step=metadata.step,
+        media_type=metadata.type,
         storage_key=storage_key,
         count=len(files),
-        metadata=extra_metadata,
+        metadata=metadata.metadata,
     )
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media")
 def list_media(
-    handle: str,
-    project_name: str,
-    run_name: str,
-    conn: Conn,
-    user: MaybeUser,
-    key: Annotated[str | None, Query()] = None,
-    step: Annotated[int | None, Query()] = None,
+    handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser,
+    key: Annotated[str | None, Query()] = None, step: Annotated[int | None, Query()] = None,
 ) -> list[Media]:
     run = resolve_run(conn, handle, project_name, run_name, user)
     return media_repo.list_by_run(conn, run.id, key=key, step=step)
@@ -85,12 +74,7 @@ def list_media(
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media/{media_id}/file")
 def get_media_file(
-    handle: str,
-    project_name: str,
-    run_name: str,
-    media_id: UUID,
-    conn: Conn,
-    user: MaybeUser,
+    handle: str, project_name: str, run_name: str, media_id: UUID, conn: Conn, user: MaybeUser,
     index: Annotated[int, Query()] = 0,
 ) -> Response:
     run = resolve_run(conn, handle, project_name, run_name, user)

@@ -30,6 +30,13 @@ class RunTerminalState(str, Enum):
     CANCELLED = "cancelled"
 
 
+class MediaType(str, Enum):
+    IMAGE = "image"
+    VIDEO = "video"
+    AUDIO = "audio"
+    HTML = "html"
+
+
 class User(_Base):
     id: UUID
     handle: str
@@ -133,7 +140,7 @@ class Media(_Base):
     run_id: UUID
     key: str
     step: int | None
-    type: str
+    type: MediaType
     storage_key: str
     count: int
     metadata: dict[str, object] | None
