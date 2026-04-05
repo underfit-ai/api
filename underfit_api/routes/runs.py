@@ -65,7 +65,7 @@ def create_run(handle: str, project_name: str, body: CreateRunBody, conn: Conn, 
             raise HTTPException(409, "Run already exists")
         raise HTTPException(500, "Unable to allocate unique run name")
     worker = workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=True)
-    return run.model_copy(update={"worker_token": create_worker_token(worker.id)})
+    return run.model_copy(update={"worker_token": create_worker_token(worker.id, worker.run_id, worker.worker_label)})
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}")

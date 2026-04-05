@@ -2,53 +2,55 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import AddCollaborator, Headers
+from tests.conftest import Headers
 
 
-def test_write_and_read_scalars_with_auto_resolution(client: TestClient, scalars_setup: tuple[Headers, str]) -> None:
-    headers, scalars_url = scalars_setup
+def _setup_scalars(client: TestClient, headers: Headers) -> tuple[Headers, str]:
+    client.post("/api/v1/accounts/owner/projects", headers=headers, json={"name": "underfit", "visibility": "private"})
+    base_url = "/api/v1/accounts/owner/projects/underfit/runs"
+    run = client.post(base_url, headers=headers, json={"status": "running"}).json()
+    return {"Authorization": f"Bearer {run['workerToken']}"}, f"{base_url}/{run['name']}/scalars"
+
+
+def test_write_and_read_scalars_with_auto_resolution(client: TestClient, owner_headers: Headers) -> None:
+    headers, scalars_url = _setup_scalars(client, owner_headers)
     points = [
         {"step": i, "values": {"loss": round(1.0 - i * 0.01, 4)}, "timestamp": f"2025-01-01T00:00:{i:02d}+00:00"}
         for i in range(20)
     ]
-    assert client.post(scalars_url, headers=headers, json={"start_line": 0, "scalars": points}).status_code == 200
+    scalars = {"start_line": 0, "scalars": points}
+    assert client.post("/api/v1/ingest/scalars", headers=headers, json=scalars).status_code == 200
 
-    full = client.get(scalars_url, headers=headers)
+    full = client.get(scalars_url, headers=owner_headers)
     assert full.status_code == 200
     assert len(full.json()) == 20
 
-    reduced = client.get(scalars_url, headers=headers, params={"maxPoints": 2})
+    reduced = client.get(scalars_url, headers=owner_headers, params={"maxPoints": 2})
     assert reduced.status_code == 200
     assert len(reduced.json()) == 2
 
 
-def test_scalars_validate_cursor_inputs(client: TestClient, scalars_setup: tuple[Headers, str]) -> None:
-    headers, scalars_url = scalars_setup
+def test_scalars_validate_cursor_inputs(client: TestClient, owner_headers: Headers) -> None:
+    headers, scalars_url = _setup_scalars(client, owner_headers)
 
     payload = {
         "start_line": 0,
         "scalars": [{"step": 1, "values": {"loss": 0.1}, "timestamp": "2025-01-01T00:00:00+00:00"}],
     }
-    assert client.post(scalars_url, headers=headers, json=payload).status_code == 200
+    assert client.post("/api/v1/ingest/scalars", headers=headers, json=payload).status_code == 200
     duplicate = {
         "start_line": 0,
         "scalars": [{"step": 2, "values": {"loss": 0.2}, "timestamp": "2025-01-01T00:00:01+00:00"}],
     }
-    assert client.post(scalars_url, headers=headers, json=duplicate).status_code == 409
+    assert client.post("/api/v1/ingest/scalars", headers=headers, json=duplicate).status_code == 409
 
-    invalid_query = client.get(scalars_url, headers=headers, params={"resolution": 0, "maxPoints": 10})
+    invalid_query = client.get(scalars_url, headers=owner_headers, params={"resolution": 0, "maxPoints": 10})
     assert invalid_query.status_code == 400
 
 
-def test_scalars_require_project_access(
-    client: TestClient, scalars_setup: tuple[Headers, str],
-    outsider_headers: Headers, add_collaborator: AddCollaborator,
-) -> None:
-    _, scalars_url = scalars_setup
+def test_scalars_require_worker_token(client: TestClient) -> None:
     payload = {
         "start_line": 0,
         "scalars": [{"step": 1, "values": {"loss": 0.1}, "timestamp": "2025-01-01T00:00:00+00:00"}],
     }
-    assert client.post(scalars_url, headers=outsider_headers, json=payload).status_code == 403
-    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
-    assert client.post(scalars_url, headers=outsider_headers, json=payload).status_code == 200
+    assert client.post("/api/v1/ingest/scalars", json=payload).status_code == 401

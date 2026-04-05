@@ -35,7 +35,6 @@ CreateProject = Callable[..., Project]
 CreateRun = Callable[..., Run]
 CreateOrg = Callable[..., dict[str, object]]
 CreateOrgMember = Callable[..., Headers]
-SetupTuple = tuple[Headers, str]
 
 
 @pytest.fixture(autouse=True)
@@ -159,22 +158,7 @@ def add_collaborator() -> AddCollaborator:
     return _add
 
 
-def _run_endpoint(owner_headers: Headers, create_run: CreateRun, suffix: str) -> SetupTuple:
+@pytest.fixture
+def media_setup(owner_headers: Headers, create_run: CreateRun) -> tuple[Headers, str]:
     run_name = create_run(handle="owner", project_name="underfit", user_handle="owner").name
-    base = "/api/v1/accounts/owner/projects/underfit/runs"
-    return owner_headers, f"{base}/{run_name}/{suffix}"
-
-
-@pytest.fixture
-def logs_setup(owner_headers: Headers, create_run: CreateRun) -> SetupTuple:
-    return _run_endpoint(owner_headers, create_run, "logs")
-
-
-@pytest.fixture
-def scalars_setup(owner_headers: Headers, create_run: CreateRun) -> SetupTuple:
-    return _run_endpoint(owner_headers, create_run, "scalars")
-
-
-@pytest.fixture
-def media_setup(owner_headers: Headers, create_run: CreateRun) -> SetupTuple:
-    return _run_endpoint(owner_headers, create_run, "media")
+    return owner_headers, f"/api/v1/accounts/owner/projects/underfit/runs/{run_name}/media"

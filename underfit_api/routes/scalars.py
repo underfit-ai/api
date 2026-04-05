@@ -11,9 +11,8 @@ from pydantic.alias_generators import to_camel
 import underfit_api.storage as storage_mod
 from underfit_api.buffer import ScalarPoint, scalar_buffer
 from underfit_api.config import config
-from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
+from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, Scalar, UTCDatetime, Worker
-from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -29,29 +28,21 @@ class ScalarInput(BaseModel):
 
 class WriteScalarsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_label: str = "0"
     start_line: int
     scalars: list[ScalarInput]
 
 
-@router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
-def write_scalars(
-    handle: str, project_name: str, run_name: str, body: WriteScalarsBody, conn: Conn, user: CurrentUser,
-) -> BufferedResponse:
-    run = resolve_run(conn, handle, project_name, run_name, user)
-    require_project_contributor(conn, run.project_id, user.id)
-    if not (worker := workers_repo.get(conn, run.id, body.worker_label)):
-        raise HTTPException(404, "Worker not found")
+@router.post("/ingest/scalars")
+def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
+    worker_id, run_id, worker_label = worker
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if not body.scalars:
         return BufferedResponse()
     parsed = [ScalarPoint(step=s.step, values=s.values, timestamp=s.timestamp) for s in body.scalars]
-    if (expected := scalar_buffer.append(
-        conn, worker.id, run.id, body.worker_label, body.start_line, parsed,
-    )) is not None:
+    if (expected := scalar_buffer.append(conn, worker_id, run_id, worker_label, body.start_line, parsed)) is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker.id)
+    scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker_id)
     return BufferedResponse()
 
 

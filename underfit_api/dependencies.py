@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from typing import Annotated, Optional
+from uuid import UUID
 
 from fastapi import Cookie, Depends, Header, HTTPException
 from sqlalchemy import Connection
 
-from underfit_api.auth import hash_token
+from underfit_api.auth import hash_token, verify_signed_token
 from underfit_api.config import config
 from underfit_api.db import get_conn
 from underfit_api.models import User
@@ -59,3 +60,17 @@ def get_maybe_user(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 MaybeUser = Annotated[Optional[User], Depends(get_maybe_user)]
+
+
+def get_current_worker(authorization: AuthorizationHeader = None) -> tuple[UUID, UUID, str]:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Unauthorized")
+    if not (token := verify_signed_token(authorization[7:])):
+        raise HTTPException(401, "Unauthorized")
+    try:
+        return UUID(token["worker_id"]), UUID(token["run_id"]), token["worker_label"]
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(401, "Unauthorized") from None
+
+
+CurrentWorker = Annotated[tuple[UUID, UUID, str], Depends(get_current_worker)]

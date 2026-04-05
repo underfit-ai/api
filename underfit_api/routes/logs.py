@@ -8,9 +8,8 @@ from pydantic.alias_generators import to_camel
 
 import underfit_api.storage as storage_mod
 from underfit_api.buffer import LogLine, log_buffer
-from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
+from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry, UTCDatetime
-from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -25,28 +24,22 @@ class LogLineInput(BaseModel):
 
 class WriteLogsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_label: str
     start_line: int
     lines: list[LogLineInput]
 
 
-@router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs")
-def write_logs(
-    handle: str, project_name: str, run_name: str, body: WriteLogsBody, conn: Conn, user: CurrentUser,
-) -> BufferedResponse:
-    run = resolve_run(conn, handle, project_name, run_name, user)
-    require_project_contributor(conn, run.project_id, user.id)
-    if not (worker := workers_repo.get(conn, run.id, body.worker_label)):
-        raise HTTPException(404, "Worker not found")
+@router.post("/ingest/logs")
+def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
+    worker_id, run_id, worker_label = worker
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if not body.lines:
         return BufferedResponse()
     parsed = [LogLine(timestamp=ln.timestamp, content=ln.content) for ln in body.lines]
-    expected = log_buffer.append(conn, worker.id, run.id, body.worker_label, body.start_line, parsed)
+    expected = log_buffer.append(conn, worker_id, run_id, worker_label, body.start_line, parsed)
     if expected is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    log_buffer.flush_if_needed(conn, storage_mod.storage, worker.id)
+    log_buffer.flush_if_needed(conn, storage_mod.storage, worker_id)
     return BufferedResponse()
 
 

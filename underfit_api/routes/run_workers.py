@@ -37,7 +37,8 @@ def add_worker(
     if workers_repo.get(conn, run.id, body.worker_label):
         raise HTTPException(409, "Worker already exists")
     worker = workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=False)
-    return worker.model_copy(update={"worker_token": create_worker_token(worker.id)})
+    token = create_worker_token(worker.id, worker.run_id, worker.worker_label)
+    return worker.model_copy(update={"worker_token": token})
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/workers")
