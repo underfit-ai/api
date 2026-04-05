@@ -62,15 +62,15 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 MaybeUser = Annotated[Optional[User], Depends(get_maybe_user)]
 
 
-def get_current_worker(authorization: AuthorizationHeader = None) -> tuple[UUID, UUID, str]:
+def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Unauthorized")
     if not (token := verify_signed_token(authorization[7:])):
         raise HTTPException(401, "Unauthorized")
     try:
-        return UUID(token["worker_id"]), UUID(token["run_id"]), token["worker_label"]
+        return UUID(token["worker_id"])
     except (KeyError, ValueError, TypeError):
         raise HTTPException(401, "Unauthorized") from None
 
 
-CurrentWorker = Annotated[tuple[UUID, UUID, str], Depends(get_current_worker)]
+CurrentWorker = Annotated[UUID, Depends(get_current_worker)]

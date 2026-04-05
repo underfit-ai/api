@@ -30,7 +30,6 @@ class WriteLogsBody(BaseModel):
 
 @router.post("/ingest/logs")
 def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
-    worker_id, run_id, worker_label = worker
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if any("\n" in ln.content or "\r" in ln.content for ln in body.lines):
@@ -38,10 +37,10 @@ def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> Buffer
     if not body.lines:
         return BufferedResponse(next_start_line=body.start_line)
     parsed = [LogLine(timestamp=ln.timestamp, content=ln.content) for ln in body.lines]
-    expected = log_buffer.append(conn, worker_id, run_id, worker_label, body.start_line, parsed)
+    expected = log_buffer.append(conn, worker, body.start_line, parsed)
     if expected is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    log_buffer.flush_if_needed(conn, storage_mod.storage, worker_id)
+    log_buffer.flush_if_needed(conn, storage_mod.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.lines))
 
 

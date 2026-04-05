@@ -14,6 +14,7 @@ from sqlalchemy import Connection
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
 from underfit_api.repositories import log_segments as log_seg_repo
+from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.storage import Storage
 
@@ -82,7 +83,6 @@ class LogBuffer:
         self._lock = threading.RLock()
         self._locks = _WorkerLocks()
         self._buffers: dict[UUID, _LineBuffer[LogLine]] = {}
-        self._meta: dict[UUID, tuple[UUID, str]] = {}
         self._total_bytes = 0
 
     def get_end_line(self, conn: Connection, worker_id: UUID) -> int:
@@ -92,16 +92,12 @@ class LogBuffer:
                 return buf.end_line
             return log_seg_repo.get_end_line(conn, worker_id)
 
-    def append(
-        self, conn: Connection, worker_id: UUID, run_id: UUID, worker_label: str,
-        start_line: int, lines: list[LogLine],
-    ) -> int | None:
+    def append(self, conn: Connection, worker_id: UUID, start_line: int, lines: list[LogLine]) -> int | None:
         with self._locks[worker_id]:
             expected = self.get_end_line(conn, worker_id)
             if start_line != expected:
                 return expected
             with self._lock:
-                self._meta[worker_id] = (run_id, worker_label)
                 buf = self._buffers.setdefault(worker_id, _LineBuffer(start_line=start_line))
             if not buf.lines:
                 buf.created_at = time.monotonic()
@@ -118,9 +114,10 @@ class LogBuffer:
             buf = self._buffers.get(worker_id)
             if not buf or not buf.lines:
                 return
-            run_id, worker_label = self._meta[worker_id]
+            if not (worker := workers_repo.get_by_id(conn, worker_id)):
+                raise RuntimeError("Worker not found")
             content = "".join(f"{line.content}\n" for line in buf.lines)
-            storage_key = _log_storage_key(run_id, worker_label)
+            storage_key = _log_storage_key(worker.run_id, worker.worker_label)
             result = storage.append(storage_key, content.encode())
             log_seg_repo.insert(
                 conn, worker_id,
@@ -180,7 +177,6 @@ class ScalarBuffer:
         self._locks = _WorkerLocks()
         self._buffers: dict[tuple[UUID, int], _LineBuffer[ScalarPoint]] = {}
         self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
-        self._meta: dict[UUID, tuple[UUID, str]] = {}
         self._total_bytes = 0
 
     def get_end_line(self, conn: Connection, worker_id: UUID, resolution: int = 0) -> int:
@@ -191,16 +187,12 @@ class ScalarBuffer:
                 return buf.end_line
             return scalar_seg_repo.get_end_line(conn, worker_id, resolution)
 
-    def append(
-        self, conn: Connection, worker_id: UUID, run_id: UUID, worker_label: str,
-        start_line: int, scalars: list[ScalarPoint],
-    ) -> int | None:
+    def append(self, conn: Connection, worker_id: UUID, start_line: int, scalars: list[ScalarPoint]) -> int | None:
         with self._locks[worker_id]:
             expected = self.get_end_line(conn, worker_id, 0)
             if start_line != expected:
                 return expected
             with self._lock:
-                self._meta[worker_id] = (run_id, worker_label)
                 buf = self._buffers.setdefault((worker_id, 0), _LineBuffer(start_line=start_line))
             if not buf.lines:
                 buf.created_at = time.monotonic()
@@ -255,10 +247,11 @@ class ScalarBuffer:
         buf = self._buffers.get((worker_id, resolution))
         if not buf or not buf.lines:
             return
-        run_id, worker_label = self._meta[worker_id]
+        if not (worker := workers_repo.get_by_id(conn, worker_id)):
+            raise RuntimeError("Worker not found")
         lines_data = [self._serialize_scalar(line) for line in buf.lines]
         content = "".join(s + "\n" for s in lines_data)
-        storage_key = _scalar_storage_key(run_id, worker_label, resolution)
+        storage_key = _scalar_storage_key(worker.run_id, worker.worker_label, resolution)
         result = storage.append(storage_key, content.encode())
         scalar_seg_repo.insert(
             conn, worker_id, resolution,

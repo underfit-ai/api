@@ -50,6 +50,11 @@ def get(conn: Connection, run_id: UUID, worker_label: str) -> Worker | None:
     return Worker.model_validate(row) if row else None
 
 
+def get_by_id(conn: Connection, worker_id: UUID) -> Worker | None:
+    row = conn.execute(sa.select(*_columns).select_from(_join).where(run_workers.c.id == worker_id)).first()
+    return Worker.model_validate(row) if row else None
+
+
 def update_status(conn: Connection, run_id: UUID, worker_label: str, status: str) -> Worker | None:
     conn.execute(
         run_workers.update()

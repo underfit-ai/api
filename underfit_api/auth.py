@@ -75,7 +75,5 @@ def verify_signed_token(token: str) -> dict[str, Any] | None:
     return payload
 
 
-def create_worker_token(worker_id: object, run_id: object, worker_label: str) -> str:
-    return create_signed_token(
-        {"worker_id": str(worker_id), "run_id": str(run_id), "worker_label": worker_label}, timedelta(days=3650),
-    )
+def create_worker_token(worker_id: object) -> str:
+    return create_signed_token({"worker_id": str(worker_id)}, timedelta(days=3650))

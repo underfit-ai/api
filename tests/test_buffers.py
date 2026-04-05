@@ -17,24 +17,23 @@ from underfit_api.schema import log_segments, scalar_segments
 from underfit_api.storage.file import FileStorage
 
 
-def _create_worker(worker_label: str = "0") -> tuple[UUID, UUID]:
-    """Returns (worker_id, run_id)."""
+def _create_worker(worker_label: str = "0") -> UUID:
     with db.engine.begin() as conn:
         user = users_repo.create(conn, email="owner@example.com", handle="owner", name="Owner")
         project = projects_repo.create(conn, user.id, "underfit", None, "private")
         run = runs_repo.create(conn, project.id, user.id, "running", None)
         assert run is not None
         worker = workers_repo.create(conn, run.id, worker_label, "running", is_primary=True)
-        return worker.id, run.id
+        return worker.id
 
 
 def test_log_buffer_expands_multiline_and_slices_by_cursor() -> None:
-    rwid, run_id = _create_worker("worker-1")
+    rwid = _create_worker("worker-1")
     buffer = LogBuffer()
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
     with db.engine.begin() as conn:
-        expected = buffer.append(conn, rwid, run_id, "worker-1", 0, [
+        expected = buffer.append(conn, rwid, 0, [
             LogLine(timestamp=t0, content="a\nb"),
             LogLine(timestamp=t0 + timedelta(seconds=1), content="c"),
         ])
@@ -42,20 +41,20 @@ def test_log_buffer_expands_multiline_and_slices_by_cursor() -> None:
         assert buffer.get_end_line(conn, rwid) == 3
         assert [line.content for line in buffer.read_buffered(rwid, cursor=1, count=2)] == ["b", "c"]
 
-        conflict = buffer.append(conn, rwid, run_id, "worker-1", 1, [LogLine(timestamp=t0, content="late")])
+        conflict = buffer.append(conn, rwid, 1, [LogLine(timestamp=t0, content="late")])
         assert conflict == 3
 
 
 def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -> None:
-    rwid, run_id = _create_worker("worker-1")
+    rwid = _create_worker("worker-1")
     buffer = LogBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
     with db.engine.begin() as conn:
-        assert buffer.append(conn, rwid, run_id, "worker-1", 0, [LogLine(timestamp=t0, content="first")]) is None
+        assert buffer.append(conn, rwid, 0, [LogLine(timestamp=t0, content="first")]) is None
         buffer.flush(conn, storage, rwid)
-        assert buffer.append(conn, rwid, run_id, "worker-1", 1, [LogLine(timestamp=t0, content="second")]) is None
+        assert buffer.append(conn, rwid, 1, [LogLine(timestamp=t0, content="second")]) is None
         buffer.flush(conn, storage, rwid)
 
         segments = conn.execute(
@@ -74,7 +73,7 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
 
 
 def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
-    rwid, run_id = _create_worker("worker-1")
+    rwid = _create_worker("worker-1")
     buffer = LogBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     original = config.buffer.max_segment_bytes
@@ -82,7 +81,7 @@ def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
 
     try:
         with db.engine.begin() as conn:
-            assert buffer.append(conn, rwid, run_id, "worker-1", 0, [
+            assert buffer.append(conn, rwid, 0, [
                 LogLine(timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc), content="abcd"),
             ]) is None
             buffer.flush_if_needed(conn, storage, rwid)
@@ -95,7 +94,7 @@ def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
 
 
 def test_scalar_buffer_builds_resolution_tiers() -> None:
-    rwid, run_id = _create_worker()
+    rwid = _create_worker()
     buffer = ScalarBuffer()
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
@@ -104,7 +103,7 @@ def test_scalar_buffer_builds_resolution_tiers() -> None:
             ScalarPoint(step=i, values={"loss": float(i + 1)}, timestamp=t0 + timedelta(seconds=i))
             for i in range(10)
         ]
-        assert buffer.append(conn, rwid, run_id, "0", 0, points) is None
+        assert buffer.append(conn, rwid, 0, points) is None
 
         r1 = buffer.read_buffered(rwid, 1)
         r2 = buffer.read_buffered(rwid, 2)
@@ -114,7 +113,7 @@ def test_scalar_buffer_builds_resolution_tiers() -> None:
 
 
 def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(tmp_path: Path) -> None:
-    rwid, run_id = _create_worker()
+    rwid = _create_worker()
     buffer = ScalarBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     original = config.buffer.max_segment_bytes
@@ -122,7 +121,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
 
     try:
         with db.engine.begin() as conn:
-            assert buffer.append(conn, rwid, run_id, "0", 0, [
+            assert buffer.append(conn, rwid, 0, [
                 ScalarPoint(
                     step=0,
                     values={"loss": 1.0},

@@ -34,15 +34,14 @@ class WriteScalarsBody(BaseModel):
 
 @router.post("/ingest/scalars")
 def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
-    worker_id, run_id, worker_label = worker
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if not body.scalars:
         return BufferedResponse(next_start_line=body.start_line)
     parsed = [ScalarPoint(step=s.step, values=s.values, timestamp=s.timestamp) for s in body.scalars]
-    if (expected := scalar_buffer.append(conn, worker_id, run_id, worker_label, body.start_line, parsed)) is not None:
+    if (expected := scalar_buffer.append(conn, worker, body.start_line, parsed)) is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
-    scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker_id)
+    scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.scalars))
 
 
