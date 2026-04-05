@@ -9,7 +9,7 @@ from pydantic.alias_generators import to_camel
 import underfit_api.storage as storage_mod
 from underfit_api.buffer import LogLine, log_buffer
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
-from underfit_api.models import BufferedResponse, FlushedResponse, LogEntriesResponse, LogEntry, UTCDatetime
+from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry, UTCDatetime
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -30,11 +30,6 @@ class WriteLogsBody(BaseModel):
     lines: list[LogLineInput]
 
 
-class FlushLogsBody(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_label: str
-
-
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs")
 def write_logs(
     handle: str, project_name: str, run_name: str, body: WriteLogsBody, conn: Conn, user: CurrentUser,
@@ -53,18 +48,6 @@ def write_logs(
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
     log_buffer.flush_if_needed(conn, storage_mod.storage, worker.id)
     return BufferedResponse()
-
-
-@router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs/flush")
-def flush_logs(
-    handle: str, project_name: str, run_name: str, body: FlushLogsBody, conn: Conn, user: CurrentUser,
-) -> FlushedResponse:
-    run = resolve_run(conn, handle, project_name, run_name, user)
-    require_project_contributor(conn, run.project_id, user.id)
-    if not (worker := workers_repo.get(conn, run.id, body.worker_label)):
-        raise HTTPException(404, "Worker not found")
-    log_buffer.flush(conn, storage_mod.storage, worker.id)
-    return FlushedResponse()
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs")

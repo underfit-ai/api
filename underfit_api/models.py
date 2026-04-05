@@ -150,10 +150,6 @@ class BufferedResponse(_Base):
     status: Literal["buffered"] = "buffered"
 
 
-class FlushedResponse(_Base):
-    status: Literal["flushed"] = "flushed"
-
-
 class HealthResponse(_Base):
     status: Literal["ok"] = "ok"
     version: Literal["v1"] = "v1"

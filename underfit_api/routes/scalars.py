@@ -12,7 +12,7 @@ import underfit_api.storage as storage_mod
 from underfit_api.buffer import ScalarPoint, scalar_buffer
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
-from underfit_api.models import BufferedResponse, FlushedResponse, Scalar, UTCDatetime, Worker
+from underfit_api.models import BufferedResponse, Scalar, UTCDatetime, Worker
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
@@ -34,11 +34,6 @@ class WriteScalarsBody(BaseModel):
     scalars: list[ScalarInput]
 
 
-class FlushScalarsBody(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    worker_label: str = "0"
-
-
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
 def write_scalars(
     handle: str, project_name: str, run_name: str, body: WriteScalarsBody, conn: Conn, user: CurrentUser,
@@ -58,18 +53,6 @@ def write_scalars(
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
     scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker.id)
     return BufferedResponse()
-
-
-@router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars/flush")
-def flush_scalars(
-    handle: str, project_name: str, run_name: str, body: FlushScalarsBody, conn: Conn, user: CurrentUser,
-) -> FlushedResponse:
-    run = resolve_run(conn, handle, project_name, run_name, user)
-    require_project_contributor(conn, run.project_id, user.id)
-    if not (worker := workers_repo.get(conn, run.id, body.worker_label)):
-        raise HTTPException(404, "Worker not found")
-    scalar_buffer.flush(conn, storage_mod.storage, worker.id)
-    return FlushedResponse()
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")

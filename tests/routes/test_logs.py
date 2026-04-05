@@ -10,7 +10,7 @@ def _add_worker(client: TestClient, logs_url: str, headers: dict[str, str], work
     assert client.post(workers_url, headers=headers, json={"workerLabel": worker_label}).status_code == 200
 
 
-def test_write_read_and_flush_logs(client: TestClient, logs_setup: tuple[Headers, str]) -> None:
+def test_write_read_logs_from_buffer(client: TestClient, logs_setup: tuple[Headers, str]) -> None:
     headers, logs_url = logs_setup
     _add_worker(client, logs_url, headers, "worker-1")
     lines = [
@@ -28,8 +28,6 @@ def test_write_read_and_flush_logs(client: TestClient, logs_setup: tuple[Headers
     assert first_page.status_code == 200
     assert first_json["entries"][0]["content"] == "hello\nworld"
     assert first_json["nextCursor"] == 2 and first_json["hasMore"] is True
-
-    assert client.post(f"{logs_url}/flush", headers=headers, json=base).status_code == 200
 
     second_page = client.get(logs_url, headers=headers, params={"workerLabel": "worker-1", "cursor": 2})
     second_json = second_page.json()
