@@ -41,9 +41,7 @@ def _authenticate(conn: Connection, authorization: str | None, session_token: st
 
 
 def get_current_user(
-    conn: Conn,
-    authorization: AuthorizationHeader = None,
-    session_token: SessionTokenCookie = None,
+    conn: Conn, authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
 ) -> User:
     if not (user := _authenticate(conn, authorization, session_token)):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -51,15 +49,9 @@ def get_current_user(
 
 
 def get_maybe_user(
-    conn: Conn,
-    authorization: AuthorizationHeader = None,
-    session_token: SessionTokenCookie = None,
+    conn: Conn, authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
 ) -> User | None:
     return _authenticate(conn, authorization, session_token)
-
-
-CurrentUser = Annotated[User, Depends(get_current_user)]
-MaybeUser = Annotated[Optional[User], Depends(get_maybe_user)]
 
 
 def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
@@ -73,4 +65,6 @@ def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
         raise HTTPException(401, "Unauthorized") from None
 
 
+CurrentUser = Annotated[User, Depends(get_current_user)]
+MaybeUser = Annotated[Optional[User], Depends(get_maybe_user)]
 CurrentWorker = Annotated[UUID, Depends(get_current_worker)]
