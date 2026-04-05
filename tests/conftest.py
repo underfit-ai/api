@@ -157,8 +157,3 @@ def add_collaborator() -> AddCollaborator:
 
     return _add
 
-
-@pytest.fixture
-def media_setup(owner_headers: Headers, create_run: CreateRun) -> tuple[Headers, str]:
-    run_name = create_run(handle="owner", project_name="underfit", user_handle="owner").name
-    return owner_headers, f"/api/v1/accounts/owner/projects/underfit/runs/{run_name}/media"

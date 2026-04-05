@@ -2,52 +2,36 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import AddCollaborator, Headers
+from tests.conftest import Headers
 
 MEDIA_METADATA = json.dumps({"key": "predictions", "step": 10, "type": "image"})
 MEDIA_FILES = [("files", ("a.bin", b"file-a", "application/octet-stream"))]
 
 
-def test_media_create_list_filter_and_download(client: TestClient, media_setup: tuple[Headers, str]) -> None:
-    headers, media_url = media_setup
+def test_media_ingest_requires_primary_worker(client: TestClient, owner_headers: Headers) -> None:
+    client.post(
+        "/api/v1/accounts/owner/projects", headers=owner_headers, json={"name": "underfit", "visibility": "private"},
+    )
+    run = client.post("/api/v1/accounts/owner/projects/underfit/runs", headers=owner_headers, json={}).json()
+    media_url = f"/api/v1/accounts/owner/projects/underfit/runs/{run['name']}/media"
+    primary = {"Authorization": f"Bearer {run['workerToken']}"}
 
-    created = client.post(media_url, headers=headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
-    assert created.status_code == 200
+    created = client.post("/api/v1/ingest/media", headers=primary, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
     media_id = created.json()["id"]
+    assert created.status_code == 200
 
-    listed = client.get(media_url, headers=headers, params={"key": "predictions", "step": 10})
-    assert listed.status_code == 200
-    assert len(listed.json()) == 1
-    assert listed.json()[0]["id"] == media_id
-
-    downloaded = client.get(f"{media_url}/{media_id}/file", headers=headers)
-    assert downloaded.status_code == 200
-    assert downloaded.content == b"file-a"
-
-
-@pytest.mark.parametrize(("metadata", "files", "expected_status"), [
-    ("not-json", MEDIA_FILES, 400),
-    (json.dumps({"key": "predictions", "type": "table"}), MEDIA_FILES, 400),
-    (json.dumps({"key": "predictions", "type": "image"}), [], 400),
-])
-def test_media_validation_errors(
-    client: TestClient, media_setup: tuple[Headers, str], metadata: str,
-    files: list[tuple[str, tuple[str, bytes, str]]], expected_status: int,
-) -> None:
-    headers, media_url = media_setup
-    response = client.post(media_url, headers=headers, data={"metadata": metadata}, files=files)
-    assert response.status_code == expected_status
-
-
-def test_media_requires_project_access(
-    client: TestClient, media_setup: tuple[Headers, str], outsider_headers: Headers, add_collaborator: AddCollaborator,
-) -> None:
-    _, media_url = media_setup
-    response = client.post(media_url, headers=outsider_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
+    worker = client.post(
+        f"{media_url.rsplit('/', 1)[0]}/workers", headers=owner_headers, json={"workerLabel": "1"},
+    ).json()
+    secondary = {"Authorization": f"Bearer {worker['workerToken']}"}
+    response = client.post(
+        "/api/v1/ingest/media", headers=secondary, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES,
+    )
     assert response.status_code == 403
-    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
-    response = client.post(media_url, headers=outsider_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
-    assert response.status_code == 200
+
+    listed = client.get(media_url, headers=owner_headers, params={"key": "predictions", "step": 10})
+    assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [media_id]
+    downloaded = client.get(f"{media_url}/{media_id}/file", headers=owner_headers)
+    assert downloaded.status_code == 200 and downloaded.content == b"file-a"

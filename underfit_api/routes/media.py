@@ -9,10 +9,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
 import underfit_api.storage as storage_mod
-from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
+from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
 from underfit_api.models import Media
-from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import media as media_repo
+from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.routes.resolvers import resolve_run
 
 router = APIRouter()
@@ -21,18 +21,19 @@ VALID_MEDIA_TYPES = {"image", "video", "audio", "html"}
 MAX_JSON_BYTES = 65536
 
 
-@router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media")
+@router.post("/ingest/media")
 async def create_media(
-    handle: str,
-    project_name: str,
-    run_name: str,
     conn: Conn,
-    user: CurrentUser,
+    worker: CurrentWorker,
     metadata: Annotated[str, Form()],
     files: Annotated[list[UploadFile], File()],
 ) -> Media:
-    run = resolve_run(conn, handle, project_name, run_name, user)
-    require_project_contributor(conn, run.project_id, user.id)
+    if not workers_repo.touch(conn, worker):
+        raise HTTPException(401, "Unauthorized")
+    run_worker = workers_repo.get_by_id(conn, worker)
+    assert run_worker is not None
+    if not run_worker.is_primary:
+        raise HTTPException(403, "Only the primary worker can upload media")
     if not files:
         raise HTTPException(400, "No files provided")
     try:
@@ -50,7 +51,7 @@ async def create_media(
     if extra_metadata is not None and len(json.dumps(extra_metadata)) > MAX_JSON_BYTES:
         raise HTTPException(400, "Metadata too large")
     media_id = uuid4()
-    storage_key = f"{run.id}/media/{media_id}"
+    storage_key = f"{run_worker.run_id}/media/{media_id}"
     for i, f in enumerate(files):
         async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
             while chunk := await f.read(262144):
@@ -58,7 +59,7 @@ async def create_media(
         await storage_mod.storage.write_stream(f"{storage_key}/{i}", _chunks())
     return media_repo.create(
         conn,
-        run_id=run.id,
+        run_id=run_worker.run_id,
         key=key,
         step=step,
         media_type=media_type,
