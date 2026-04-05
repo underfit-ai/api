@@ -21,7 +21,6 @@ def test_primary_worker_created_with_run(client: TestClient, owner_headers: Head
     assert len(workers) == 1
     assert workers[0]["workerLabel"] == "0"
     assert workers[0]["isPrimary"] is True
-    assert workers[0]["status"] == "running"
 
 
 def test_custom_primary_worker_id(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
@@ -45,12 +44,8 @@ def test_add_and_list_workers(client: TestClient, owner_headers: Headers, create
     assert resp.json()["workerLabel"] == "1"
     assert resp.json()["isPrimary"] is False
 
-    resp = client.post(url, headers=owner_headers, json={"workerLabel": "2"})
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "queued"
-
+    assert client.post(url, headers=owner_headers, json={"workerLabel": "2"}).status_code == 200
     workers = client.get(url, headers=owner_headers).json()
-    assert len(workers) == 3
     assert {w["workerLabel"] for w in workers} == {"0", "1", "2"}
 
 
@@ -60,12 +55,21 @@ def test_duplicate_worker_rejected(client: TestClient, owner_headers: Headers, c
     assert client.post(_workers_url(run), headers=owner_headers, json={"workerLabel": "1"}).status_code == 409
 
 
-def test_update_worker_status(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
-    client.post(_workers_url(run), headers=owner_headers, json={"workerLabel": "1", "status": "running"})
-    resp = client.put(f"{_workers_url(run)}/1", headers=owner_headers, json={"status": "finished"})
-    assert resp.status_code == 200 and resp.json()["status"] == "finished"
-    assert client.put(f"{_workers_url(run)}/2", headers=owner_headers, json={"status": "finished"}).status_code == 404
+def test_worker_heartbeat_and_terminal_state(client: TestClient, owner_headers: Headers) -> None:
+    payload = {"name": "underfit", "visibility": "private"}
+    client.post("/api/v1/accounts/owner/projects", headers=owner_headers, json=payload)
+    created = client.post(RUNS, headers=owner_headers, json={})
+    assert created.status_code == 200
+    run = created.json()
+    worker = client.post(f"{RUNS}/{run['name']}/workers", headers=owner_headers, json={"workerLabel": "1"}).json()
+    worker_headers = {"Authorization": f"Bearer {worker['workerToken']}"}
+    payload = {"terminalState": "finished"}
+    assert client.put("/api/v1/runs/terminal-state", headers=worker_headers, json=payload).status_code == 403
+    assert client.post("/api/v1/workers/heartbeat", headers=worker_headers).status_code == 200
+
+    primary_headers = {"Authorization": f"Bearer {run['workerToken']}"}
+    response = client.put("/api/v1/runs/terminal-state", headers=primary_headers, json={"terminalState": "failed"})
+    assert response.status_code == 200 and response.json()["terminalState"] == "failed"
 
 
 def test_worker_access_controls(

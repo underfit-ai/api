@@ -24,9 +24,7 @@ class ProjectVisibility(str, Enum):
     PUBLIC = "public"
 
 
-class RunStatus(str, Enum):
-    QUEUED = "queued"
-    RUNNING = "running"
+class RunTerminalState(str, Enum):
     FINISHED = "finished"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -97,7 +95,8 @@ class Run(_Base):
     project_name: str
     project_owner: str
     name: str
-    status: RunStatus
+    terminal_state: RunTerminalState | None = None
+    is_active: bool
     config: dict[str, object] | None
     worker_token: str | None = None
     created_at: UTCDatetime
@@ -110,7 +109,7 @@ class Worker(_Base):
     worker_label: str
     worker_token: str | None = None
     is_primary: bool
-    status: RunStatus
+    last_heartbeat: UTCDatetime
     joined_at: UTCDatetime
 
 

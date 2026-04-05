@@ -30,6 +30,8 @@ class WriteLogsBody(BaseModel):
 
 @router.post("/ingest/logs")
 def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
+    if not workers_repo.touch(conn, worker):
+        raise HTTPException(401, "Unauthorized")
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if any("\n" in ln.content or "\r" in ln.content for ln in body.lines):

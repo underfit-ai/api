@@ -13,7 +13,7 @@ import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.config import FileStorageConfig, SqliteDatabaseConfig, config
 from underfit_api.main import app
-from underfit_api.models import Project, ProjectCollaborator, Run, RunStatus, User
+from underfit_api.models import Project, ProjectCollaborator, Run, User
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
@@ -139,8 +139,8 @@ def create_run(create_project: CreateProject) -> CreateRun:
         project = create_project(handle=handle, name=project_name)
         with db.engine.begin() as conn:
             assert (user := users_repo.get_by_handle(conn, user_handle)) is not None
-            assert (run := runs_repo.create(conn, project.id, user.id, status, None, name=name)) is not None
-            run_workers_repo.create(conn, run.id, worker_label="0", status=RunStatus(status), is_primary=True)
+            assert (run := runs_repo.create(conn, project.id, user.id, None, name=name)) is not None
+            run_workers_repo.create(conn, run.id, worker_label="0", is_primary=True)
             return run
 
     return _create

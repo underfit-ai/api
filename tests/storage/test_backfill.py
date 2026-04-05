@@ -82,7 +82,6 @@ def test_backfill_ingests_segment_files() -> None:
     _write_json(storage, f"{run_id}/run.json", {
         "project": "Vision",
         "name": "Trial A",
-        "status": "running",
         "config": {"lr": 0.01, "seed": 7},
     })
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\nworld\n")
@@ -101,8 +100,8 @@ def test_backfill_ingests_segment_files() -> None:
         scalar_row = conn.execute(select(scalar_segments)).first()
         worker_row = conn.execute(select(run_workers)).first()
 
-    assert run_row is not None and (run_row.id, run_row.name, run_row.status, run_row.config) == (
-        run_id, "Trial A", "running", {"lr": 0.01, "seed": 7},
+    assert run_row is not None and (run_row.id, run_row.name, run_row.terminal_state, run_row.config) == (
+        run_id, "Trial A", None, {"lr": 0.01, "seed": 7},
     )
     assert worker_row is not None and worker_row.worker_label == "worker-1"
     assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
@@ -113,7 +112,7 @@ def test_backfill_ingests_segment_files() -> None:
 def test_backfill_stops_scalar_segment_at_invalid_json() -> None:
     service, storage = _service()
     run_id = uuid4()
-    _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial B", "status": "finished"})
+    _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial B", "terminal_state": "finished"})
     _write_text(storage, f"{run_id}/scalars/0/r0/0.jsonl", (
         '{"step":0,"timestamp":"2025-01-01T00:00:00Z"}\n'
         '{"step":1,"timestamp":"2025-01-01T00:00:01Z"}\n'

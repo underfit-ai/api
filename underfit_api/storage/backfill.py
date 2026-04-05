@@ -41,7 +41,7 @@ class RunMetadata(BaseModel):
     project: str
     user: str = "local"
     name: str | None = None
-    status: Literal["queued", "running", "finished", "failed", "cancelled"] = "finished"
+    terminal_state: Literal["finished", "failed", "cancelled"] | None = None
     config: dict[str, object] | None = None
 
 
@@ -131,15 +131,19 @@ class BackfillService:
                 project_id=project_id,
                 user_id=account_id,
                 name=run_name,
-                status=metadata.status,
+                terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 created_at=now,
                 updated_at=now,
             ))
-        elif existing.name != run_name or existing.status != metadata.status or existing.config != metadata.config:
+        elif (
+            existing.name != run_name
+            or existing.terminal_state != metadata.terminal_state
+            or existing.config != metadata.config
+        ):
             conn.execute(runs.update().where(runs.c.id == run_uuid).values(
                 name=run_name,
-                status=metadata.status,
+                terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 updated_at=utcnow(),
             ))
@@ -178,7 +182,7 @@ class BackfillService:
             return row.id
         rwid = uuid4()
         conn.execute(run_workers.insert().values(
-            id=rwid, run_id=run_id, worker_label=worker_label, status="finished", joined_at=utcnow(),
+            id=rwid, run_id=run_id, worker_label=worker_label, last_heartbeat=utcnow(), joined_at=utcnow(),
         ))
         return rwid
 

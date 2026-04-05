@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -9,22 +10,11 @@ from sqlalchemy import Connection
 
 from underfit_api.helpers import utcnow
 from underfit_api.models import Run
-from underfit_api.schema import accounts, projects, runs
+from underfit_api.schema import accounts, projects, run_workers, runs
 
 _join = runs.join(projects, runs.c.project_id == projects.c.id).join(accounts, projects.c.account_id == accounts.c.id)
 _user_handle = sa.select(accounts.c.handle).where(accounts.c.id == runs.c.user_id).correlate(runs).scalar_subquery()
-_columns = [
-    runs.c.id,
-    runs.c.project_id,
-    accounts.c.handle.label("project_owner"),
-    projects.c.name.label("project_name"),
-    _user_handle.label("user"),
-    runs.c.name,
-    runs.c.status,
-    runs.c.config,
-    runs.c.created_at,
-    runs.c.updated_at,
-]
+_ACTIVE_WINDOW = timedelta(seconds=15)
 
 _wordlists_dir = Path(__file__).resolve().parent.parent / "wordlists"
 _adjectives = (_wordlists_dir / "adjectives.txt").read_text().splitlines()
@@ -59,41 +49,49 @@ def _generate_name(conn: Connection, project_id: UUID) -> str:
     return candidate
 
 
+def _query() -> sa.Select[tuple[object, ...]]:
+    cutoff = utcnow() - _ACTIVE_WINDOW
+    is_active = sa.exists(sa.select(1).where(
+        run_workers.c.run_id == runs.c.id,
+        run_workers.c.last_heartbeat >= cutoff,
+    )).label("is_active")
+    return sa.select(
+        runs.c.id,
+        runs.c.project_id,
+        accounts.c.handle.label("project_owner"),
+        projects.c.name.label("project_name"),
+        _user_handle.label("user"),
+        runs.c.name,
+        runs.c.terminal_state,
+        is_active,
+        runs.c.config,
+        runs.c.created_at,
+        runs.c.updated_at,
+    ).select_from(_join)
+
+
 def get_by_id(conn: Connection, run_id: UUID) -> Run | None:
-    row = conn.execute(sa.select(*_columns).select_from(_join).where(runs.c.id == run_id)).first()
+    row = conn.execute(_query().where(runs.c.id == run_id)).first()
     return Run.model_validate(row) if row else None
 
 
 def get_by_project_and_name(conn: Connection, project_id: UUID, name: str) -> Run | None:
-    row = conn.execute(
-        sa.select(*_columns).select_from(_join).where(
-            runs.c.project_id == project_id, runs.c.name == name.lower(),
-        ),
-    ).first()
+    row = conn.execute(_query().where(runs.c.project_id == project_id, runs.c.name == name.lower())).first()
     return Run.model_validate(row) if row else None
 
 
 def list_by_project(conn: Connection, project_id: UUID) -> list[Run]:
-    rows = conn.execute(
-        sa.select(*_columns).select_from(_join)
-        .where(runs.c.project_id == project_id)
-        .order_by(runs.c.created_at.desc()),
-    ).all()
+    rows = conn.execute(_query().where(runs.c.project_id == project_id).order_by(runs.c.created_at.desc())).all()
     return [Run.model_validate(row) for row in rows]
 
 
 def list_by_user(conn: Connection, user_id: UUID) -> list[Run]:
-    rows = conn.execute(
-        sa.select(*_columns).select_from(_join)
-        .where(runs.c.user_id == user_id)
-        .order_by(runs.c.created_at.desc()),
-    ).all()
+    rows = conn.execute(_query().where(runs.c.user_id == user_id).order_by(runs.c.created_at.desc())).all()
     return [Run.model_validate(row) for row in rows]
 
 
 def create(
-    conn: Connection, project_id: UUID, user_id: UUID,
-    status: str, config: dict[str, object] | None, name: str | None = None,
+    conn: Connection, project_id: UUID, user_id: UUID, config: dict[str, object] | None, name: str | None = None,
 ) -> Run | None:
     name = _generate_name(conn, project_id) if name is None else name.lower()
     if name_exists(conn, project_id, name):
@@ -102,19 +100,19 @@ def create(
     now = utcnow()
     conn.execute(runs.insert().values(
         id=run_id, project_id=project_id, user_id=user_id,
-        name=name, status=status, config=config, created_at=now, updated_at=now,
+        name=name, config=config, created_at=now, updated_at=now,
     ))
     return get_by_id(conn, run_id)
 
 
-def update(
-    conn: Connection, run_id: UUID, status: str | None,
-    config: dict[str, object] | None, update_config: bool,
-) -> Run | None:
+def update(conn: Connection, run_id: UUID, config: dict[str, object] | None, update_config: bool) -> Run | None:
     values: dict[str, object] = {"updated_at": utcnow()}
-    if status is not None:
-        values["status"] = status
     if update_config:
         values["config"] = config
     conn.execute(runs.update().where(runs.c.id == run_id).values(**values))
+    return get_by_id(conn, run_id)
+
+
+def update_terminal_state(conn: Connection, run_id: UUID, terminal_state: str) -> Run | None:
+    conn.execute(runs.update().where(runs.c.id == run_id).values(terminal_state=terminal_state, updated_at=utcnow()))
     return get_by_id(conn, run_id)

@@ -34,6 +34,8 @@ class WriteScalarsBody(BaseModel):
 
 @router.post("/ingest/scalars")
 def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
+    if not workers_repo.touch(conn, worker):
+        raise HTTPException(401, "Unauthorized")
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
     if not body.scalars:

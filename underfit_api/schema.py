@@ -138,13 +138,13 @@ runs = sa.Table(
     sa.Column("primary_worker_id", sa.Uuid,
               sa.ForeignKey("run_workers.id", ondelete="SET NULL", use_alter=True), nullable=True),
     sa.Column("name", sa.Text, nullable=False),
-    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("terminal_state", sa.Text),
     sa.Column("config", sa.JSON),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("project_id", "name"),
     sa.UniqueConstraint("project_id", "id"),
-    sa.CheckConstraint("status IN ('queued', 'running', 'finished', 'failed', 'cancelled')"),
+    sa.CheckConstraint("terminal_state IN ('finished', 'failed', 'cancelled')"),
 )
 
 run_workers = sa.Table(
@@ -153,10 +153,9 @@ run_workers = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("run_id", sa.Uuid, sa.ForeignKey("runs.id", ondelete="CASCADE"), nullable=False),
     sa.Column("worker_label", sa.Text, nullable=False),
-    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("last_heartbeat", sa.DateTime, nullable=False),
     sa.Column("joined_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("run_id", "worker_label"),
-    sa.CheckConstraint("status IN ('queued', 'running', 'finished', 'failed', 'cancelled')"),
 )
 
 log_segments = sa.Table(
