@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import unicodedata
 from uuid import UUID, uuid4
+from zipfile import BadZipFile, ZipFile
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
@@ -46,6 +48,33 @@ class CreateArtifactBody(BaseModel):
 
 class FinalizeArtifactBody(BaseModel):
     manifest: Manifest
+
+
+class _ZipStorageFile:
+    def __init__(self, key: str) -> None:
+        self._key = key
+        self._size = storage_mod.storage.size(key)
+        self._pos = 0
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        base = [0, self._pos, self._size][whence]
+        self._pos = base + offset
+        return self._pos
+
+    def tell(self) -> int:
+        return self._pos
+
+    def read(self, n: int = -1) -> bytes:
+        remaining = self._size - self._pos
+        count = remaining if n < 0 else min(n, remaining)
+        if count <= 0:
+            return b""
+        data = storage_mod.storage.read(self._key, self._pos, count)
+        self._pos += len(data)
+        return data
+
+    def seekable(self) -> bool:
+        return True
 
 
 def _validate_path(path: str) -> str:
@@ -155,6 +184,36 @@ def delete_file(artifact_id: UUID, file_path: str, conn: Conn, user: CurrentUser
     except FileNotFoundError as e:
         raise HTTPException(404, "File not found") from e
     return artifact
+
+
+class ZipEntry(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    path: str
+    size: int
+    compressed_size: int
+
+
+@router.get("/artifacts/{artifact_id}/zip/{zip_path:path}", response_model=list[ZipEntry])
+def read_zip(
+    artifact_id: UUID, zip_path: str, conn: Conn, user: MaybeUser, entry: str | None = None,
+) -> list[ZipEntry] | Response:
+    artifact = resolve_artifact(conn, artifact_id, user)
+    key = f"{artifact.storage_key}/files/{_validate_path(zip_path)}"
+    if not storage_mod.storage.exists(key):
+        raise HTTPException(404, "File not found")
+    try:
+        zf = ZipFile(_ZipStorageFile(key))
+    except BadZipFile as e:
+        raise HTTPException(400, "Not a zip file") from e
+    if entry is None:
+        return [
+            ZipEntry(path=info.filename, size=info.file_size, compressed_size=info.compress_size)
+            for info in zf.infolist() if not info.is_dir()
+        ]
+    try:
+        return Response(content=zf.read(entry), media_type="application/octet-stream")
+    except KeyError as e:
+        raise HTTPException(404, "Entry not found") from e
 
 
 @router.post("/artifacts/{artifact_id}/finalize")

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from fastapi import HTTPException
@@ -123,6 +125,37 @@ def test_artifact_access_controls(
     finalized = client.post(f"{collaborator_base}/finalize", headers=outsider_headers, json=manifest_payload)
     assert finalized.status_code == 200
     assert finalized.json() == {"status": "ok"}
+
+
+def test_artifact_zip_browse(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
+    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
+    artifact_payload = {"run_id": str(run.id), "name": "source-code", "type": "code"}
+    artifact = client.post(ARTIFACTS, headers=owner_headers, json=artifact_payload).json()
+    file_base = f"/api/v1/artifacts/{artifact['id']}/files"
+
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("main.py", b"print('hi')\n")
+        archive.writestr("pkg/util.py", b"x = 1\n")
+    assert client.put(file_base + "/code.zip", headers=owner_headers, content=buffer.getvalue()).status_code == 200
+    assert client.put(file_base + "/notes.txt", headers=owner_headers, content=b"not a zip").status_code == 200
+
+    zip_base = f"/api/v1/artifacts/{artifact['id']}/zip"
+    entries = client.get(f"{zip_base}/code.zip", headers=owner_headers)
+    assert entries.status_code == 200
+    assert entries.json() == [
+        {"path": "main.py", "size": 12, "compressedSize": entries.json()[0]["compressedSize"]},
+        {"path": "pkg/util.py", "size": 6, "compressedSize": entries.json()[1]["compressedSize"]},
+    ]
+
+    content = client.get(f"{zip_base}/code.zip", headers=owner_headers, params={"entry": "pkg/util.py"})
+    assert (content.status_code, content.content) == (200, b"x = 1\n")
+
+    missing = client.get(f"{zip_base}/code.zip", headers=owner_headers, params={"entry": "nope.py"})
+    assert missing.status_code == 404
+
+    assert client.get(f"{zip_base}/notes.txt", headers=owner_headers).status_code == 400
+    assert client.get(f"{zip_base}/absent.zip", headers=owner_headers).status_code == 404
 
 
 @pytest.mark.parametrize(("path", "normalized"), [
