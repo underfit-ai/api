@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from sqlalchemy import Connection
 
 from underfit_api.helpers import utcnow
-from underfit_api.models import Worker
+from underfit_api.models import RunStatus, Worker
 from underfit_api.schema import run_workers, runs
 
 _join = run_workers.join(runs, run_workers.c.run_id == runs.c.id)
@@ -20,7 +20,7 @@ _columns = [
 ]
 
 
-def create(conn: Connection, run_id: UUID, worker_label: str, status: str, is_primary: bool) -> Worker:
+def create(conn: Connection, run_id: UUID, worker_label: str, status: RunStatus, is_primary: bool) -> Worker:
     row_id = uuid4()
     now = utcnow()
     conn.execute(run_workers.insert().values(
@@ -55,7 +55,7 @@ def get_by_id(conn: Connection, worker_id: UUID) -> Worker | None:
     return Worker.model_validate(row) if row else None
 
 
-def update_status(conn: Connection, run_id: UUID, worker_label: str, status: str) -> Worker | None:
+def update_status(conn: Connection, run_id: UUID, worker_label: str, status: RunStatus) -> Worker | None:
     conn.execute(
         run_workers.update()
         .where(run_workers.c.run_id == run_id, run_workers.c.worker_label == worker_label)

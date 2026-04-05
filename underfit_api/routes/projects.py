@@ -10,7 +10,7 @@ from underfit_api.auth import create_signed_token, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.email import send_email
-from underfit_api.models import OkResponse, Project
+from underfit_api.models import OkResponse, Project, ProjectVisibility
 from underfit_api.permissions import require_account_admin
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
@@ -27,16 +27,30 @@ TRANSFER_TOKEN_TTL = timedelta(days=7)
 class CreateProjectBody(BaseModel):
     name: str = Field(pattern=NAME_PATTERN)
     description: str | None = None
-    visibility: str = "private"
+    visibility: ProjectVisibility = ProjectVisibility.PRIVATE
 
 
 class UpdateProjectBody(BaseModel):
     description: str | None = None
-    visibility: str | None = None
+    visibility: ProjectVisibility | None = None
 
 
 class RenameProjectBody(BaseModel):
     name: str = Field(pattern=NAME_PATTERN)
+
+
+class InitiateTransferBody(BaseModel):
+    email: str = Field(min_length=1)
+
+
+class AcceptTransferBody(BaseModel):
+    token: str = Field(min_length=1)
+    new_name: str | None = Field(default=None, pattern=NAME_PATTERN)
+
+
+class TransferTokenPayload(BaseModel):
+    project_id: UUID
+    to_account_id: UUID
 
 
 @router.get("/me/projects")
@@ -54,8 +68,6 @@ def list_account_projects(handle: str, conn: Conn, user: MaybeUser) -> list[Proj
 def create_project(handle: str, body: CreateProjectBody, conn: Conn, user: CurrentUser) -> Project:
     account = resolve_account(conn, handle)
     require_account_admin(conn, account.id, account.type, user.id)
-    if body.visibility not in ("private", "public"):
-        raise HTTPException(400, "Invalid visibility")
     name_lower = body.name.lower()
     if projects_repo.alias_name_exists(conn, account.id, name_lower):
         raise HTTPException(409, "Project already exists")
@@ -70,22 +82,16 @@ def get_project(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> 
 
 
 @router.put("/accounts/{handle}/projects/{project_name}")
-def update_project(
-    handle: str, project_name: str, body: UpdateProjectBody, conn: Conn, user: CurrentUser,
-) -> Project:
+def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn: Conn, user: CurrentUser) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
-    if body.visibility is not None and body.visibility not in ("private", "public"):
-        raise HTTPException(400, "Invalid visibility")
     if not (updated := projects_repo.update(conn, project.id, body.description, body.visibility)):
         raise HTTPException(404, "Project not found")
     return updated
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/rename")
-def rename_project(
-    handle: str, project_name: str, body: RenameProjectBody, conn: Conn, user: CurrentUser,
-) -> Project:
+def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn: Conn, user: CurrentUser) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     new_name = body.name.lower()
@@ -95,20 +101,6 @@ def rename_project(
     result = projects_repo.rename(conn, project.id, new_name)
     assert result is not None
     return result
-
-
-class InitiateTransferBody(BaseModel):
-    email: str = Field(min_length=1)
-
-
-class AcceptTransferBody(BaseModel):
-    token: str = Field(min_length=1)
-    new_name: str | None = Field(default=None, pattern=NAME_PATTERN)
-
-
-class TransferTokenPayload(BaseModel):
-    project_id: UUID
-    to_account_id: UUID
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/transfer")

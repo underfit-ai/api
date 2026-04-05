@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Annotated, Literal, Union
 from uuid import UUID
 
@@ -16,6 +17,19 @@ UTCDatetime = Annotated[
 
 class _Base(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, from_attributes=True)
+
+
+class ProjectVisibility(str, Enum):
+    PRIVATE = "private"
+    PUBLIC = "public"
+
+
+class RunStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    FINISHED = "finished"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class User(_Base):
@@ -70,7 +84,7 @@ class Project(_Base):
     owner: str
     name: str
     description: str | None
-    visibility: str
+    visibility: ProjectVisibility
     pending_transfer_to: UUID | None
     created_at: UTCDatetime
     updated_at: UTCDatetime
@@ -83,7 +97,7 @@ class Run(_Base):
     project_name: str
     project_owner: str
     name: str
-    status: str
+    status: RunStatus
     config: dict[str, object] | None
     worker_token: str | None = None
     created_at: UTCDatetime
@@ -96,7 +110,7 @@ class Worker(_Base):
     worker_label: str
     worker_token: str | None = None
     is_primary: bool
-    status: str
+    status: RunStatus
     joined_at: UTCDatetime
 
 

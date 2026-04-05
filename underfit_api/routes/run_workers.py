@@ -6,24 +6,21 @@ from pydantic.alias_generators import to_camel
 
 from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
-from underfit_api.models import Worker
+from underfit_api.models import RunStatus, Worker
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.routes.resolvers import resolve_run
 
 router = APIRouter()
 
-VALID_STATUSES = {"queued", "running", "finished", "failed", "cancelled"}
-
-
 class AddWorkerBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     worker_label: str
-    status: str = "queued"
+    status: RunStatus = RunStatus.QUEUED
 
 
 class UpdateWorkerBody(BaseModel):
-    status: str
+    status: RunStatus
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/workers")
@@ -32,8 +29,6 @@ def add_worker(
 ) -> Worker:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    if body.status not in VALID_STATUSES:
-        raise HTTPException(400, "Invalid status")
     if workers_repo.get(conn, run.id, body.worker_label):
         raise HTTPException(409, "Worker already exists")
     worker = workers_repo.create(conn, run.id, body.worker_label, body.status, is_primary=False)
@@ -54,8 +49,6 @@ def update_worker(
 ) -> Worker:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    if body.status not in VALID_STATUSES:
-        raise HTTPException(400, "Invalid status")
     if not (worker := workers_repo.update_status(conn, run.id, worker_label, body.status)):
         raise HTTPException(404, "Worker not found")
     return worker

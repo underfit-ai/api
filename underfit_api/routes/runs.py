@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
-from underfit_api.models import Run
+from underfit_api.models import Run, RunStatus
 from underfit_api.permissions import can_view_project, require_project_contributor
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
@@ -16,7 +16,6 @@ from underfit_api.routes.resolvers import resolve_project, resolve_run
 
 router = APIRouter()
 
-VALID_STATUSES = {"queued", "running", "finished", "failed", "cancelled"}
 MAX_JSON_BYTES = 65536
 RUN_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
@@ -24,12 +23,12 @@ RUN_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 class CreateRunBody(BaseModel):
     name: str | None = Field(default=None, pattern=RUN_NAME_PATTERN)
     worker_label: str = "0"
-    status: str = "queued"
+    status: RunStatus = RunStatus.QUEUED
     config: dict[str, object] | None = None
 
 
 class UpdateRunBody(BaseModel):
-    status: str | None = None
+    status: RunStatus | None = None
     config: dict[str, object] | None = None
 
 
@@ -56,8 +55,6 @@ def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUse
 def create_run(handle: str, project_name: str, body: CreateRunBody, conn: Conn, user: CurrentUser) -> Run:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project.id, user.id)
-    if body.status not in VALID_STATUSES:
-        raise HTTPException(400, "Invalid status")
     _validate_config(body.config)
     name = body.name.lower() if body.name is not None else None
     if not (run := runs_repo.create(conn, project.id, user.id, body.status, body.config, name=name)):
@@ -79,8 +76,6 @@ def update_run(
 ) -> Run:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    if body.status is not None and body.status not in VALID_STATUSES:
-        raise HTTPException(400, "Invalid status")
     if config_provided := "config" in body.model_fields_set:
         _validate_config(body.config)
     config = body.config if config_provided else None

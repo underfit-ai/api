@@ -9,6 +9,7 @@ from sqlalchemy import select
 import underfit_api.db as db
 from underfit_api.buffer import LogBuffer, LogLine, ScalarBuffer, ScalarPoint
 from underfit_api.config import FileStorageConfig, config
+from underfit_api.models import RunStatus
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
@@ -23,7 +24,7 @@ def _create_worker(worker_label: str = "0") -> UUID:
         project = projects_repo.create(conn, user.id, "underfit", None, "private")
         run = runs_repo.create(conn, project.id, user.id, "running", None)
         assert run is not None
-        worker = workers_repo.create(conn, run.id, worker_label, "running", is_primary=True)
+        worker = workers_repo.create(conn, run.id, worker_label, RunStatus.RUNNING, is_primary=True)
         return worker.id
 
 
