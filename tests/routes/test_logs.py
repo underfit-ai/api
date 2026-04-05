@@ -29,8 +29,8 @@ def test_write_read_logs_from_buffer(client: TestClient, owner_headers: Headers)
 
     logs_1 = {"start_line": 0, "lines": lines}
     logs_2 = {"start_line": 2, "lines": [tail]}
-    assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=logs_1).status_code == 200
-    assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=logs_2).status_code == 200
+    assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=logs_1).json()["nextStartLine"] == 2
+    assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=logs_2).json()["nextStartLine"] == 3
 
     first_page = client.get(logs_url, headers=owner_headers, params={"workerLabel": "worker-1", "count": 2})
     first_json = first_page.json()
@@ -56,3 +56,9 @@ def test_logs_reject_out_of_order_start_line(client: TestClient, owner_headers: 
 def test_logs_require_worker_token(client: TestClient) -> None:
     payload = {"start_line": 0, "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "hi"}]}
     assert client.post("/api/v1/ingest/logs", json=payload).status_code == 401
+
+
+def test_logs_reject_newlines(client: TestClient, owner_headers: Headers) -> None:
+    headers, _ = _setup_logs(client, owner_headers)
+    payload = {"start_line": 0, "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "a\nb"}]}
+    assert client.post("/api/v1/ingest/logs", headers=headers, json=payload).status_code == 400

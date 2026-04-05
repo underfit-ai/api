@@ -19,7 +19,7 @@ def test_write_and_read_scalars_with_auto_resolution(client: TestClient, owner_h
         for i in range(20)
     ]
     scalars = {"start_line": 0, "scalars": points}
-    assert client.post("/api/v1/ingest/scalars", headers=headers, json=scalars).status_code == 200
+    assert client.post("/api/v1/ingest/scalars", headers=headers, json=scalars).json()["nextStartLine"] == 20
 
     full = client.get(scalars_url, headers=owner_headers)
     assert full.status_code == 200

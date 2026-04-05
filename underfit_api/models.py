@@ -148,6 +148,7 @@ class OkResponse(_Base):
 
 class BufferedResponse(_Base):
     status: Literal["buffered"] = "buffered"
+    next_start_line: int | None = None
 
 
 class HealthResponse(_Base):
