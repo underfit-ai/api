@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from underfit_api.config import FileStorageConfig, S3StorageConfig, config
-from underfit_api.storage.types import AppendResult, DirEntry, FileStat, Storage
+from underfit_api.storage.types import DirEntry, FileStat, Storage
 
 
 def build_storage() -> Storage:
@@ -16,4 +16,4 @@ def build_storage() -> Storage:
 
 storage = build_storage()
 
-__all__ = ["AppendResult", "DirEntry", "FileStat", "Storage", "build_storage", "storage"]
+__all__ = ["DirEntry", "FileStat", "Storage", "build_storage", "storage"]

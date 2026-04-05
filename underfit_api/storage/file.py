@@ -10,7 +10,7 @@ from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from underfit_api.config import FileStorageConfig
-from underfit_api.storage.types import AppendResult, DirEntry, FileStat
+from underfit_api.storage.types import DirEntry, FileStat
 
 
 class _StorageHandler(FileSystemEventHandler):
@@ -71,14 +71,6 @@ class FileStorage:
         with path.open("rb") as f:
             while chunk := f.read(chunk_size):
                 yield chunk
-
-    def append(self, key: str, content: bytes) -> AppendResult:
-        path = self._resolve(key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("ab") as f:
-            offset = f.tell()
-            f.write(content)
-            return AppendResult(byte_offset=offset, byte_count=len(content))
 
     def delete(self, key: str) -> None:
         path = self._resolve(key)

@@ -68,9 +68,8 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
     assert (segments[0].start_line, segments[0].end_line, segments[1].start_line, segments[1].end_line) == (
         0, 1, 1, 2,
     )
-    assert (segments[0].byte_offset, segments[1].byte_offset) == (0, segments[0].byte_count)
-    assert segments[0].storage_key == segments[1].storage_key
-    assert storage.read(segments[0].storage_key).decode() == "first\nsecond\n"
+    assert storage.read(segments[0].storage_key).decode() == "first\n"
+    assert storage.read(segments[1].storage_key).decode() == "second\n"
 
 
 def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
@@ -86,10 +85,9 @@ def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
                 LogLine(timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc), content="abcd"),
             ]) is None
             buffer.flush_if_needed(conn, storage, rwid)
-            segments = conn.execute(
-                select(log_segments).where(log_segments.c.worker_id == rwid),
-            ).all()
-        assert len(segments) == 1 and segments[0].byte_count == 5
+            segments = conn.execute(select(log_segments).where(log_segments.c.worker_id == rwid)).all()
+        assert len(segments) == 1
+        assert storage.read(segments[0].storage_key).decode() == "abcd\n"
     finally:
         config.buffer.max_segment_bytes = original
 

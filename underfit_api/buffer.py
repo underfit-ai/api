@@ -21,16 +21,12 @@ from underfit_api.storage import Storage
 T = TypeVar("T")
 
 
-def _log_storage_key(run_id: UUID, worker_label: str) -> str:
-    return f"{run_id}/logs/{worker_label}.log"
+def _log_storage_key(run_id: UUID, worker_label: str, start_line: int) -> str:
+    return f"{run_id}/logs/{worker_label}/segments/{start_line}.log"
 
 
-def _scalar_storage_key(run_id: UUID, worker_label: str, resolution: int) -> str:
-    if resolution == 0:
-        return f"{run_id}/scalars/{worker_label}/raw.jsonl"
-    strides = config.buffer.scalar_resolutions
-    stride = strides[resolution - 1] if resolution - 1 < len(strides) else resolution
-    return f"{run_id}/scalars/{worker_label}/r{stride}.jsonl"
+def _scalar_storage_key(run_id: UUID, worker_label: str, resolution: int, start_line: int) -> str:
+    return f"{run_id}/scalars/{worker_label}/r{resolution}/{start_line}.jsonl"
 
 
 class LogLine(NamedTuple):
@@ -117,13 +113,12 @@ class LogBuffer:
             if not (worker := workers_repo.get_by_id(conn, worker_id)):
                 raise RuntimeError("Worker not found")
             content = "".join(f"{line.content}\n" for line in buf.lines)
-            storage_key = _log_storage_key(worker.run_id, worker.worker_label)
-            result = storage.append(storage_key, content.encode())
+            storage_key = _log_storage_key(worker.run_id, worker.worker_label, buf.start_line)
+            storage.write(storage_key, content.encode())
             log_seg_repo.insert(
                 conn, worker_id,
                 start_line=buf.start_line, end_line=buf.end_line,
                 start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
-                byte_offset=result.byte_offset, byte_count=result.byte_count,
                 storage_key=storage_key,
             )
             self._total_bytes -= buf.byte_count
@@ -251,13 +246,12 @@ class ScalarBuffer:
             raise RuntimeError("Worker not found")
         lines_data = [self._serialize_scalar(line) for line in buf.lines]
         content = "".join(s + "\n" for s in lines_data)
-        storage_key = _scalar_storage_key(worker.run_id, worker.worker_label, resolution)
-        result = storage.append(storage_key, content.encode())
+        storage_key = _scalar_storage_key(worker.run_id, worker.worker_label, resolution, buf.start_line)
+        storage.write(storage_key, content.encode())
         scalar_seg_repo.insert(
             conn, worker_id, resolution,
             start_line=buf.start_line, end_line=buf.end_line,
             start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
-            byte_offset=result.byte_offset, byte_count=result.byte_count,
             storage_key=storage_key,
         )
         self._total_bytes -= buf.byte_count

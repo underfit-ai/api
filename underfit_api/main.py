@@ -70,7 +70,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if config.auth_enabled:
         get_app_secret()
     if config.backfill.enabled:
-        backfill = BackfillService(storage_mod.storage, db.engine, config.backfill, config.buffer)
+        backfill = BackfillService(storage_mod.storage, db.engine, config.backfill)
         await backfill.start()
     flush_task = asyncio.create_task(_flush_loop())
     yield

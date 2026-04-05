@@ -81,7 +81,7 @@ def _read_tier(conn: Conn, worker: Worker, resolution: int) -> list[Scalar]:
     segments = scalar_seg_repo.list_by_resolution(conn, worker.id, resolution)
     scalars: list[Scalar] = []
     for seg in segments:
-        data = storage_mod.storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
+        data = storage_mod.storage.read(seg.storage_key)
         for line in data.decode().splitlines():
             if line:
                 parsed = json.loads(line)

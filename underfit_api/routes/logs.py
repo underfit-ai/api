@@ -61,7 +61,7 @@ def read_logs(
     entries: list[LogEntry] = []
     segments = log_seg_repo.list_for_range(conn, worker.id, cursor, count)
     for seg in segments:
-        data = storage_mod.storage.read(seg.storage_key, seg.byte_offset, seg.byte_count)
+        data = storage_mod.storage.read(seg.storage_key)
         all_lines = data.decode().splitlines()
         seg_start = max(cursor, seg.start_line)
         seg_end = min(cursor + count, seg.end_line)

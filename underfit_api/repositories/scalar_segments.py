@@ -29,8 +29,6 @@ def insert(
     end_line: int,
     start_at: datetime,
     end_at: datetime,
-    byte_offset: int,
-    byte_count: int,
     storage_key: str,
 ) -> None:
     conn.execute(scalar_segments.insert().values(
@@ -41,8 +39,6 @@ def insert(
         end_line=end_line,
         start_at=start_at,
         end_at=end_at,
-        byte_offset=byte_offset,
-        byte_count=byte_count,
         storage_key=storage_key,
         created_at=utcnow(),
     ))
