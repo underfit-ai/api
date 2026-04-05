@@ -141,21 +141,21 @@ def test_artifact_zip_browse(client: TestClient, owner_headers: Headers, create_
     assert client.put(file_base + "/notes.txt", headers=owner_headers, content=b"not a zip").status_code == 200
 
     zip_base = f"/api/v1/artifacts/{artifact['id']}/zip"
-    entries = client.get(f"{zip_base}/code.zip", headers=owner_headers)
+    entries = client.get(f"{zip_base}/entries/code.zip", headers=owner_headers)
     assert entries.status_code == 200
     assert entries.json() == [
         {"path": "main.py", "size": 12, "compressedSize": entries.json()[0]["compressedSize"]},
         {"path": "pkg/util.py", "size": 6, "compressedSize": entries.json()[1]["compressedSize"]},
     ]
 
-    content = client.get(f"{zip_base}/code.zip", headers=owner_headers, params={"entry": "pkg/util.py"})
+    content = client.get(f"{zip_base}/entry/code.zip", headers=owner_headers, params={"entry": "pkg/util.py"})
     assert (content.status_code, content.content) == (200, b"x = 1\n")
 
-    missing = client.get(f"{zip_base}/code.zip", headers=owner_headers, params={"entry": "nope.py"})
+    missing = client.get(f"{zip_base}/entry/code.zip", headers=owner_headers, params={"entry": "nope.py"})
     assert missing.status_code == 404
 
-    assert client.get(f"{zip_base}/notes.txt", headers=owner_headers).status_code == 400
-    assert client.get(f"{zip_base}/absent.zip", headers=owner_headers).status_code == 404
+    assert client.get(f"{zip_base}/entries/notes.txt", headers=owner_headers).status_code == 400
+    assert client.get(f"{zip_base}/entries/absent.zip", headers=owner_headers).status_code == 404
 
 
 @pytest.mark.parametrize(("path", "normalized"), [
