@@ -23,7 +23,7 @@ class UpdateMeBody(BaseModel):
 def email_exists(conn: Conn, email: Annotated[str, Query()] = "") -> ExistsResponse:
     if not email:
         raise HTTPException(400, "Missing email")
-    return ExistsResponse(exists=users_repo.email_exists(conn, email))
+    return ExistsResponse(exists=users_repo.get_by_email(conn, email) is not None)
 
 
 @router.get("/me")

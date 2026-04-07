@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from underfit_api.dependencies import Conn, CurrentUser
+from underfit_api.helpers import as_conflict
 from underfit_api.models import Account, ExistsResponse
 from underfit_api.permissions import require_account_admin
 from underfit_api.repositories import accounts as accounts_repo
@@ -20,7 +21,7 @@ class RenameAccountBody(BaseModel):
 
 @router.get("/{handle}/exists")
 def account_exists(handle: str, conn: Conn) -> ExistsResponse:
-    return ExistsResponse(exists=accounts_repo.alias_handle_exists(conn, handle))
+    return ExistsResponse(exists=accounts_repo.get_alias_by_handle(conn, handle) is not None)
 
 
 @router.get("/{handle}")
@@ -33,10 +34,9 @@ def rename_account(handle: str, body: RenameAccountBody, conn: Conn, user: Curre
     account = resolve_account(conn, handle)
     require_account_admin(conn, account.id, account.type, user.id)
     new_handle = body.handle.lower()
-    if accounts_repo.alias_handle_exists(conn, new_handle):
-        raise HTTPException(409, "Handle already exists")
-    accounts_repo.rename(conn, account.id, new_handle)
-    accounts_repo.create_alias(conn, account.id, new_handle)
-    result = accounts_repo.get_by_id(conn, account.id)
+    with as_conflict(conn, "Handle already exists"):
+        accounts_repo.rename(conn, account.id, new_handle)
+        accounts_repo.create_alias(conn, account.id, new_handle)
+        result = accounts_repo.get_by_id(conn, account.id)
     assert result is not None
     return result

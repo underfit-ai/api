@@ -135,7 +135,3 @@ def get_alias_by_account_and_name(conn: Connection, account_id: UUID, name: str)
             project_aliases.c.account_id == account_id, project_aliases.c.name == name.lower(),
         ),
     ).first()
-
-
-def alias_name_exists(conn: Connection, account_id: UUID, name: str) -> bool:
-    return get_alias_by_account_and_name(conn, account_id, name) is not None

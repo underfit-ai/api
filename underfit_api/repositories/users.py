@@ -28,10 +28,6 @@ def get_by_email(conn: Connection, email: str) -> User | None:
     return User.model_validate(row) if row else None
 
 
-def email_exists(conn: Connection, email: str) -> bool:
-    return conn.execute(users.select().where(users.c.email == email)).first() is not None
-
-
 def create(conn: Connection, email: str, handle: str, name: str) -> User:
     user_id = uuid4()
     now = utcnow()

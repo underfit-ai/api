@@ -72,16 +72,16 @@ def list_by_user(conn: Connection, user_id: UUID) -> list[Run]:
 
 def create(
     conn: Connection, project_id: UUID, user_id: UUID, launch_id: str, name: str, config: dict[str, object] | None,
-) -> Run | None:
-    if get_by_project_and_name(conn, project_id, name) or get_by_project_and_launch_id(conn, project_id, launch_id):
-        return None
+) -> Run:
     pk = uuid4()
     now = utcnow()
     conn.execute(runs.insert().values(
         id=pk, project_id=project_id, user_id=user_id,
         launch_id=launch_id, name=name.lower(), config=config, created_at=now, updated_at=now,
     ))
-    return get_by_id(conn, pk)
+    result = get_by_id(conn, pk)
+    assert result is not None
+    return result
 
 
 def update(conn: Connection, pk: UUID, config: dict[str, object] | None, update_config: bool) -> Run | None:

@@ -12,6 +12,7 @@ from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, create_signed_to
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.email import send_email
+from underfit_api.helpers import as_conflict
 from underfit_api.models import AuthResponse, OkResponse, Session
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import sessions as sessions_repo
@@ -79,17 +80,12 @@ class ResetPasswordBody(BaseModel):
 @router.post("/register")
 def register(body: RegisterBody, response: Response, request: Request, conn: Conn) -> AuthResponse:
     handle_lower = body.handle.lower()
-    if accounts_repo.alias_handle_exists(conn, handle_lower):
-        raise HTTPException(409, "Handle already exists")
-    if users_repo.email_exists(conn, body.email):
-        raise HTTPException(409, "Email already exists")
-
-    user = users_repo.create(conn, body.email, handle_lower, body.handle)
-    accounts_repo.create_alias(conn, user.id, handle_lower)
-    pw_hash, pw_salt = hash_password(body.password)
-    user_auth_repo.create(conn, user.id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
-
-    session = sessions_repo.create(conn, user.id)
+    with as_conflict(conn, "Email or handle already exists"):
+        user = users_repo.create(conn, body.email, handle_lower, body.handle)
+        accounts_repo.create_alias(conn, user.id, handle_lower)
+        pw_hash, pw_salt = hash_password(body.password)
+        user_auth_repo.create(conn, user.id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
+        session = sessions_repo.create(conn, user.id)
     _set_session_cookie(response, request, session)
     return AuthResponse(user=user, session=session)
 

@@ -8,6 +8,7 @@ from pydantic.alias_generators import to_camel
 
 from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentUser, CurrentWorker, MaybeUser
+from underfit_api.helpers import as_conflict
 from underfit_api.models import Run, RunTerminalState
 from underfit_api.permissions import can_view_project, require_project_contributor
 from underfit_api.repositories import run_workers as workers_repo
@@ -77,10 +78,9 @@ def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: C
         worker = workers_repo.create(conn, existing.id, body.worker_label)
         return _launch_response(conn, existing, worker.id)
 
-    run = runs_repo.create(conn, project.id, user.id, body.launch_id, body.run_name, body.config)
-    if not run:
-        raise HTTPException(409, "Run name or launch ID already exists")
-    worker = workers_repo.create(conn, run.id, body.worker_label)
+    with as_conflict(conn, "Run already exists"):
+        run = runs_repo.create(conn, project.id, user.id, body.launch_id, body.run_name, body.config)
+        worker = workers_repo.create(conn, run.id, body.worker_label)
     return _launch_response(conn, run, worker.id)
 
 
