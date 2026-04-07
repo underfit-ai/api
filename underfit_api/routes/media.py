@@ -38,8 +38,6 @@ async def create_media(conn: Conn, worker: CurrentWorker, metadata: MediaMetadat
         raise HTTPException(401, "Unauthorized")
     run_worker = workers_repo.get_by_id(conn, worker)
     assert run_worker is not None
-    if not run_worker.is_primary:
-        raise HTTPException(403, "Only the primary worker can upload media")
     if not files:
         raise HTTPException(400, "No files provided")
     if metadata.metadata is not None and len(json.dumps(metadata.metadata)) > MAX_JSON_BYTES:

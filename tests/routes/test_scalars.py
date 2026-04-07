@@ -4,12 +4,13 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import Headers
 
+LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
+
 
 def _setup_scalars(client: TestClient, headers: Headers) -> tuple[Headers, str]:
     client.post("/api/v1/accounts/owner/projects", headers=headers, json={"name": "underfit", "visibility": "private"})
-    base_url = "/api/v1/accounts/owner/projects/underfit/runs"
-    run = client.post(base_url, headers=headers, json={"status": "running"}).json()
-    return {"Authorization": f"Bearer {run['workerToken']}"}, f"{base_url}/{run['name']}/scalars"
+    run = client.post(LAUNCH, headers=headers, json={"runName": "r", "launchId": "1"}).json()
+    return {"Authorization": f"Bearer {run['workerToken']}"}, "/api/v1/accounts/owner/projects/underfit/runs/r/scalars"
 
 
 def test_write_and_read_scalars_with_auto_resolution(client: TestClient, owner_headers: Headers) -> None:

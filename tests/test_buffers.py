@@ -21,9 +21,9 @@ def _create_worker(worker_label: str = "0") -> UUID:
     with db.engine.begin() as conn:
         user = users_repo.create(conn, email="owner@example.com", handle="owner", name="Owner")
         project = projects_repo.create(conn, user.id, "underfit", None, "private")
-        run = runs_repo.create(conn, project.id, user.id, None)
+        run = runs_repo.create(conn, project.id, user.id, "test-launch-id", "test-run", None)
         assert run is not None
-        worker = workers_repo.create(conn, run.id, worker_label, is_primary=True)
+        worker = workers_repo.create(conn, run.id, worker_label)
         return worker.id
 
 

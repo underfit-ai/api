@@ -6,30 +6,22 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import Headers
 
+LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 MEDIA_METADATA = json.dumps({"key": "predictions", "step": 10, "type": "image"})
 MEDIA_FILES = [("files", ("a.bin", b"file-a", "application/octet-stream"))]
 
 
-def test_media_ingest_requires_primary_worker(client: TestClient, owner_headers: Headers) -> None:
+def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) -> None:
     client.post(
         "/api/v1/accounts/owner/projects", headers=owner_headers, json={"name": "underfit", "visibility": "private"},
     )
-    run = client.post("/api/v1/accounts/owner/projects/underfit/runs", headers=owner_headers, json={}).json()
+    run = client.post(LAUNCH, headers=owner_headers, json={"runName": "r", "launchId": "1"}).json()
     media_url = f"/api/v1/accounts/owner/projects/underfit/runs/{run['name']}/media"
-    primary = {"Authorization": f"Bearer {run['workerToken']}"}
+    worker = {"Authorization": f"Bearer {run['workerToken']}"}
 
-    created = client.post("/api/v1/ingest/media", headers=primary, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
-    media_id = created.json()["id"]
+    created = client.post("/api/v1/ingest/media", headers=worker, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
     assert created.status_code == 200
-
-    worker = client.post(
-        f"{media_url.rsplit('/', 1)[0]}/workers", headers=owner_headers, json={"workerLabel": "1"},
-    ).json()
-    secondary = {"Authorization": f"Bearer {worker['workerToken']}"}
-    response = client.post(
-        "/api/v1/ingest/media", headers=secondary, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES,
-    )
-    assert response.status_code == 403
+    media_id = created.json()["id"]
 
     listed = client.get(media_url, headers=owner_headers, params={"key": "predictions", "step": 10})
     assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [media_id]

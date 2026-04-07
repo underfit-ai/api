@@ -4,23 +4,23 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import Headers
 
+LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
+
 
 def _setup_logs(client: TestClient, headers: Headers) -> tuple[Headers, str]:
     client.post("/api/v1/accounts/owner/projects", headers=headers, json={"name": "underfit", "visibility": "private"})
-    base_url = "/api/v1/accounts/owner/projects/underfit/runs"
-    run = client.post(base_url, headers=headers, json={"status": "running"}).json()
-    return {"Authorization": f"Bearer {run['workerToken']}"}, f"{base_url}/{run['name']}/logs"
+    run = client.post(LAUNCH, headers=headers, json={"runName": "r", "launchId": "1"}).json()
+    return {"Authorization": f"Bearer {run['workerToken']}"}, "/api/v1/accounts/owner/projects/underfit/runs/r/logs"
 
 
-def _add_worker(client: TestClient, logs_url: str, headers: Headers, worker_label: str) -> Headers:
-    workers_url = logs_url.rsplit("/", 1)[0] + "/workers"
-    worker = client.post(workers_url, headers=headers, json={"workerLabel": worker_label}).json()
-    return {"Authorization": f"Bearer {worker['workerToken']}"}
+def _add_worker(client: TestClient, headers: Headers, worker_label: str) -> Headers:
+    worker = client.post(LAUNCH, headers=headers, json={"runName": "r", "launchId": "1", "workerLabel": worker_label})
+    return {"Authorization": f"Bearer {worker.json()['workerToken']}"}
 
 
 def test_write_read_logs_from_buffer(client: TestClient, owner_headers: Headers) -> None:
     _, logs_url = _setup_logs(client, owner_headers)
-    worker_headers = _add_worker(client, logs_url, owner_headers, "worker-1")
+    worker_headers = _add_worker(client, owner_headers, "worker-1")
     lines = [
         {"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"},
         {"timestamp": "2025-01-01T00:00:01+00:00", "content": "world"},
@@ -45,12 +45,12 @@ def test_write_read_logs_from_buffer(client: TestClient, owner_headers: Headers)
 
 def test_logs_reject_out_of_order_start_line(client: TestClient, owner_headers: Headers) -> None:
     _, logs_url = _setup_logs(client, owner_headers)
-    headers = _add_worker(client, logs_url, owner_headers, "worker-1")
+    worker_headers = _add_worker(client, owner_headers, "worker-1")
     hello_line = {"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"}
     payload = {"start_line": 0, "lines": [hello_line]}
 
-    assert client.post("/api/v1/ingest/logs", headers=headers, json=payload).status_code == 200
-    assert client.post("/api/v1/ingest/logs", headers=headers, json=payload).status_code == 409
+    assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=payload).status_code == 200
+    assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=payload).status_code == 409
 
 
 def test_logs_require_worker_token(client: TestClient) -> None:

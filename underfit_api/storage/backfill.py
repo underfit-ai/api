@@ -130,6 +130,7 @@ class BackfillService:
                 id=run_uuid,
                 project_id=project_id,
                 user_id=account_id,
+                launch_id=str(run_uuid),
                 name=run_name,
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,

@@ -21,8 +21,10 @@ MAX_JSON_BYTES = 65536
 RUN_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
 
-class CreateRunBody(BaseModel):
-    name: str | None = Field(default=None, pattern=RUN_NAME_PATTERN)
+class LaunchBody(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    run_name: str = Field(pattern=RUN_NAME_PATTERN)
+    launch_id: str
     worker_label: str = "0"
     config: dict[str, object] | None = None
 
@@ -41,6 +43,11 @@ def _validate_config(config: dict[str, object] | None) -> None:
         raise HTTPException(400, "Config too large")
 
 
+def _launch_response(conn: Conn, run: Run, worker_id: object) -> Run:
+    refreshed = runs_repo.get_by_id(conn, run.id) or run
+    return refreshed.model_copy(update={"worker_token": create_worker_token(worker_id)})
+
+
 @router.get("/users/{handle}/runs")
 def list_user_runs(handle: str, conn: Conn, user: MaybeUser) -> list[Run]:
     if not (target := users_repo.get_by_handle(conn, handle)):
@@ -55,20 +62,26 @@ def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUse
     return runs_repo.list_by_project(conn, project.id)
 
 
-@router.post("/accounts/{handle}/projects/{project_name}/runs")
-def create_run(handle: str, project_name: str, body: CreateRunBody, conn: Conn, user: CurrentUser) -> Run:
+@router.post("/accounts/{handle}/projects/{project_name}/runs/launch")
+def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: CurrentUser) -> Run:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project.id, user.id)
     _validate_config(body.config)
-    name = body.name.lower() if body.name is not None else None
-    if not (run := runs_repo.create(conn, project.id, user.id, body.config, name=name)):
-        if name is not None:
-            raise HTTPException(409, "Run already exists")
-        raise HTTPException(500, "Unable to allocate unique run name")
-    worker = workers_repo.create(conn, run.id, body.worker_label, is_primary=True)
-    return (runs_repo.get_by_id(conn, run.id) or run).model_copy(
-        update={"worker_token": create_worker_token(worker.id)},
-    )
+
+    existing = runs_repo.get_by_project_and_launch_id(conn, project.id, body.launch_id)
+    if existing:
+        if not runs_repo.has_active_worker(conn, existing.id):
+            raise HTTPException(409, "Stale run with this launch ID already exists")
+        if worker := workers_repo.get(conn, existing.id, body.worker_label):
+            return _launch_response(conn, existing, worker.id)
+        worker = workers_repo.create(conn, existing.id, body.worker_label)
+        return _launch_response(conn, existing, worker.id)
+
+    run = runs_repo.create(conn, project.id, user.id, body.launch_id, body.run_name, body.config)
+    if not run:
+        raise HTTPException(409, "Run name or launch ID already exists")
+    worker = workers_repo.create(conn, run.id, body.worker_label)
+    return _launch_response(conn, run, worker.id)
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
@@ -94,8 +107,6 @@ def update_run(
 def update_terminal_state(body: UpdateTerminalStateBody, conn: Conn, worker_id: CurrentWorker) -> Run:
     if not (worker := workers_repo.get_by_id(conn, worker_id)):
         raise HTTPException(401, "Unauthorized")
-    if not worker.is_primary:
-        raise HTTPException(403, "Only the primary worker can set terminal state")
     if not (run := runs_repo.update_terminal_state(conn, worker.run_id, body.terminal_state.value)):
         raise HTTPException(404, "Run not found")
     return run

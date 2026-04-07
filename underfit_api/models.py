@@ -101,6 +101,7 @@ class Run(_Base):
     user: str
     project_name: str
     project_owner: str
+    launch_id: str
     name: str
     terminal_state: RunTerminalState | None = None
     is_active: bool
@@ -115,7 +116,6 @@ class Worker(_Base):
     run_id: UUID
     worker_label: str
     worker_token: str | None = None
-    is_primary: bool
     last_heartbeat: UTCDatetime
     joined_at: UTCDatetime
 
