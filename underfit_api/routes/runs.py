@@ -66,7 +66,7 @@ def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUse
 @router.post("/accounts/{handle}/projects/{project_name}/runs/launch")
 def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: CurrentUser) -> Run:
     project = resolve_project(conn, handle, project_name, user)
-    require_project_contributor(conn, project.id, user.id)
+    require_project_contributor(conn, project, user.id)
     _validate_config(body.config)
 
     existing = runs_repo.get_by_project_and_launch_id(conn, project.id, body.launch_id)

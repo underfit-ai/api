@@ -61,6 +61,40 @@ def test_list_projects(
     assert admin_projects.status_code == 200 and _project_names(admin_projects) == {"secret"}
 
 
+def test_get_project_access_controls(
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
+) -> None:
+    create_project(handle="owner", name="private")
+    create_project(handle="owner", name="shared")
+    create_project(handle="owner", name="public", visibility="public")
+
+    assert client.get(f"{BASE}/public").status_code == 200
+    assert client.get(f"{BASE}/private").status_code == 401
+    assert client.get(f"{BASE}/private", headers=outsider_headers).status_code == 403
+    assert client.get(f"{BASE}/shared", headers=outsider_headers).status_code == 403
+
+    added = client.put("/api/v1/accounts/owner/projects/shared/collaborators/outsider", headers=owner_headers)
+    assert added.status_code == 200
+    assert client.get(f"{BASE}/shared", headers=outsider_headers).status_code == 200
+
+
+def test_org_admin_can_access_project(
+    client: TestClient, owner_headers: Headers, create_project: CreateProject,
+    create_org: CreateOrg, create_org_member: CreateOrgMember,
+) -> None:
+    org = create_org(owner_headers)
+    admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
+    member_headers = create_org_member(org["id"], "member@example.com", "member", "Member")
+    create_project(handle="core", name="secret")
+    launch_url = "/api/v1/accounts/core/projects/secret/runs/launch"
+    launch_payload = {"runName": "r", "launchId": "1"}
+
+    assert client.get("/api/v1/accounts/core/projects/secret", headers=member_headers).status_code == 403
+    assert client.get("/api/v1/accounts/core/projects/secret", headers=admin_headers).status_code == 200
+    assert client.post(launch_url, headers=member_headers, json=launch_payload).status_code == 403
+    assert client.post(launch_url, headers=admin_headers, json=launch_payload).status_code == 200
+
+
 @pytest.mark.parametrize(("url", "payload", "status", "existing"), [
     ("/api/v1/accounts/missing/projects", {"name": "underfit", "visibility": "private"}, 404, False),
     (BASE, {"name": "underfit", "visibility": "internal"}, 400, False),

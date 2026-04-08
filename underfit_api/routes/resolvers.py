@@ -59,7 +59,7 @@ def resolve_account_and_project(
         raise AliasRedirectError("/projects", project_name.lower(), project.name)
     if handle.lower() != project.owner:
         raise AliasRedirectError("/accounts", handle.lower(), project.owner)
-    require_project_viewer(conn, project.id, user.id if user else None)
+    require_project_viewer(conn, project, user.id if user else None)
     return account, project
 
 

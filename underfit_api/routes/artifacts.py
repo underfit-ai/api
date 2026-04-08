@@ -122,7 +122,7 @@ def create_artifact(
     handle: str, project_name: str, body: CreateArtifactBody, conn: Conn, user: CurrentUser,
 ) -> Artifact:
     project = resolve_project(conn, handle, project_name, user)
-    require_project_contributor(conn, project.id, user.id)
+    require_project_contributor(conn, project, user.id)
     run_id = None
     if body.run_id is not None:
         run = runs_repo.get_by_id(conn, body.run_id)
