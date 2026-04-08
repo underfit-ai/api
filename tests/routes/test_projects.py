@@ -12,10 +12,16 @@ BASE = "/api/v1/accounts/owner/projects"
 
 
 def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
-    create_payload = {"name": "Underfit", "description": "Tracking", "visibility": "private"}
+    create_payload = {
+        "name": "Underfit",
+        "description": "Tracking",
+        "metadata": {"charts": {"default": "loss"}},
+        "visibility": "private",
+    }
     created = client.post(BASE, headers=owner_headers, json=create_payload)
     assert created.status_code == 200
     assert created.json()["name"] == "underfit"
+    assert created.json()["metadata"] == {"charts": {"default": "loss"}}
 
     fetched = client.get(f"{BASE}/UNDERFIT", headers=owner_headers)
     assert fetched.status_code == 200 and fetched.json()["description"] == "Tracking"
@@ -23,10 +29,11 @@ def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
     listed = client.get(BASE, headers=owner_headers)
     assert listed.status_code == 200 and [p["name"] for p in listed.json()] == ["underfit"]
 
-    update_payload = {"description": "Updated", "visibility": "public"}
+    update_payload = {"description": "Updated", "metadata": {"charts": {"default": "accuracy"}}, "visibility": "public"}
     updated = client.put(f"{BASE}/underfit", headers=owner_headers, json=update_payload)
     assert updated.status_code == 200
     assert (updated.json()["description"], updated.json()["visibility"]) == ("Updated", "public")
+    assert updated.json()["metadata"] == {"charts": {"default": "accuracy"}}
 
 
 def test_list_projects(

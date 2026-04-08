@@ -15,6 +15,7 @@ _columns = [
     accounts.c.handle.label("owner"),
     projects.c.name,
     projects.c.description,
+    projects.c.metadata,
     projects.c.visibility,
     projects.c.pending_transfer_to,
     projects.c.created_at,
@@ -79,20 +80,25 @@ def list_related_to_user(conn: Connection, user_id: UUID) -> list[Project]:
     return [Project.model_validate(row) for row in rows]
 
 
-def create(conn: Connection, account_id: UUID, name: str, description: str | None, visibility: str) -> Project:
+def create(
+    conn: Connection, account_id: UUID, name: str, description: str | None, visibility: str,
+    metadata: dict[str, object],
+) -> Project:
     project_id = uuid4()
     now = utcnow()
     conn.execute(projects.insert().values(
         id=project_id, account_id=account_id, name=name, description=description,
-        visibility=visibility, created_at=now, updated_at=now,
+        metadata=metadata, visibility=visibility, created_at=now, updated_at=now,
     ))
     result = get_by_id(conn, project_id)
     assert result is not None
     return result
 
 
-def update(conn: Connection, project_id: UUID, description: str | None, visibility: str | None) -> Project | None:
-    values: dict[str, object] = {"updated_at": utcnow()}
+def update(
+    conn: Connection, project_id: UUID, description: str | None, visibility: str | None, metadata: dict[str, object],
+) -> Project | None:
+    values: dict[str, object] = {"updated_at": utcnow(), "metadata": metadata}
     if description is not None:
         values["description"] = description
     if visibility is not None:

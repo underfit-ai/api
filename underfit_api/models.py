@@ -89,6 +89,7 @@ class Project(_Base):
     owner: str
     name: str
     description: str | None
+    metadata: dict[str, object] = Field(default_factory=dict)
     visibility: ProjectVisibility
     pending_transfer_to: UUID | None
     created_at: UTCDatetime
@@ -107,6 +108,7 @@ class Run(_Base):
     terminal_state: RunTerminalState | None = None
     is_active: bool
     config: dict[str, object] | None
+    metadata: dict[str, object] = Field(default_factory=dict)
     worker_token: str | None = None
     created_at: UTCDatetime
     updated_at: UTCDatetime

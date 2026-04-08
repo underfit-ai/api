@@ -84,6 +84,7 @@ def test_backfill_ingests_segment_files() -> None:
         "project": "Vision",
         "name": "Trial A",
         "config": {"lr": 0.01, "seed": 7},
+        "metadata": {"summary": {"loss": 0.6}},
     })
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\nworld\n")
     _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", (
@@ -108,6 +109,7 @@ def test_backfill_ingests_segment_files() -> None:
     assert run_row is not None
     assert run_row.id == run_id and run_row.name == "trial a" and run_row.storage_key == str(run_id)
     assert run_row.terminal_state is None and run_row.config == {"lr": 0.01, "seed": 7}
+    assert run_row.metadata == {"summary": {"loss": 0.6}}
     assert worker_row is not None and worker_row.worker_label == "worker-1"
     assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
     assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (1, 0, 2)

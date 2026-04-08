@@ -28,10 +28,11 @@ class LaunchBody(BaseModel):
     launch_id: str
     worker_label: str = "0"
     config: dict[str, object] | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class UpdateRunBody(BaseModel):
-    config: dict[str, object] | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class UpdateTerminalStateBody(BaseModel):
@@ -39,9 +40,9 @@ class UpdateTerminalStateBody(BaseModel):
     terminal_state: RunTerminalState
 
 
-def _validate_config(config: dict[str, object] | None) -> None:
-    if config is not None and len(json.dumps(config)) > MAX_JSON_BYTES:
-        raise HTTPException(400, "Config too large")
+def _validate_json(value: dict[str, object] | None, label: str) -> None:
+    if value is not None and len(json.dumps(value)) > MAX_JSON_BYTES:
+        raise HTTPException(400, f"{label} too large")
 
 
 def _launch_response(conn: Conn, run: Run, worker_id: object) -> Run:
@@ -67,7 +68,8 @@ def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUse
 def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: CurrentUser) -> Run:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project, user.id)
-    _validate_config(body.config)
+    _validate_json(body.config, "Config")
+    _validate_json(body.metadata, "Metadata")
 
     existing = runs_repo.get_by_project_and_launch_id(conn, project.id, body.launch_id)
     if existing:
@@ -79,7 +81,7 @@ def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: C
         return _launch_response(conn, existing, worker.id)
 
     with as_conflict(conn, "Run already exists"):
-        run = runs_repo.create(conn, project.id, user.id, body.launch_id, body.run_name, body.config)
+        run = runs_repo.create(conn, project.id, user.id, body.launch_id, body.run_name, body.config, body.metadata)
         worker = workers_repo.create(conn, run.id, body.worker_label)
     return _launch_response(conn, run, worker.id)
 
@@ -95,10 +97,8 @@ def update_run(
 ) -> Run:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    if config_provided := "config" in body.model_fields_set:
-        _validate_config(body.config)
-    config = body.config if config_provided else None
-    if not (updated := runs_repo.update(conn, run.id, config, config_provided)):
+    _validate_json(body.metadata, "Metadata")
+    if not (updated := runs_repo.update(conn, run.id, body.metadata)):
         raise HTTPException(404, "Run not found")
     return updated
 

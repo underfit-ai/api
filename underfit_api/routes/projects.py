@@ -28,11 +28,13 @@ TRANSFER_TOKEN_TTL = timedelta(days=7)
 class CreateProjectBody(BaseModel):
     name: str = Field(pattern=NAME_PATTERN)
     description: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
     visibility: ProjectVisibility = ProjectVisibility.PRIVATE
 
 
 class UpdateProjectBody(BaseModel):
     description: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
     visibility: ProjectVisibility | None = None
 
 
@@ -71,7 +73,7 @@ def create_project(handle: str, body: CreateProjectBody, conn: Conn, user: Curre
     require_account_admin(conn, account.id, account.type, user.id)
     name_lower = body.name.lower()
     with as_conflict(conn, "Project already exists"):
-        project = projects_repo.create(conn, account.id, name_lower, body.description, body.visibility)
+        project = projects_repo.create(conn, account.id, name_lower, body.description, body.visibility, body.metadata)
         projects_repo.create_alias(conn, project.id, account.id, name_lower)
     return project
 
@@ -85,7 +87,7 @@ def get_project(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> 
 def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn: Conn, user: CurrentUser) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
-    if not (updated := projects_repo.update(conn, project.id, body.description, body.visibility)):
+    if not (updated := projects_repo.update(conn, project.id, body.description, body.visibility, body.metadata)):
         raise HTTPException(404, "Project not found")
     return updated
 

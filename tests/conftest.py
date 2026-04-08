@@ -124,7 +124,7 @@ def create_project() -> CreateProject:
     def _create(handle: str, name: str, description: str = "tracking", visibility: str = "private") -> Project:
         with db.engine.begin() as conn:
             assert (account := accounts_repo.get_by_handle(conn, handle)) is not None
-            project = projects_repo.create(conn, account.id, name.lower(), description, visibility)
+            project = projects_repo.create(conn, account.id, name.lower(), description, visibility, {})
             projects_repo.create_alias(conn, project.id, account.id, name.lower())
             return project
 
@@ -139,7 +139,7 @@ def create_run(create_project: CreateProject) -> CreateRun:
         project = create_project(handle=handle, name=project_name)
         with db.engine.begin() as conn:
             assert (user := users_repo.get_by_handle(conn, user_handle)) is not None
-            assert (run := runs_repo.create(conn, project.id, user.id, launch_id, name, None)) is not None
+            assert (run := runs_repo.create(conn, project.id, user.id, launch_id, name, None, {})) is not None
             run_workers_repo.create(conn, run.id, worker_label="0")
             return run
 
@@ -156,4 +156,3 @@ def add_collaborator() -> AddCollaborator:
             return project_collaborators_repo.add(conn, project.id, user.id)
 
     return _add
-

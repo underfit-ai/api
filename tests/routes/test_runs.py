@@ -24,10 +24,11 @@ def _launch(client: TestClient, headers: Headers, **overrides: object) -> dict[s
 def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(handle="owner", name="underfit")
 
-    run = _launch(client, owner_headers, config={"lr": 0.001})
+    run = _launch(client, owner_headers, config={"lr": 0.001}, metadata={"summary": {"loss": 0.5}})
     assert run["isActive"] is True
     assert run["terminalState"] is None
     assert run["config"] == {"lr": 0.001}
+    assert run["metadata"] == {"summary": {"loss": 0.5}}
     assert run["launchId"] == "abc-123"
     assert run["name"] == "my-run"
     assert run["workerToken"] is not None
@@ -38,9 +39,10 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert fetched.status_code == 200
     assert fetched.json()["id"] == run["id"]
 
-    updated = client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"config": {"lr": 0.0005}})
+    updated = client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"metadata": {"summary": {"loss": 0.25}}})
     assert updated.status_code == 200
-    assert updated.json()["config"] == {"lr": 0.0005}
+    assert updated.json()["config"] == {"lr": 0.001}
+    assert updated.json()["metadata"] == {"summary": {"loss": 0.25}}
 
     with db.engine.begin() as conn:
         conn.execute(run_workers.update().values(last_heartbeat=utcnow() - timedelta(seconds=16)))

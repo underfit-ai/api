@@ -9,7 +9,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import Connection, Engine
 
 from underfit_api.config import BackfillConfig
@@ -44,6 +44,7 @@ class RunMetadata(BaseModel):
     name: str | None = None
     terminal_state: Literal["finished", "failed", "cancelled"] | None = None
     config: dict[str, object] | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 def _parse_ts(raw: str | None) -> datetime:
@@ -137,6 +138,7 @@ class BackfillService:
                 storage_key=storage_key,
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
+                metadata=metadata.metadata,
                 created_at=now,
                 updated_at=now,
             ))
@@ -145,12 +147,14 @@ class BackfillService:
             or existing.storage_key != storage_key
             or existing.terminal_state != metadata.terminal_state
             or existing.config != metadata.config
+            or existing.metadata != metadata.metadata
         ):
             conn.execute(runs.update().where(runs.c.id == run_uuid).values(
                 name=run_name,
                 storage_key=storage_key,
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
+                metadata=metadata.metadata,
                 updated_at=utcnow(),
             ))
         return run_uuid
@@ -178,7 +182,7 @@ class BackfillService:
         now = utcnow()
         conn.execute(projects.insert().values(
             id=project_id, account_id=account_id, name=name,
-            visibility="private", created_at=now, updated_at=now,
+            metadata={}, visibility="private", created_at=now, updated_at=now,
         ))
         projects_repo.create_alias(conn, project_id, account_id, name)
         return project_id

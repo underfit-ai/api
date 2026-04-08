@@ -33,6 +33,7 @@ def _query() -> sa.Select[tuple[object, ...]]:
         runs.c.terminal_state,
         is_active,
         runs.c.config,
+        runs.c.metadata,
         runs.c.created_at,
         runs.c.updated_at,
     ).select_from(_join)
@@ -73,22 +74,22 @@ def list_by_user(conn: Connection, user_id: UUID) -> list[Run]:
 
 def create(
     conn: Connection, project_id: UUID, user_id: UUID, launch_id: str, name: str, config: dict[str, object] | None,
+    metadata: dict[str, object],
 ) -> Run:
     pk = uuid4()
     now = utcnow()
     conn.execute(runs.insert().values(
         id=pk, project_id=project_id, user_id=user_id,
-        launch_id=launch_id, name=name.lower(), storage_key=str(pk), config=config, created_at=now, updated_at=now,
+        launch_id=launch_id, name=name.lower(), storage_key=str(pk),
+        config=config, metadata=metadata, created_at=now, updated_at=now,
     ))
     result = get_by_id(conn, pk)
     assert result is not None
     return result
 
 
-def update(conn: Connection, pk: UUID, config: dict[str, object] | None, update_config: bool) -> Run | None:
-    values: dict[str, object] = {"updated_at": utcnow()}
-    if update_config:
-        values["config"] = config
+def update(conn: Connection, pk: UUID, metadata: dict[str, object]) -> Run | None:
+    values: dict[str, object] = {"updated_at": utcnow(), "metadata": metadata}
     conn.execute(runs.update().where(runs.c.id == pk).values(**values))
     return get_by_id(conn, pk)
 
