@@ -45,8 +45,10 @@ def test_scalars_validate_cursor_inputs(client: TestClient, owner_headers: Heade
     }
     assert client.post("/api/v1/ingest/scalars", headers=headers, json=duplicate).status_code == 409
 
-    invalid_query = client.get(scalars_url, headers=owner_headers, params={"resolution": 0, "maxPoints": 10})
+    invalid_query = client.get(scalars_url, headers=owner_headers, params={"resolution": 1, "maxPoints": 10})
     assert invalid_query.status_code == 400
+    missing_resolution = client.get(scalars_url, headers=owner_headers, params={"resolution": 10})
+    assert missing_resolution.status_code == 404
 
 
 def test_scalars_require_worker_token(client: TestClient) -> None:

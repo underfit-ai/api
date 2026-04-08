@@ -104,10 +104,10 @@ def test_scalar_buffer_builds_resolution_tiers() -> None:
         assert buffer.append(conn, rwid, 0, points) is None
 
         r1 = buffer.read_buffered(rwid, 1)
-        r2 = buffer.read_buffered(rwid, 2)
-        assert len(r1) == 10 and len(r2) == 1
-        assert r2[0].values["loss"] == 5.5
-        assert buffer.tier_line_count(conn, rwid, 2) == 1
+        r10 = buffer.read_buffered(rwid, 10)
+        assert len(r1) == 10 and len(r10) == 1
+        assert r10[0].values["loss"] == 5.5
+        assert buffer.resolution_line_count(conn, rwid, 10) == 1
 
 
 def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(tmp_path: Path) -> None:
@@ -134,9 +134,8 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
                     select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
                 ).all()
             }
-            assert 0 in by_res
             assert 1 in by_res
-            assert 2 not in by_res
+            assert 10 not in by_res
 
             buffer.flush(conn, storage, rwid)
             by_res_after = {
@@ -145,6 +144,6 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
                     select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
                 ).all()
             }
-            assert 2 in by_res_after
+            assert 10 in by_res_after
     finally:
         config.buffer.max_segment_bytes = original

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -70,6 +70,13 @@ class BufferConfig(BaseModel):
     flush_interval_ms: int = 10_000
     worker_timeout_s: int = 15
     scalar_resolutions: list[int] = [1, 10, 100, 1000]
+
+    @field_validator("scalar_resolutions")
+    @classmethod
+    def _validate_scalar_resolutions(cls, values: list[int]) -> list[int]:
+        if any(value < 1 for value in values):
+            raise ValueError("scalar_resolutions must be >= 1")
+        return list(dict.fromkeys(values))
 
 
 class EmailConfig(BaseModel):

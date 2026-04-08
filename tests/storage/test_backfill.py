@@ -86,7 +86,7 @@ def test_backfill_ingests_segment_files() -> None:
         "config": {"lr": 0.01, "seed": 7},
     })
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\nworld\n")
-    _write_text(storage, f"{run_id}/scalars/0/r0/0.jsonl", (
+    _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", (
         '{"step":1,"values":{"loss":0.8},"timestamp":"2025-01-01T00:00:00Z"}\n'
         '{"step":2,"values":{"loss":0.6},"timestamp":"2025-01-01T00:00:01Z"}\n'
     ))
@@ -110,7 +110,7 @@ def test_backfill_ingests_segment_files() -> None:
     assert run_row.terminal_state is None and run_row.config == {"lr": 0.01, "seed": 7}
     assert worker_row is not None and worker_row.worker_label == "worker-1"
     assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
-    assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (0, 0, 2)
+    assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (1, 0, 2)
     assert scalar_row.end_at.isoformat() == "2025-01-01T00:00:01"
 
 
@@ -118,7 +118,7 @@ def test_backfill_stops_scalar_segment_at_invalid_json() -> None:
     service, storage = _service()
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial B", "terminal_state": "finished"})
-    _write_text(storage, f"{run_id}/scalars/0/r0/0.jsonl", (
+    _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", (
         '{"step":0,"timestamp":"2025-01-01T00:00:00Z"}\n'
         '{"step":1,"timestamp":"2025-01-01T00:00:01Z"}\n'
         "{bad-json}\n"

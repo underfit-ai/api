@@ -9,8 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
 import underfit_api.storage as storage_mod
-from underfit_api.buffer import ScalarPoint, scalar_buffer
-from underfit_api.config import config
+from underfit_api.buffer import ScalarPoint, get_scalar_resolutions, scalar_buffer
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, Scalar, UTCDatetime, Worker
 from underfit_api.repositories import run_workers as workers_repo
@@ -49,11 +48,7 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
 def read_scalars(
-    handle: str,
-    project_name: str,
-    run_name: str,
-    conn: Conn,
-    user: MaybeUser,
+    handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser,
     worker_label: Annotated[str, Query(alias="workerLabel")] = "0",
     resolution: Annotated[int | None, Query()] = None,
     max_points: Annotated[int | None, Query(alias="maxPoints")] = None,
@@ -63,23 +58,22 @@ def read_scalars(
         raise HTTPException(404, "Worker not found")
     if resolution is not None and max_points is not None:
         raise HTTPException(400, "Cannot specify both resolution and maxPoints")
-    tier = resolution if resolution is not None else 0
+    selected_resolution = resolution if resolution is not None else 1
     if max_points is not None:
-        tier = _select_tier(conn, worker, max_points)
-    max_tier = len(config.buffer.scalar_resolutions)
-    if tier < 0 or tier > max_tier:
-        raise HTTPException(400, f"Resolution must be 0-{max_tier}")
-    return _read_tier(conn, worker, tier)
+        selected_resolution = _select_resolution(conn, worker, max_points)
+    if scalar_buffer.resolution_line_count(conn, worker.id, selected_resolution) == 0:
+        raise HTTPException(404, "Resolution not found")
+    return _read_resolution(conn, worker, selected_resolution)
 
 
-def _select_tier(conn: Conn, worker: Worker, max_points: int) -> int:
-    for res in range(len(config.buffer.scalar_resolutions), -1, -1):
-        if scalar_buffer.tier_line_count(conn, worker.id, res) >= max_points:
-            return res
-    return 0
+def _select_resolution(conn: Conn, worker: Worker, max_points: int) -> int:
+    for resolution in reversed(get_scalar_resolutions()):
+        if scalar_buffer.resolution_line_count(conn, worker.id, resolution) >= max_points:
+            return resolution
+    return 1
 
 
-def _read_tier(conn: Conn, worker: Worker, resolution: int) -> list[Scalar]:
+def _read_resolution(conn: Conn, worker: Worker, resolution: int) -> list[Scalar]:
     segments = scalar_seg_repo.list_by_resolution(conn, worker.id, resolution)
     scalars: list[Scalar] = []
     for seg in segments:
