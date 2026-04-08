@@ -6,17 +6,17 @@ from uuid import UUID, uuid4
 import sqlalchemy as sa
 from sqlalchemy import Connection
 
+from underfit_api.config import config
 from underfit_api.helpers import utcnow
 from underfit_api.models import Run
 from underfit_api.schema import accounts, projects, run_workers, runs
 
 _join = runs.join(projects, runs.c.project_id == projects.c.id).join(accounts, projects.c.account_id == accounts.c.id)
 _user_handle = sa.select(accounts.c.handle).where(accounts.c.id == runs.c.user_id).correlate(runs).scalar_subquery()
-_ACTIVE_WINDOW = timedelta(seconds=15)
 
 
 def _query() -> sa.Select[tuple[object, ...]]:
-    cutoff = utcnow() - _ACTIVE_WINDOW
+    cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
     is_active = sa.exists(sa.select(1).where(
         run_workers.c.run_id == runs.c.id,
         run_workers.c.last_heartbeat >= cutoff,
@@ -53,7 +53,7 @@ def get_by_project_and_launch_id(conn: Connection, project_id: UUID, launch_id: 
 
 
 def has_active_worker(conn: Connection, pk: UUID) -> bool:
-    cutoff = utcnow() - _ACTIVE_WINDOW
+    cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
     row = conn.execute(sa.select(1).where(
         run_workers.c.run_id == pk, run_workers.c.last_heartbeat >= cutoff,
     )).first()

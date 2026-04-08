@@ -46,8 +46,8 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 def _flush_once() -> None:
     with db.engine.begin() as conn:
-        log_buffer.flush_stale(conn, storage_mod.storage)
-        scalar_buffer.flush_stale(conn, storage_mod.storage)
+        log_buffer.flush_inactive(conn, storage_mod.storage)
+        scalar_buffer.flush_inactive(conn, storage_mod.storage)
 
 
 async def _flush_loop() -> None:

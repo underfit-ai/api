@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 import weakref
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -45,7 +44,6 @@ class _LineBuffer(Generic[T]):
     lines: list[T] = field(default_factory=list)
     byte_count: int = 0
     start_line: int = 0
-    created_at: float | None = None
 
     @property
     def end_line(self) -> int:
@@ -95,8 +93,6 @@ class LogBuffer:
                 return expected
             with self._lock:
                 buf = self._buffers.setdefault(worker_id, _LineBuffer(start_line=start_line))
-            if not buf.lines:
-                buf.created_at = time.monotonic()
             for line in lines:
                 for sub in line.content.split("\n"):
                     size = len(sub.encode()) + 1
@@ -125,7 +121,6 @@ class LogBuffer:
             buf.start_line = buf.end_line
             buf.lines.clear()
             buf.byte_count = 0
-            buf.created_at = None
 
     def flush_if_needed(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
         with self._locks[worker_id]:
@@ -146,12 +141,11 @@ class LogBuffer:
                 if buf.lines:
                     self.flush(conn, storage, rwid)
 
-    def flush_stale(self, conn: Connection, storage: Storage) -> None:
+    def flush_inactive(self, conn: Connection, storage: Storage) -> None:
         with self._lock:
-            cutoff = time.monotonic() - config.buffer.max_segment_age_ms / 1000
-            for rwid, buf in list(self._buffers.items()):
-                if buf.lines and buf.created_at is not None and buf.created_at < cutoff:
-                    self.flush(conn, storage, rwid)
+            worker_ids = {k for k, b in self._buffers.items() if b.lines}
+            for rwid in workers_repo.get_inactive_ids(conn, worker_ids):
+                self.flush(conn, storage, rwid)
             self._buffers = {k: b for k, b in self._buffers.items() if b.lines}
 
     def read_buffered(self, worker_id: UUID, cursor: int, count: int) -> list[LogLine]:
@@ -189,8 +183,6 @@ class ScalarBuffer:
                 return expected
             with self._lock:
                 buf = self._buffers.setdefault((worker_id, 0), _LineBuffer(start_line=start_line))
-            if not buf.lines:
-                buf.created_at = time.monotonic()
             for scalar in scalars:
                 buf.lines.append(scalar)
                 size = len(self._serialize_scalar(scalar).encode()) + 1
@@ -221,8 +213,6 @@ class ScalarBuffer:
         ts = acc.last_timestamp or utcnow()
         point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=ts)
         buf = self._buffers.setdefault((worker_id, resolution), _LineBuffer(start_line=0))
-        if not buf.lines:
-            buf.created_at = time.monotonic()
         size = len(self._serialize_scalar(point).encode()) + 1
         buf.lines.append(point)
         buf.byte_count += size
@@ -258,7 +248,6 @@ class ScalarBuffer:
         new_start = buf.end_line
         buf.lines.clear()
         buf.byte_count = 0
-        buf.created_at = None
         buf.start_line = new_start
 
     def flush_if_needed(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
@@ -280,14 +269,10 @@ class ScalarBuffer:
             for rwid in rwids:
                 self.flush(conn, storage, rwid)
 
-    def flush_stale(self, conn: Connection, storage: Storage) -> None:
+    def flush_inactive(self, conn: Connection, storage: Storage) -> None:
         with self._lock:
-            cutoff = time.monotonic() - config.buffer.max_segment_age_ms / 1000
-            stale: set[UUID] = set()
-            for (rwid, _res), buf in self._buffers.items():
-                if buf.lines and buf.created_at is not None and buf.created_at < cutoff:
-                    stale.add(rwid)
-            for rwid in stale:
+            worker_ids = {rwid for (rwid, _res), buf in self._buffers.items() if buf.lines}
+            for rwid in workers_repo.get_inactive_ids(conn, worker_ids):
                 self.flush(conn, storage, rwid)
             self._buffers = {k: b for k, b in self._buffers.items() if b.lines}
             self._accumulators = {k: a for k, a in self._accumulators.items() if a.n > 0}
