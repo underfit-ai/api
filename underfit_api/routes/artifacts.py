@@ -15,8 +15,7 @@ from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
 from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import artifacts as artifacts_repo
-from underfit_api.repositories import runs as runs_repo
-from underfit_api.routes.resolvers import resolve_artifact, resolve_project
+from underfit_api.routes.resolvers import resolve_artifact, resolve_project, resolve_run
 
 router = APIRouter()
 
@@ -39,7 +38,6 @@ class Manifest(BaseModel):
 
 
 class CreateArtifactBody(BaseModel):
-    run_id: UUID | None = None
     step: int | None = None
     name: str
     type: str
@@ -111,6 +109,20 @@ def _validate_path(path: str) -> str:
     return path
 
 
+def _create_artifact(
+    conn: Conn, project_id: UUID, storage_base: UUID, body: CreateArtifactBody, run_id: UUID | None = None,
+) -> Artifact:
+    if body.step is not None and run_id is None:
+        raise HTTPException(400, "step requires run")
+    if body.metadata is not None and len(json.dumps(body.metadata)) > MAX_JSON_BYTES:
+        raise HTTPException(400, "Metadata too large")
+    artifact_id = uuid4()
+    return artifacts_repo.create(
+        conn, artifact_id, project_id, run_id, body.step, body.name, body.type,
+        f"{storage_base}/artifacts/{artifact_id}", body.metadata,
+    )
+
+
 @router.get("/accounts/{handle}/projects/{project_name}/artifacts")
 def list_artifacts(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> list[Artifact]:
     project = resolve_project(conn, handle, project_name, user)
@@ -118,37 +130,21 @@ def list_artifacts(handle: str, project_name: str, conn: Conn, user: MaybeUser) 
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/artifacts")
-def create_artifact(
+def create_project_artifact(
     handle: str, project_name: str, body: CreateArtifactBody, conn: Conn, user: CurrentUser,
 ) -> Artifact:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project, user.id)
-    run_id = None
-    if body.run_id is not None:
-        run = runs_repo.get_by_id(conn, body.run_id)
-        if not run:
-            raise HTTPException(404, "Run not found")
-        if run.project_id != project.id:
-            raise HTTPException(400, "Run not in project")
-        run_id = run.id
-    if body.step is not None and run_id is None:
-        raise HTTPException(400, "step requires runId")
-    if body.metadata is not None and len(json.dumps(body.metadata)) > MAX_JSON_BYTES:
-        raise HTTPException(400, "Metadata too large")
-    base = f"{run_id}/artifacts" if run_id else f"{project.id}/artifacts"
-    artifact_id = uuid4()
-    storage_key = f"{base}/{artifact_id}"
-    return artifacts_repo.create(
-        conn,
-        artifact_id=artifact_id,
-        project_id=project.id,
-        run_id=run_id,
-        step=body.step,
-        name=body.name,
-        artifact_type=body.type,
-        storage_key=storage_key,
-        metadata=body.metadata,
-    )
+    return _create_artifact(conn, project.id, project.id, body)
+
+
+@router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/artifacts")
+def create_run_artifact(
+    handle: str, project_name: str, run_name: str, body: CreateArtifactBody, conn: Conn, user: CurrentUser,
+) -> Artifact:
+    run = resolve_run(conn, handle, project_name, run_name, user)
+    require_project_contributor(conn, run.project_id, user.id)
+    return _create_artifact(conn, run.project_id, run.id, body, run.id)
 
 
 @router.get("/artifacts/{artifact_id}")
