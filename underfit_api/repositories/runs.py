@@ -29,6 +29,7 @@ def _query() -> sa.Select[tuple[object, ...]]:
         _user_handle.label("user"),
         runs.c.launch_id,
         runs.c.name,
+        runs.c.storage_key,
         runs.c.terminal_state,
         is_active,
         runs.c.config,
@@ -77,7 +78,7 @@ def create(
     now = utcnow()
     conn.execute(runs.insert().values(
         id=pk, project_id=project_id, user_id=user_id,
-        launch_id=launch_id, name=name.lower(), config=config, created_at=now, updated_at=now,
+        launch_id=launch_id, name=name.lower(), storage_key=str(pk), config=config, created_at=now, updated_at=now,
     ))
     result = get_by_id(conn, pk)
     assert result is not None

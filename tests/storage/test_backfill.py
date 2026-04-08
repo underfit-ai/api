@@ -16,6 +16,7 @@ from underfit_api.schema import (
     artifacts,
     log_segments,
     media,
+    project_aliases,
     projects,
     run_workers,
     runs,
@@ -95,14 +96,18 @@ def test_backfill_ingests_segment_files() -> None:
         assert len(conn.execute(select(accounts)).all()) == 1
         assert len(conn.execute(select(users)).all()) == 1
         assert len(conn.execute(select(projects)).all()) == 1
+        project_row = conn.execute(select(projects)).first()
+        alias_row = conn.execute(select(project_aliases)).first()
         run_row = conn.execute(select(runs)).first()
         log_row = conn.execute(select(log_segments)).first()
         scalar_row = conn.execute(select(scalar_segments)).first()
         worker_row = conn.execute(select(run_workers)).first()
 
-    assert run_row is not None and (run_row.id, run_row.name, run_row.terminal_state, run_row.config) == (
-        run_id, "Trial A", None, {"lr": 0.01, "seed": 7},
-    )
+    assert project_row is not None and project_row.name == "vision"
+    assert alias_row is not None and alias_row.name == "vision"
+    assert run_row is not None
+    assert run_row.id == run_id and run_row.name == "trial a" and run_row.storage_key == str(run_id)
+    assert run_row.terminal_state is None and run_row.config == {"lr": 0.01, "seed": 7}
     assert worker_row is not None and worker_row.worker_label == "worker-1"
     assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
     assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (0, 0, 2)

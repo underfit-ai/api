@@ -23,7 +23,7 @@ def list_files(
     path: Annotated[str | None, Query()] = None,
 ) -> list[dict[str, object]]:
     run = resolve_run(conn, handle, project_name, run_name, user)
-    prefix = str(run.id)
+    prefix = run.storage_key
     if path:
         prefix = f"{prefix}/{path}"
     entries: list[DirEntry] = storage_mod.storage.list_dir(prefix)
@@ -45,7 +45,7 @@ def download_file(
     if not path:
         raise HTTPException(400, "Path is required")
     run = resolve_run(conn, handle, project_name, run_name, user)
-    key = f"{run.id}/{path}"
+    key = f"{run.storage_key}/{path}"
     if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     filename = path.rsplit("/", 1)[-1]

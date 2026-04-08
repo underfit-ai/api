@@ -14,6 +14,7 @@ from sqlalchemy import Connection, Engine
 
 from underfit_api.config import BackfillConfig
 from underfit_api.helpers import utcnow
+from underfit_api.repositories import projects as projects_repo
 from underfit_api.schema import (
     accounts,
     artifacts,
@@ -120,7 +121,8 @@ class BackfillService:
             return None
         if not metadata.project or not metadata.user:
             return None
-        run_name = metadata.name or str(run_uuid)
+        run_name = (metadata.name or str(run_uuid)).lower()
+        storage_key = str(run_uuid)
         if not (account_id := self._resolve_account(conn, metadata.user)):
             return None
         project_id = self._resolve_project(conn, account_id, metadata.project)
@@ -132,6 +134,7 @@ class BackfillService:
                 user_id=account_id,
                 launch_id=str(run_uuid),
                 name=run_name,
+                storage_key=storage_key,
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 created_at=now,
@@ -139,11 +142,13 @@ class BackfillService:
             ))
         elif (
             existing.name != run_name
+            or existing.storage_key != storage_key
             or existing.terminal_state != metadata.terminal_state
             or existing.config != metadata.config
         ):
             conn.execute(runs.update().where(runs.c.id == run_uuid).values(
                 name=run_name,
+                storage_key=storage_key,
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 updated_at=utcnow(),
@@ -164,6 +169,7 @@ class BackfillService:
         return uid
 
     def _resolve_project(self, conn: Connection, account_id: UUID, name: str) -> UUID:
+        name = name.lower()
         if row := conn.execute(projects.select().where(
             projects.c.account_id == account_id, projects.c.name == name,
         )).first():
@@ -174,6 +180,7 @@ class BackfillService:
             id=project_id, account_id=account_id, name=name,
             visibility="private", created_at=now, updated_at=now,
         ))
+        projects_repo.create_alias(conn, project_id, account_id, name)
         return project_id
 
     def _ensure_worker(self, conn: Connection, run_id: UUID, worker_label: str) -> UUID:

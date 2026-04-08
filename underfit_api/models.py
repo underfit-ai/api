@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Annotated, Literal, Union
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, PlainSerializer
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer
 from pydantic.alias_generators import to_camel
 
 UTCDatetime = Annotated[
@@ -103,6 +103,7 @@ class Run(_Base):
     project_owner: str
     launch_id: str
     name: str
+    storage_key: str = Field(exclude=True)
     terminal_state: RunTerminalState | None = None
     is_active: bool
     config: dict[str, object] | None

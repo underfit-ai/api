@@ -137,6 +137,7 @@ runs = sa.Table(
     sa.Column("user_id", sa.Uuid, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
     sa.Column("launch_id", sa.Text, nullable=False),
     sa.Column("name", sa.Text, nullable=False),
+    sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("terminal_state", sa.Text),
     sa.Column("config", sa.JSON),
     sa.Column("created_at", sa.DateTime, nullable=False),
