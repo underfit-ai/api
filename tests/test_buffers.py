@@ -27,22 +27,22 @@ def _create_worker(worker_label: str = "0") -> UUID:
         return worker.id
 
 
-def test_log_buffer_expands_multiline_and_slices_by_cursor() -> None:
+def test_log_buffer_slices_by_cursor() -> None:
     rwid = _create_worker("worker-1")
     buffer = LogBuffer()
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
     with db.engine.begin() as conn:
         expected = buffer.append(conn, rwid, 0, [
-            LogLine(timestamp=t0, content="a\nb"),
-            LogLine(timestamp=t0 + timedelta(seconds=1), content="c"),
+            LogLine(timestamp=t0, content="a"),
+            LogLine(timestamp=t0 + timedelta(seconds=1), content="b"),
         ])
         assert expected is None
-        assert buffer.get_end_line(conn, rwid) == 3
-        assert [line.content for line in buffer.read_buffered(rwid, cursor=1, count=2)] == ["b", "c"]
+        assert buffer.get_end_line(conn, rwid) == 2
+        assert [line.content for line in buffer.read_buffered(rwid, cursor=1, count=2)] == ["b"]
 
         conflict = buffer.append(conn, rwid, 1, [LogLine(timestamp=t0, content="late")])
-        assert conflict == 3
+        assert conflict == 2
 
 
 def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -> None:
@@ -114,8 +114,9 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
     rwid = _create_worker()
     buffer = ScalarBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
-    original = config.buffer.max_segment_bytes
+    original = config.buffer.max_segment_bytes, config.buffer.scalar_resolutions
     config.buffer.max_segment_bytes = 1
+    config.buffer.scalar_resolutions = [2]
 
     try:
         with db.engine.begin() as conn:
@@ -135,7 +136,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
                 ).all()
             }
             assert 1 in by_res
-            assert 10 not in by_res
+            assert 2 not in by_res
 
             buffer.flush(conn, storage, rwid)
             by_res_after = {
@@ -144,6 +145,14 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
                     select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
                 ).all()
             }
-            assert 10 in by_res_after
+            assert 2 in by_res_after
+            buffer = ScalarBuffer()
+            assert buffer.append(conn, rwid, 1, [
+                ScalarPoint(step=1, values={"loss": 2.0}, timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc)),
+            ]) is None
+            buffer.flush(conn, storage, rwid)
+            assert conn.execute(select(scalar_segments).where(
+                scalar_segments.c.worker_id == rwid, scalar_segments.c.resolution == 2,
+            ).order_by(scalar_segments.c.start_line)).all()[-1].start_line == 1
     finally:
-        config.buffer.max_segment_bytes = original
+        config.buffer.max_segment_bytes, config.buffer.scalar_resolutions = original

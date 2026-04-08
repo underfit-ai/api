@@ -102,11 +102,10 @@ class LogBuffer:
             with self._lock:
                 buf = self._buffers.setdefault(worker_id, _LineBuffer(start_line=start_line))
             for line in lines:
-                for sub in line.content.split("\n"):
-                    size = len(sub.encode()) + 1
-                    buf.lines.append(LogLine(timestamp=line.timestamp, content=sub))
-                    buf.byte_count += size
-                    self._total_bytes += size
+                size = len(line.content.encode()) + 1
+                buf.lines.append(line)
+                buf.byte_count += size
+                self._total_bytes += size
             return None
 
     def flush(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
@@ -196,13 +195,13 @@ class ScalarBuffer:
                 size = len(self._serialize_scalar(scalar).encode()) + 1
                 buf.byte_count += size
                 self._total_bytes += size
-                self._feed_accumulators(worker_id, scalar)
+                self._feed_accumulators(conn, worker_id, scalar)
             return None
 
     def _serialize_scalar(self, s: ScalarPoint) -> str:
         return json.dumps({"step": s.step, "values": s.values, "timestamp": s.timestamp.isoformat() + "Z"})
 
-    def _feed_accumulators(self, worker_id: UUID, scalar: ScalarPoint) -> None:
+    def _feed_accumulators(self, conn: Connection, worker_id: UUID, scalar: ScalarPoint) -> None:
         for resolution in get_aggregated_scalar_resolutions():
             k = (worker_id, resolution)
             acc = self._accumulators.setdefault(k, _Accumulator())
@@ -213,14 +212,15 @@ class ScalarBuffer:
             acc.last_step = scalar.step
             acc.last_timestamp = scalar.timestamp
             if acc.n >= resolution:
-                self._emit_accumulator(worker_id, resolution, acc)
+                self._emit_accumulator(conn, worker_id, resolution, acc)
                 self._accumulators[k] = _Accumulator()
 
-    def _emit_accumulator(self, worker_id: UUID, resolution: int, acc: _Accumulator) -> None:
+    def _emit_accumulator(self, conn: Connection, worker_id: UUID, resolution: int, acc: _Accumulator) -> None:
         averaged = {k: acc.sums[k] / acc.counts[k] for k in acc.sums}
         ts = acc.last_timestamp or utcnow()
         point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=ts)
-        buf = self._buffers.setdefault((worker_id, resolution), _LineBuffer(start_line=0))
+        start_line = scalar_seg_repo.get_end_line(conn, worker_id, resolution)
+        buf = self._buffers.setdefault((worker_id, resolution), _LineBuffer(start_line=start_line))
         size = len(self._serialize_scalar(point).encode()) + 1
         buf.lines.append(point)
         buf.byte_count += size
@@ -232,7 +232,7 @@ class ScalarBuffer:
             if emit_partial:
                 for (rwid, resolution), acc in list(self._accumulators.items()):
                     if rwid == worker_id and acc.n > 0:
-                        self._emit_accumulator(worker_id, resolution, acc)
+                        self._emit_accumulator(conn, worker_id, resolution, acc)
                         self._accumulators[(rwid, resolution)] = _Accumulator()
             for resolution in resolutions:
                 self._flush_resolution(conn, storage, worker_id, resolution)
