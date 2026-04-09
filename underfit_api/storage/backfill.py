@@ -273,11 +273,11 @@ class BackfillService:
                     seen_artifacts.add(artifact_id)
                     self._ingest_artifact(conn, run_id, artifact_id)
             elif m := _MEDIA.match(key):
-                storage_key = f"media/{m.group(2)}/{m.group(3)}_{m.group(4)}_%d{m.group(6)}"
-                if storage_key not in seen_media:
-                    seen_media.add(storage_key)
+                storage_prefix = f"media/{m.group(2)}/{m.group(3)}_{m.group(4)}"
+                if storage_prefix not in seen_media:
+                    seen_media.add(storage_prefix)
                     self._ingest_media(
-                        conn, run_id, run_keys, storage_key, m.group(3),
+                        conn, run_id, run_keys, storage_prefix, m.group(6), m.group(3),
                         None if m.group(4) == "none" else int(m.group(4)), m.group(2),
                     )
 
@@ -332,13 +332,15 @@ class BackfillService:
         ))
 
     def _ingest_media(
-        self, conn: Connection, run_id: UUID, run_keys: list[str], storage_key: str, key_name: str, step: int | None,
-        media_type: str,
+        self, conn: Connection, run_id: UUID, run_keys: list[str], storage_prefix: str, ext: str, key_name: str,
+        step: int | None, media_type: str,
     ) -> None:
-        media_id = uuid5(run_id, storage_key)
-        prefix = f"{run_id}/{storage_key.split('%d', 1)[0]}"
+        media_id = uuid5(run_id, f"{storage_prefix}{ext}")
+        prefix = f"{run_id}/{storage_prefix}_"
         file_count = sum(
-            1 for key in run_keys if key.startswith(prefix) and key.rsplit("_", 2)[-1].split(".", 1)[0].isdigit()
+            1
+            for key in run_keys
+            if key.startswith(prefix) and key.endswith(ext) and key[len(prefix):-len(ext)].isdigit()
         )
         if not file_count:
             return
@@ -350,7 +352,8 @@ class BackfillService:
                 key=key_name,
                 step=step,
                 type=media_type,
-                storage_key=storage_key,
+                storage_prefix=storage_prefix,
+                ext=ext,
                 count=file_count,
                 metadata=None,
                 created_at=utcnow(),

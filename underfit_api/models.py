@@ -146,7 +146,8 @@ class Media(_Base):
     key: str
     step: int | None
     type: MediaType
-    storage_key: str
+    storage_prefix: str
+    ext: str
     count: int
     metadata: dict[str, object] | None
     created_at: UTCDatetime

@@ -28,7 +28,7 @@ def list_by_run(
 
 def create(
     conn: Connection, run_id: UUID, key: str, step: int | None, media_type: str,
-    storage_key: str, count: int, metadata: dict[str, object] | None,
+    storage_prefix: str, ext: str, count: int, metadata: dict[str, object] | None,
 ) -> Media:
     media_id = uuid4()
     conn.execute(media.insert().values(
@@ -37,7 +37,8 @@ def create(
         key=key,
         step=step,
         type=media_type,
-        storage_key=storage_key,
+        storage_prefix=storage_prefix,
+        ext=ext,
         count=count,
         metadata=metadata,
         created_at=utcnow(),

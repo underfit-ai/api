@@ -52,20 +52,21 @@ async def create_media(conn: Conn, worker: CurrentWorker, metadata: MediaMetadat
     ext = mimetypes.guess_extension(files[0].content_type or "") or ".bin"
     if any((mimetypes.guess_extension(f.content_type or "") or ".bin") != ext for f in files[1:]):
         raise HTTPException(400, "All media files must use the same content type")
-    storage_key = "/".join(["media", metadata.type, *([prefix] if prefix else []), name])
-    storage_key = f"{storage_key}_{metadata.step if metadata.step is not None else 'none'}_%d{ext}"
+    storage_prefix = "/".join(["media", metadata.type, *([prefix] if prefix else []), name])
+    storage_prefix = f"{storage_prefix}_{metadata.step if metadata.step is not None else 'none'}"
     for i, f in enumerate(files):
         async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
             while chunk := await f.read(262144):
                 yield chunk
-        await storage_mod.storage.write_stream(f"{run.storage_key}/{storage_key % i}", _chunks())
+        await storage_mod.storage.write_stream(f"{run.storage_key}/{storage_prefix}_{i}{ext}", _chunks())
     return media_repo.create(
         conn,
         run_id=run_worker.run_id,
         key=metadata.key,
         step=metadata.step,
         media_type=metadata.type,
-        storage_key=storage_key,
+        storage_prefix=storage_prefix,
+        ext=ext,
         count=len(files),
         metadata=metadata.metadata,
     )
@@ -91,8 +92,7 @@ def get_media_file(
         raise HTTPException(404, "Media not found")
     if index < 0 or index >= record.count:
         raise HTTPException(400, "Index out of range")
-    path = record.storage_key % index if "%d" in record.storage_key else f"{record.storage_key}/{index}"
-    key = f"{run.storage_key}/{path}"
+    key = f"{run.storage_key}/{record.storage_prefix}_{index}{record.ext}"
     if not key or not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")
