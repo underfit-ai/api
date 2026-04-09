@@ -106,7 +106,7 @@ class LogBuffer:
                 buf.byte_count += len(line.content.encode()) + 1
             return None
 
-    def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
+    def persist(self, conn: Connection, storage: Storage, worker_id: UUID, *, clear: bool = False) -> None:
         with self._locks[worker_id]:
             buf = self._buffers.get(worker_id)
             if not buf or not buf.lines:
@@ -123,16 +123,13 @@ class LogBuffer:
                 storage_key=storage_key,
             )
             buf.last_persisted_at = utcnow()
+            if clear:
+                buf.start_line = buf.end_line
+                buf.lines.clear()
+                buf.byte_count = 0
 
     def flush(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
-        with self._locks[worker_id]:
-            buf = self._buffers.get(worker_id)
-            if not buf or not buf.lines:
-                return
-            self.persist(conn, storage, worker_id)
-            buf.start_line = buf.end_line
-            buf.lines.clear()
-            buf.byte_count = 0
+        self.persist(conn, storage, worker_id, clear=True)
 
     def persist_due(self, conn: Connection, storage: Storage) -> None:
         cutoff = utcnow() - timedelta(milliseconds=config.buffer.persist_interval_ms)
@@ -240,9 +237,11 @@ class ScalarBuffer:
                         self._emit_accumulator(conn, worker_id, resolution, acc)
                         self._accumulators[(rwid, resolution)] = _Accumulator()
             for resolution in resolutions:
-                self._flush_resolution(conn, storage, worker_id, resolution)
+                self._persist_resolution(conn, storage, worker_id, resolution, clear=True)
 
-    def _persist_resolution(self, conn: Connection, storage: Storage, worker_id: UUID, resolution: int) -> None:
+    def _persist_resolution(
+        self, conn: Connection, storage: Storage, worker_id: UUID, resolution: int, *, clear: bool = False,
+    ) -> None:
         buf = self._buffers.get((worker_id, resolution))
         if not buf or not buf.lines:
             return
@@ -258,15 +257,10 @@ class ScalarBuffer:
             storage_key=storage_key,
         )
         buf.last_persisted_at = utcnow()
-
-    def _flush_resolution(self, conn: Connection, storage: Storage, worker_id: UUID, resolution: int) -> None:
-        buf = self._buffers.get((worker_id, resolution))
-        if not buf or not buf.lines:
-            return
-        self._persist_resolution(conn, storage, worker_id, resolution)
-        buf.start_line = buf.end_line
-        buf.lines.clear()
-        buf.byte_count = 0
+        if clear:
+            buf.start_line = buf.end_line
+            buf.lines.clear()
+            buf.byte_count = 0
 
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
         with self._locks[worker_id]:
