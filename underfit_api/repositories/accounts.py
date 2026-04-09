@@ -41,7 +41,3 @@ def get_alias_by_handle(conn: Connection, handle: str) -> Row | None:
     return conn.execute(
         account_aliases.select().where(account_aliases.c.handle == handle.lower()),
     ).first()
-
-
-def delete(conn: Connection, account_id: UUID) -> None:
-    conn.execute(accounts.delete().where(accounts.c.id == account_id))

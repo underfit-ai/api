@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from underfit_api.dependencies import Conn, CurrentUser
 from underfit_api.helpers import as_conflict
-from underfit_api.models import OkResponse, Organization
+from underfit_api.models import Organization
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import organizations as organizations_repo
@@ -31,15 +31,6 @@ def create_organization(body: CreateOrgBody, conn: Conn, user: CurrentUser) -> O
         accounts_repo.create_alias(conn, org.id, handle_lower)
         organization_members_repo.add_member(conn, org.id, user.id, "ADMIN")
     return org
-
-
-@router.delete("/{handle}")
-def delete_organization(handle: str, conn: Conn, user: CurrentUser) -> OkResponse:
-    org = resolve_organization(conn, handle)
-    if not organization_members_repo.is_admin(conn, org.id, user.id):
-        raise HTTPException(403, "Forbidden")
-    accounts_repo.delete(conn, org.id)
-    return OkResponse()
 
 
 @router.patch("/{handle}")

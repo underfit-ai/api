@@ -19,15 +19,6 @@ def test_create_update_organization(client: TestClient, owner_headers: Headers, 
     assert updated.status_code == 200 and updated.json()["name"] == "Core Team"
 
 
-def test_delete_organization(client: TestClient, owner_headers: Headers, outsider_headers: Headers) -> None:
-    assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
-    assert client.delete(CORE, headers=outsider_headers).status_code == 403
-    assert client.get(MEMBERS).status_code == 200
-    deleted = client.delete(CORE, headers=owner_headers)
-    assert deleted.status_code == 200 and deleted.json() == {"status": "ok"}
-    assert client.get(MEMBERS).status_code == 404
-
-
 def test_cannot_demote_or_remove_only_admin(client: TestClient, owner_headers: Headers) -> None:
     assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
     assert client.put(f"{MEMBERS}/owner", headers=owner_headers, json={"role": "MEMBER"}).status_code == 400
