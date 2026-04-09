@@ -27,7 +27,7 @@ def list_by_run(
 
 
 def create(
-    conn: Connection, run_id: UUID, key: str, step: int | None, media_type: str,
+    conn: Connection, run_id: UUID, key: str, step: int, media_type: str,
     storage_prefix: str, ext: str, count: int, metadata: dict[str, object] | None,
 ) -> Media:
     media_id = uuid4()

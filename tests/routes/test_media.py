@@ -32,3 +32,20 @@ def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) 
     assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [media_id]
     downloaded = client.get(f"{media_url}/{media_id}/file", headers=owner_headers)
     assert downloaded.status_code == 200 and downloaded.content == b"file-a"
+
+
+def test_media_ingest_rejects_duplicate_type_key_and_step(client: TestClient, owner_headers: Headers) -> None:
+    client.post(
+        "/api/v1/accounts/owner/projects", headers=owner_headers, json={"name": "underfit", "visibility": "private"},
+    )
+    run = client.post(LAUNCH, headers=owner_headers, json={"runName": "r", "launchId": "1"}).json()
+    worker = {"Authorization": f"Bearer {run['workerToken']}"}
+
+    created = client.post("/api/v1/ingest/media", headers=worker, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
+    duplicate = client.post(
+        "/api/v1/ingest/media", headers=worker, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES,
+    )
+
+    assert created.status_code == 200
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"] == "Media already exists for this type/key/step"

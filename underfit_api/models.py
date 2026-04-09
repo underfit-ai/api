@@ -144,7 +144,7 @@ class Media(_Base):
     id: UUID
     run_id: UUID
     key: str
-    step: int | None
+    step: int
     type: MediaType
     storage_prefix: str
     ext: str

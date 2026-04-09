@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 _LOG = re.compile(r"^([^/]+)/logs/([^/]+)/segments/(\d+)\.log$")
 _SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 _ARTIFACT = re.compile(r"^([^/]+)/artifacts/([^/]+)/(manifest|artifact)\.json$")
-_MEDIA = re.compile(r"^([^/]+)/media/([^/]+)/(.+)_(none|-?\d+)_(\d+)(\.[^/]+)$")
+_MEDIA = re.compile(r"^([^/]+)/media/([^/]+)/(.+)_(-?\d+)_(\d+)(\.[^/]+)$")
 
 
 class RunMetadata(BaseModel):
@@ -278,7 +278,7 @@ class BackfillService:
                     seen_media.add(storage_prefix)
                     self._ingest_media(
                         conn, run_id, run_keys, storage_prefix, m.group(6), m.group(3),
-                        None if m.group(4) == "none" else int(m.group(4)), m.group(2),
+                        int(m.group(4)), m.group(2),
                     )
 
     def _ingest_artifact(self, conn: Connection, run_id: UUID, artifact_id_str: str) -> None:
@@ -333,7 +333,7 @@ class BackfillService:
 
     def _ingest_media(
         self, conn: Connection, run_id: UUID, run_keys: list[str], storage_prefix: str, ext: str, key_name: str,
-        step: int | None, media_type: str,
+        step: int, media_type: str,
     ) -> None:
         media_id = uuid5(run_id, f"{storage_prefix}{ext}")
         prefix = f"{run_id}/{storage_prefix}_"

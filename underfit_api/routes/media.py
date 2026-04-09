@@ -12,7 +12,7 @@ from pydantic import BaseModel, Json
 
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
-from underfit_api.helpers import validate_path
+from underfit_api.helpers import as_conflict, validate_path
 from underfit_api.models import Media, MediaType
 from underfit_api.repositories import media as media_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -26,7 +26,7 @@ MAX_JSON_BYTES = 65536
 
 class CreateMediaMetadata(BaseModel):
     key: str
-    step: int | None = None
+    step: int
     type: MediaType
     metadata: dict[str, object] | None = None
 
@@ -48,28 +48,34 @@ async def create_media(conn: Conn, worker: CurrentWorker, metadata: MediaMetadat
     if metadata.metadata is not None and len(json.dumps(metadata.metadata)) > MAX_JSON_BYTES:
         raise HTTPException(400, "Metadata too large")
     key = validate_path(metadata.key)
+    if any(
+        media.type == metadata.type and media.key == key and media.step == metadata.step
+        for media in media_repo.list_by_run(conn, run.id, key=key)
+    ):
+        raise HTTPException(409, "Media already exists for this type/key/step")
     prefix, _, name = key.rpartition("/")
     ext = mimetypes.guess_extension(files[0].content_type or "") or ".bin"
     if any((mimetypes.guess_extension(f.content_type or "") or ".bin") != ext for f in files[1:]):
         raise HTTPException(400, "All media files must use the same content type")
     storage_prefix = "/".join(["media", metadata.type, *([prefix] if prefix else []), name])
-    storage_prefix = f"{storage_prefix}_{metadata.step if metadata.step is not None else 'none'}"
+    storage_prefix = f"{storage_prefix}_{metadata.step}"
     for i, f in enumerate(files):
         async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
             while chunk := await f.read(262144):
                 yield chunk
         await storage_mod.storage.write_stream(f"{run.storage_key}/{storage_prefix}_{i}{ext}", _chunks())
-    return media_repo.create(
-        conn,
-        run_id=run_worker.run_id,
-        key=metadata.key,
-        step=metadata.step,
-        media_type=metadata.type,
-        storage_prefix=storage_prefix,
-        ext=ext,
-        count=len(files),
-        metadata=metadata.metadata,
-    )
+    with as_conflict(conn, "Media already exists for this type/key/step"):
+        return media_repo.create(
+            conn,
+            run_id=run_worker.run_id,
+            key=metadata.key,
+            step=metadata.step,
+            media_type=metadata.type,
+            storage_prefix=storage_prefix,
+            ext=ext,
+            count=len(files),
+            metadata=metadata.metadata,
+        )
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media")
