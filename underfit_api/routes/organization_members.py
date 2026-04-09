@@ -41,8 +41,7 @@ def add_or_update_member(
         organization_members_repo.update_member(conn, org.id, target.id, body.role)
     else:
         organization_members_repo.add_member(conn, org.id, target.id, body.role)
-    members = organization_members_repo.list_members(conn, org.id)
-    if not (member := next((m for m in members if m.handle == target.handle), None)):
+    if not (member := organization_members_repo.get_member(conn, org.id, target.id)):
         raise HTTPException(500, "Unable to load organization member")
     return member
 

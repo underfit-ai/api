@@ -2,11 +2,23 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, func, select
 
 from underfit_api.helpers import utcnow
 from underfit_api.models import OrganizationMember, UserMembership
 from underfit_api.schema import accounts, organization_members, organizations, users
+
+_join = organization_members.join(users, organization_members.c.user_id == users.c.id).join(
+    accounts, users.c.id == accounts.c.id,
+)
+_select = select(
+    users,
+    accounts.c.handle,
+    accounts.c.type,
+    organization_members.c.role,
+    organization_members.c.created_at.label("membership_created_at"),
+    organization_members.c.updated_at.label("membership_updated_at"),
+).select_from(_join)
 
 
 def add_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> None:
@@ -42,19 +54,15 @@ def is_member(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
 
 
 def list_members(conn: Connection, org_id: UUID) -> list[OrganizationMember]:
-    j = organization_members.join(users, organization_members.c.user_id == users.c.id).join(
-        accounts, users.c.id == accounts.c.id,
-    )
-    stmt = select(
-        users,
-        accounts.c.handle,
-        accounts.c.type,
-        organization_members.c.role,
-        organization_members.c.created_at.label("membership_created_at"),
-        organization_members.c.updated_at.label("membership_updated_at"),
-    ).select_from(j).where(organization_members.c.organization_id == org_id)
-    rows = conn.execute(stmt).all()
+    rows = conn.execute(_select.where(organization_members.c.organization_id == org_id)).all()
     return [OrganizationMember.model_validate(row) for row in rows]
+
+
+def get_member(conn: Connection, org_id: UUID, user_id: UUID) -> OrganizationMember | None:
+    row = conn.execute(
+        _select.where(organization_members.c.organization_id == org_id, organization_members.c.user_id == user_id),
+    ).first()
+    return OrganizationMember.model_validate(row) if row else None
 
 
 def update_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> None:
@@ -75,23 +83,28 @@ def remove_member(conn: Connection, org_id: UUID, user_id: UUID) -> None:
 
 
 def admin_count(conn: Connection, org_id: UUID) -> int:
-    rows = conn.execute(
-        organization_members.select().where(
+    return conn.execute(
+        select(func.count()).select_from(organization_members).where(
             organization_members.c.organization_id == org_id,
             organization_members.c.role == "ADMIN",
         ),
-    ).all()
-    return len(rows)
+    ).scalar_one()
 
 
 def is_sole_admin_anywhere(conn: Connection, user_id: UUID) -> bool:
-    admin_orgs = conn.execute(
-        organization_members.select().where(
+    admins = organization_members.alias()
+    join = organization_members.join(admins, admins.c.organization_id == organization_members.c.organization_id)
+    return conn.execute(
+        select(organization_members.c.organization_id)
+        .select_from(join)
+        .where(
             organization_members.c.user_id == user_id,
             organization_members.c.role == "ADMIN",
-        ),
-    ).all()
-    return any(admin_count(conn, row.organization_id) <= 1 for row in admin_orgs)
+            admins.c.role == "ADMIN",
+        )
+        .group_by(organization_members.c.organization_id)
+        .having(func.count(admins.c.id) <= 1),
+    ).first() is not None
 
 
 def list_user_memberships(conn: Connection, user_id: UUID) -> list[UserMembership]:

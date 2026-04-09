@@ -35,7 +35,7 @@ def _is_project_contributor(
         return True
     if account_type == "ORGANIZATION" and organization_members_repo.is_admin(conn, account_id, user_id):
         return True
-    return project_collaborators_repo.get(conn, project_id, user_id)
+    return project_collaborators_repo.get(conn, project_id, user_id) is not None
 
 
 def require_account_admin(conn: Connection, account_id: UUID, account_type: str, user_id: UUID) -> None:
