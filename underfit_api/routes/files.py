@@ -5,8 +5,9 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
+import underfit_api.db as db
 import underfit_api.storage as storage_mod
-from underfit_api.dependencies import Conn, MaybeUser
+from underfit_api.dependencies import AuthorizationHeader, Conn, MaybeUser, SessionTokenCookie, get_maybe_user
 from underfit_api.helpers import validate_path
 from underfit_api.routes.resolvers import resolve_run
 from underfit_api.storage import DirEntry
@@ -22,11 +23,7 @@ def _storage_key(storage_key: str, path: str | None = None) -> str:
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/files")
 def list_files(
-    handle: str,
-    project_name: str,
-    run_name: str,
-    conn: Conn,
-    user: MaybeUser,
+    handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser,
     path: Annotated[str | None, Query()] = None,
 ) -> list[dict[str, object]]:
     run = resolve_run(conn, handle, project_name, run_name, user)
@@ -39,17 +36,15 @@ def list_files(
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/files/download")
 def download_file(
-    handle: str,
-    project_name: str,
-    run_name: str,
-    conn: Conn,
-    user: MaybeUser,
-    path: Annotated[str, Query()],
+    handle: str, project_name: str, run_name: str, path: Annotated[str, Query()],
+    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
 ) -> Response:
     if not path:
         raise HTTPException(400, "Path is required")
-    run = resolve_run(conn, handle, project_name, run_name, user)
-    key = _storage_key(run.storage_key, path)
+    with db.engine.begin() as conn:
+        user = get_maybe_user(conn, authorization, session_token)
+        run = resolve_run(conn, handle, project_name, run_name, user)
+        key = _storage_key(run.storage_key, path)
     if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     filename = path.rsplit("/", 1)[-1]

@@ -9,8 +9,17 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
+import underfit_api.db as db
 import underfit_api.storage as storage_mod
-from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
+from underfit_api.dependencies import (
+    AuthorizationHeader,
+    Conn,
+    CurrentUser,
+    MaybeUser,
+    SessionTokenCookie,
+    get_current_user,
+    get_maybe_user,
+)
 from underfit_api.helpers import validate_path
 from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
@@ -151,12 +160,17 @@ def get_artifact(artifact_id: UUID, conn: Conn, user: MaybeUser) -> Artifact:
 
 
 @router.put("/artifacts/{artifact_id}/files/{file_path:path}")
-async def upload_file(artifact_id: UUID, file_path: str, request: Request, conn: Conn, user: CurrentUser) -> Artifact:
-    artifact = resolve_artifact(conn, artifact_id, user)
-    require_project_contributor(conn, artifact.project_id, user.id)
-    if artifact.finalized_at is not None:
-        raise HTTPException(409, "Artifact is finalized")
-    key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
+async def upload_file(
+    artifact_id: UUID, file_path: str, request: Request,
+    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
+) -> Artifact:
+    with db.engine.begin() as conn:
+        user = get_current_user(conn, authorization, session_token)
+        artifact = resolve_artifact(conn, artifact_id, user)
+        require_project_contributor(conn, artifact.project_id, user.id)
+        if artifact.finalized_at is not None:
+            raise HTTPException(409, "Artifact is finalized")
+        key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
     await storage_mod.storage.write_stream(key, request.stream())
     return artifact
 
@@ -177,9 +191,14 @@ def head_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) ->
 
 
 @router.get("/artifacts/{artifact_id}/files/{file_path:path}")
-def download_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) -> Response:
-    artifact = resolve_artifact(conn, artifact_id, user)
-    key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
+def download_file(
+    artifact_id: UUID, file_path: str,
+    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
+) -> Response:
+    with db.engine.begin() as conn:
+        user = get_maybe_user(conn, authorization, session_token)
+        artifact = resolve_artifact(conn, artifact_id, user)
+        key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
     if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")

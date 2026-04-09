@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import smtplib
 import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from email.message import EmailMessage
 
 from fastapi import HTTPException
 from sqlalchemy import Connection
 from sqlalchemy.exc import IntegrityError
+
+from underfit_api.config import EmailConfig
 
 MAX_PATH_BYTES = 1024
 MAX_PATH_SEGMENT_BYTES = 255
@@ -15,6 +19,21 @@ MAX_PATH_SEGMENT_BYTES = 255
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def send_email(cfg: EmailConfig, to: str, subject: str, body: str) -> None:
+    msg = EmailMessage()
+    msg["From"] = cfg.from_address
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    with smtplib.SMTP(cfg.smtp_host, cfg.smtp_port) as server:
+        if cfg.starttls:
+            server.starttls()
+        if cfg.smtp_user:
+            server.login(cfg.smtp_user, cfg.smtp_password)
+        server.send_message(msg)
 
 
 def validate_path(path: str) -> str:

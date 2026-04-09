@@ -11,8 +11,7 @@ from pydantic import AfterValidator, BaseModel, Field, ValidationError
 from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, create_signed_token, hash_password, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
-from underfit_api.email import send_email
-from underfit_api.helpers import as_conflict
+from underfit_api.helpers import as_conflict, send_email
 from underfit_api.models import AuthResponse, OkResponse, Session
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import sessions as sessions_repo
@@ -144,10 +143,7 @@ def reset_password(body: ResetPasswordBody, conn: Conn) -> OkResponse:
 
 @router.post("/logout")
 def logout(
-    response: Response,
-    request: Request,
-    conn: Conn,
-    session_token: SessionTokenCookie = None,
+    response: Response, request: Request, conn: Conn, session_token: SessionTokenCookie = None,
 ) -> OkResponse:
     if session_token:
         sessions_repo.delete_by_token(conn, session_token)

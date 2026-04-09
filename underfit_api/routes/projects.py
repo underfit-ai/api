@@ -11,8 +11,7 @@ import underfit_api.storage as storage_mod
 from underfit_api.auth import create_signed_token, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
-from underfit_api.email import send_email
-from underfit_api.helpers import as_conflict
+from underfit_api.helpers import as_conflict, send_email
 from underfit_api.models import OkResponse, Project, ProjectVisibility
 from underfit_api.permissions import require_account_admin
 from underfit_api.repositories import accounts as accounts_repo

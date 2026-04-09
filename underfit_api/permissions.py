@@ -46,11 +46,7 @@ def require_account_admin(conn: Connection, account_id: UUID, account_type: str,
     raise HTTPException(403, "Forbidden")
 
 
-def require_project_contributor(
-    conn: Connection,
-    project: Project | UUID,
-    user_id: UUID,
-) -> None:
+def require_project_contributor(conn: Connection, project: Project | UUID, user_id: UUID) -> None:
     project, account_id, account_type = _project_owner(conn, project)
     if _is_project_contributor(conn, project.id, account_id, account_type, user_id):
         return
