@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, ValidationError
 
 from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, create_signed_token, hash_password, verify_signed_token
 from underfit_api.config import config
@@ -77,6 +77,11 @@ class ResetPasswordBody(BaseModel):
     password: Password
 
 
+class ResetTokenPayload(BaseModel):
+    user_id: UUID
+    pw: str
+
+
 @router.post("/register")
 def register(body: RegisterBody, response: Response, request: Request, conn: Conn) -> AuthResponse:
     handle_lower = body.handle.lower()
@@ -124,14 +129,16 @@ def forgot_password(body: ForgotPasswordBody, conn: Conn) -> OkResponse:
 
 @router.post("/reset-password")
 def reset_password(body: ResetPasswordBody, conn: Conn) -> OkResponse:
-    payload = verify_signed_token(body.token)
-    if not payload:
+    if not (raw := verify_signed_token(body.token)):
         raise HTTPException(400, "Invalid or expired reset token")
-    user_id = UUID(payload["user_id"])
-    if user_auth_repo.get_password_hash_prefix(conn, user_id) != payload["pw"]:
+    try:
+        payload = ResetTokenPayload.model_validate(raw)
+    except ValidationError:
+        raise HTTPException(400, "Invalid or expired reset token") from None
+    if user_auth_repo.get_password_hash_prefix(conn, payload.user_id) != payload.pw:
         raise HTTPException(400, "Invalid or expired reset token")
     pw_hash, pw_salt = hash_password(body.password)
-    user_auth_repo.update_password(conn, user_id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
+    user_auth_repo.update_password(conn, payload.user_id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
     return OkResponse()
 
 
