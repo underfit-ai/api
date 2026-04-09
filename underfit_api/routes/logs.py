@@ -9,7 +9,7 @@ from pydantic.alias_generators import to_camel
 import underfit_api.storage as storage_mod
 from underfit_api.buffer import LogLine, log_buffer
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
-from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry, UTCDatetime
+from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -17,15 +17,10 @@ from underfit_api.routes.resolvers import resolve_run
 router = APIRouter()
 
 
-class LogLineInput(BaseModel):
-    timestamp: UTCDatetime
-    content: str
-
-
 class WriteLogsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     start_line: int
-    lines: list[LogLineInput]
+    lines: list[LogLine]
 
 
 @router.post("/ingest/logs")
@@ -38,8 +33,7 @@ def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> Buffer
         raise HTTPException(400, "Log lines must not contain newlines")
     if not body.lines:
         return BufferedResponse(next_start_line=body.start_line)
-    parsed = [LogLine(timestamp=ln.timestamp, content=ln.content) for ln in body.lines]
-    expected = log_buffer.append(conn, worker, body.start_line, parsed)
+    expected = log_buffer.append(conn, worker, body.start_line, body.lines)
     if expected is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
     log_buffer.flush_if_needed(conn, storage_mod.storage, worker)

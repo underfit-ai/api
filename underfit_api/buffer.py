@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import json
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Generic, NamedTuple, TypeVar
+from typing import Generic, TypeVar
 from uuid import UUID
 
+from pydantic import BaseModel
 from sqlalchemy import Connection
 
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
+from underfit_api.models import UTCDatetime
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
@@ -31,19 +32,15 @@ def get_scalar_resolutions() -> list[int]:
     return list(dict.fromkeys([1, *config.buffer.scalar_resolutions]))
 
 
-def get_aggregated_scalar_resolutions() -> list[int]:
-    return [resolution for resolution in get_scalar_resolutions() if resolution > 1]
-
-
-class LogLine(NamedTuple):
-    timestamp: datetime
+class LogLine(BaseModel):
+    timestamp: UTCDatetime
     content: str
 
 
-class ScalarPoint(NamedTuple):
-    step: int | None
+class ScalarPoint(BaseModel):
+    step: int | None = None
     values: dict[str, float]
-    timestamp: datetime
+    timestamp: UTCDatetime
 
 
 @dataclass
@@ -84,9 +81,7 @@ class LogBuffer:
     def get_end_line(self, conn: Connection, worker_id: UUID) -> int:
         with self._worker_lock(worker_id):
             buf = self._buffers.get(worker_id)
-            if buf and buf.lines:
-                return buf.end_line
-            return log_seg_repo.get_end_line(conn, worker_id)
+            return buf.end_line if buf and buf.lines else log_seg_repo.get_end_line(conn, worker_id)
 
     def append(self, conn: Connection, worker_id: UUID, start_line: int, lines: list[LogLine]) -> int | None:
         with self._worker_lock(worker_id):
@@ -165,8 +160,6 @@ class LogBuffer:
                 return []
             start = max(0, cursor - buf.start_line)
             end = min(len(buf.lines), cursor + count - buf.start_line)
-            if start >= end:
-                return []
             return buf.lines[start:end]
 
 
@@ -185,11 +178,8 @@ class ScalarBuffer:
 
     def get_end_line(self, conn: Connection, worker_id: UUID, resolution: int = 1) -> int:
         with self._worker_lock(worker_id):
-            k = (worker_id, resolution)
-            buf = self._buffers.get(k)
-            if buf and buf.lines:
-                return buf.end_line
-            return scalar_seg_repo.get_end_line(conn, worker_id, resolution)
+            buf = self._buffers.get((worker_id, resolution))
+            return buf.end_line if buf and buf.lines else scalar_seg_repo.get_end_line(conn, worker_id, resolution)
 
     def append(self, conn: Connection, worker_id: UUID, start_line: int, scalars: list[ScalarPoint]) -> int | None:
         with self._worker_lock(worker_id):
@@ -200,15 +190,14 @@ class ScalarBuffer:
                 buf = self._buffers.setdefault((worker_id, 1), _LineBuffer(start_line=start_line))
             for scalar in scalars:
                 buf.lines.append(scalar)
-                buf.byte_count += len(self._serialize_scalar(scalar).encode()) + 1
+                buf.byte_count += len(scalar.model_dump_json().encode()) + 1
                 self._feed_accumulators(conn, worker_id, scalar)
             return None
 
-    def _serialize_scalar(self, s: ScalarPoint) -> str:
-        return json.dumps({"step": s.step, "values": s.values, "timestamp": s.timestamp.isoformat() + "Z"})
-
     def _feed_accumulators(self, conn: Connection, worker_id: UUID, scalar: ScalarPoint) -> None:
-        for resolution in get_aggregated_scalar_resolutions():
+        for resolution in get_scalar_resolutions():
+            if resolution == 1:
+                continue
             k = (worker_id, resolution)
             acc = self._accumulators.setdefault(k, _Accumulator())
             for key, val in scalar.values.items():
@@ -228,7 +217,7 @@ class ScalarBuffer:
         start_line = scalar_seg_repo.get_end_line(conn, worker_id, resolution)
         buf = self._buffers.setdefault((worker_id, resolution), _LineBuffer(start_line=start_line))
         buf.lines.append(point)
-        buf.byte_count += len(self._serialize_scalar(point).encode()) + 1
+        buf.byte_count += len(point.model_dump_json().encode()) + 1
 
     def flush(self, conn: Connection, storage: Storage, worker_id: UUID, *, emit_partial: bool = True) -> None:
         with self._worker_lock(worker_id):
@@ -249,7 +238,7 @@ class ScalarBuffer:
             return
         if not (worker := workers_repo.get_by_id(conn, worker_id)):
             raise RuntimeError("Worker not found")
-        content = "".join(self._serialize_scalar(line) + "\n" for line in buf.lines)
+        content = "".join(line.model_dump_json() + "\n" for line in buf.lines)
         storage_key = _scalar_storage_key(worker.run_id, worker.worker_label, resolution, buf.start_line)
         storage.write(storage_key, content.encode())
         scalar_seg_repo.upsert(
@@ -307,9 +296,7 @@ class ScalarBuffer:
     def read_buffered(self, worker_id: UUID, resolution: int) -> list[ScalarPoint]:
         with self._worker_lock(worker_id):
             buf = self._buffers.get((worker_id, resolution))
-            if not buf or not buf.lines:
-                return []
-            return list(buf.lines)
+            return list(buf.lines) if buf and buf.lines else []
 
     def resolution_line_count(self, conn: Connection, worker_id: UUID, resolution: int) -> int:
         with self._worker_lock(worker_id):

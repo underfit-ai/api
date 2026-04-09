@@ -11,7 +11,7 @@ from pydantic.alias_generators import to_camel
 import underfit_api.storage as storage_mod
 from underfit_api.buffer import ScalarPoint, get_scalar_resolutions, scalar_buffer
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
-from underfit_api.models import BufferedResponse, Scalar, UTCDatetime, Worker
+from underfit_api.models import BufferedResponse, Scalar, Worker
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -19,16 +19,10 @@ from underfit_api.routes.resolvers import resolve_run
 router = APIRouter()
 
 
-class ScalarInput(BaseModel):
-    step: int | None = None
-    values: dict[str, float]
-    timestamp: UTCDatetime
-
-
 class WriteScalarsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     start_line: int
-    scalars: list[ScalarInput]
+    scalars: list[ScalarPoint]
 
 
 @router.post("/ingest/scalars")
@@ -39,8 +33,7 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> 
         raise HTTPException(400, "startLine must be >= 0")
     if not body.scalars:
         return BufferedResponse(next_start_line=body.start_line)
-    parsed = [ScalarPoint(step=s.step, values=s.values, timestamp=s.timestamp) for s in body.scalars]
-    if (expected := scalar_buffer.append(conn, worker, body.start_line, parsed)) is not None:
+    if (expected := scalar_buffer.append(conn, worker, body.start_line, body.scalars)) is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
     scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.scalars))
