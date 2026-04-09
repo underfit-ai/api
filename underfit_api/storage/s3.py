@@ -12,6 +12,8 @@ from botocore.exceptions import ClientError
 from underfit_api.config import S3StorageConfig
 from underfit_api.storage.types import DirEntry, FileStat
 
+MULTIPART_PART_SIZE = 8 * 1024 * 1024
+
 
 class S3Storage:
     def __init__(self, config: S3StorageConfig) -> None:
@@ -50,12 +52,45 @@ class S3Storage:
         self._client.put_object(Bucket=self._bucket, Key=self._key(key), Body=content)
 
     async def write_stream(self, key: str, stream: AsyncIterator[bytes]) -> int:
+        kwargs = {"Bucket": self._bucket, "Key": self._key(key)}
+        total = 0
         buf = bytearray()
-        async for chunk in stream:
-            if chunk:
+        upload_id: str | None = None
+        parts: list[dict[str, object]] = []
+        try:
+            async for chunk in stream:
+                if not chunk:
+                    continue
                 buf.extend(chunk)
-        await asyncio.to_thread(self._client.put_object, Bucket=self._bucket, Key=self._key(key), Body=bytes(buf))
-        return len(buf)
+                total += len(chunk)
+                if upload_id is None and len(buf) >= MULTIPART_PART_SIZE:
+                    upload_id = (await asyncio.to_thread(self._client.create_multipart_upload, **kwargs))["UploadId"]
+                while len(buf) >= MULTIPART_PART_SIZE and upload_id is not None:
+                    part_number = len(parts) + 1
+                    part = bytes(buf[:MULTIPART_PART_SIZE])
+                    resp = await asyncio.to_thread(
+                        self._client.upload_part, **kwargs, UploadId=upload_id, PartNumber=part_number, Body=part,
+                    )
+                    parts.append({"ETag": resp["ETag"], "PartNumber": len(parts) + 1})
+                    del buf[:MULTIPART_PART_SIZE]
+            if upload_id is None:
+                await asyncio.to_thread(self._client.put_object, **kwargs, Body=bytes(buf))
+                return total
+            if buf:
+                part_number = len(parts) + 1
+                resp = await asyncio.to_thread(
+                    self._client.upload_part, **kwargs, UploadId=upload_id, PartNumber=part_number, Body=bytes(buf),
+                )
+                parts.append({"ETag": resp["ETag"], "PartNumber": part_number})
+            await asyncio.to_thread(
+                self._client.complete_multipart_upload, **kwargs, UploadId=upload_id,
+                MultipartUpload={"Parts": parts},
+            )
+            return total
+        except Exception:
+            if upload_id is not None:
+                await asyncio.to_thread(self._client.abort_multipart_upload, **kwargs, UploadId=upload_id)
+            raise
 
     def read(self, key: str, byte_offset: int = 0, byte_count: int | None = None) -> bytes:
         kwargs: dict[str, object] = {"Bucket": self._bucket, "Key": self._key(key)}
