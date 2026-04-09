@@ -168,7 +168,7 @@ class BackfillService:
         now = utcnow()
         conn.execute(accounts.insert().values(id=uid, handle="local", type="USER"))
         conn.execute(users.insert().values(
-            id=uid, email="local@underfit.local", name="Local User", created_at=now, updated_at=now,
+            id=uid, email="local@underfit.local", name="Local User", bio="", created_at=now, updated_at=now,
         ))
         return uid
 

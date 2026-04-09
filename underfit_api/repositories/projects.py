@@ -96,13 +96,16 @@ def create(
 
 
 def update(
-    conn: Connection, project_id: UUID, description: str | None, visibility: str | None, metadata: dict[str, object],
+    conn: Connection, project_id: UUID, description: str | None, visibility: str | None,
+    metadata: dict[str, object] | None,
 ) -> Project | None:
-    values: dict[str, object] = {"updated_at": utcnow(), "metadata": metadata}
+    values: dict[str, object] = {"updated_at": utcnow()}
     if description is not None:
         values["description"] = description
     if visibility is not None:
         values["visibility"] = visibility
+    if metadata is not None:
+        values["metadata"] = metadata
     conn.execute(projects.update().where(projects.c.id == project_id).values(**values))
     return get_by_id(conn, project_id)
 

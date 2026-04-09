@@ -32,7 +32,7 @@ class LaunchBody(BaseModel):
 
 
 class UpdateRunBody(BaseModel):
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object] | None = None
 
 
 class UpdateTerminalStateBody(BaseModel):

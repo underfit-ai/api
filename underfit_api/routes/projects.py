@@ -34,7 +34,7 @@ class CreateProjectBody(BaseModel):
 
 class UpdateProjectBody(BaseModel):
     description: str | None = None
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object] | None = None
     visibility: ProjectVisibility | None = None
 
 

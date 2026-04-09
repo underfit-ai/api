@@ -35,6 +35,15 @@ def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
     assert (updated.json()["description"], updated.json()["visibility"]) == ("Updated", "public")
     assert updated.json()["metadata"] == {"charts": {"default": "accuracy"}}
 
+    preserved = client.put(f"{BASE}/underfit", headers=owner_headers, json={"description": "Retitled"})
+    assert preserved.status_code == 200
+    assert preserved.json()["description"] == "Retitled"
+    assert preserved.json()["metadata"] == {"charts": {"default": "accuracy"}}
+
+    cleared = client.put(f"{BASE}/underfit", headers=owner_headers, json={"metadata": {}})
+    assert cleared.status_code == 200
+    assert cleared.json()["metadata"] == {}
+
 
 def test_list_projects(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers,

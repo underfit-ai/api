@@ -44,6 +44,14 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert updated.json()["config"] == {"lr": 0.001}
     assert updated.json()["metadata"] == {"summary": {"loss": 0.25}}
 
+    preserved = client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={})
+    assert preserved.status_code == 200
+    assert preserved.json()["metadata"] == {"summary": {"loss": 0.25}}
+
+    cleared = client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"metadata": {}})
+    assert cleared.status_code == 200
+    assert cleared.json()["metadata"] == {}
+
     with db.engine.begin() as conn:
         conn.execute(run_workers.update().values(last_heartbeat=utcnow() - timedelta(seconds=16)))
     assert client.get(f"{RUNS}/{run['name']}", headers=owner_headers).json()["isActive"] is False

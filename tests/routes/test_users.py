@@ -41,6 +41,10 @@ def test_update_profile(client: TestClient, create_user: CreateUser, session_for
     assert response.status_code == 200
     assert (response.json()["name"], response.json()["bio"]) == ("Sam Tester", "Building models.")
 
+    preserved = client.patch("/api/v1/me", headers=headers, json={"name": "Sam Researcher"})
+    assert preserved.status_code == 200
+    assert (preserved.json()["name"], preserved.json()["bio"]) == ("Sam Researcher", "Building models.")
+
 
 def test_delete_account(
     client: TestClient, create_org: CreateOrg, create_org_member: CreateOrgMember,

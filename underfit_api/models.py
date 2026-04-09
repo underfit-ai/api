@@ -43,7 +43,7 @@ class User(_Base):
     type: str
     email: str
     name: str
-    bio: str | None
+    bio: str
     created_at: UTCDatetime
     updated_at: UTCDatetime
 

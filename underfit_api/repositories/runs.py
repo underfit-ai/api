@@ -98,8 +98,10 @@ def create(
     return result
 
 
-def update(conn: Connection, pk: UUID, metadata: dict[str, object]) -> Run | None:
-    values: dict[str, object] = {"updated_at": utcnow(), "metadata": metadata}
+def update(conn: Connection, pk: UUID, metadata: dict[str, object] | None) -> Run | None:
+    values: dict[str, object] = {"updated_at": utcnow()}
+    if metadata is not None:
+        values["metadata"] = metadata
     conn.execute(runs.update().where(runs.c.id == pk).values(**values))
     return get_by_id(conn, pk)
 

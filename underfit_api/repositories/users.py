@@ -32,7 +32,7 @@ def create(conn: Connection, email: str, handle: str, name: str) -> User:
     user_id = uuid4()
     now = utcnow()
     conn.execute(accounts.insert().values(id=user_id, handle=handle, type="USER"))
-    conn.execute(users.insert().values(id=user_id, email=email, name=name, created_at=now, updated_at=now))
+    conn.execute(users.insert().values(id=user_id, email=email, name=name, bio="", created_at=now, updated_at=now))
     result = get_by_id(conn, user_id)
     assert result is not None
     return result

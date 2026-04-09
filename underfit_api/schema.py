@@ -34,7 +34,7 @@ users = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("email", sa.Text, nullable=False, unique=True),
     sa.Column("name", sa.Text, nullable=False),
-    sa.Column("bio", sa.Text),
+    sa.Column("bio", sa.Text, nullable=False, server_default=""),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
 )
