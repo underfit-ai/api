@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Generic, TypeVar
@@ -65,23 +67,33 @@ class _Accumulator:
     last_timestamp: datetime | None = None
 
 
+@dataclass
+class _WorkerLockState:
+    lock: threading.RLock = field(default_factory=threading.RLock)
+    refs: int = 0
+
+
 # Locking invariant: self._dict_lock guards both the buffer dict and the per-worker lock dict.
 # Never hold it while acquiring a per-worker lock or doing IO — snapshot, release, then iterate.
 class _BaseBuffer(Generic[K, V]):
     def __init__(self) -> None:
         self._dict_lock = threading.Lock()
-        self._worker_locks: dict[UUID, threading.RLock] = {}
+        self._worker_locks: dict[UUID, _WorkerLockState] = {}
         self._buffers: dict[K, _LineBuffer[V]] = {}
 
     def _worker_id_of(self, key: K) -> UUID: raise NotImplementedError
     def flush(self, conn: Connection, storage: Storage, worker_id: UUID) -> None: raise NotImplementedError
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None: raise NotImplementedError
 
-    def _worker_lock(self, worker_id: UUID) -> threading.RLock:
+    @contextmanager
+    def _worker_lock(self, worker_id: UUID) -> Iterator[None]:
         with self._dict_lock:
-            if (lock := self._worker_locks.get(worker_id)) is None:
-                lock = self._worker_locks[worker_id] = threading.RLock()
-            return lock
+            state = self._worker_locks.setdefault(worker_id, _WorkerLockState())
+            state.refs += 1
+        with state.lock:
+            yield
+        with self._dict_lock:
+            state.refs -= 1
 
     def persist_due(self, conn: Connection, storage: Storage) -> None:
         cutoff = utcnow() - timedelta(milliseconds=config.buffer.persist_interval_ms)
@@ -102,10 +114,13 @@ class _BaseBuffer(Generic[K, V]):
             active = {self._worker_id_of(k) for k, b in self._buffers.items() if b.lines}
         for wid in workers_repo.get_inactive_ids(conn, active):
             self.flush(conn, storage, wid)
-        with self._dict_lock:
-            self._buffers = {k: b for k, b in self._buffers.items() if b.lines}
-            still_active = {self._worker_id_of(k) for k in self._buffers}
-            self._worker_locks = {k: v for k, v in self._worker_locks.items() if k in still_active}
+            with self._worker_lock(wid), self._dict_lock:
+                for k, b in list(self._buffers.items()):
+                    if self._worker_id_of(k) == wid and not b.lines:
+                        self._buffers.pop(k)
+                has_buffers = wid in {self._worker_id_of(k) for k in self._buffers}
+                if not has_buffers and (state := self._worker_locks.get(wid)) and state.refs == 1:
+                    self._worker_locks.pop(wid, None)
 
 
 class LogBuffer(_BaseBuffer[UUID, LogLine]):
@@ -219,7 +234,8 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
         averaged = {k: acc.sums[k] / acc.counts[k] for k in acc.sums}
         point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=acc.last_timestamp or utcnow())
         start_line = scalar_seg_repo.get_end_line(conn, worker_id, resolution)
-        buf = self._buffers.setdefault((worker_id, resolution), _LineBuffer(start_line=start_line))
+        with self._dict_lock:
+            buf = self._buffers.setdefault((worker_id, resolution), _LineBuffer(start_line=start_line))
         buf.lines.append(point)
         buf.byte_count += len(point.model_dump_json().encode()) + 1
 
