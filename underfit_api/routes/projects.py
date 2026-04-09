@@ -104,7 +104,7 @@ def delete_project(handle: str, project_name: str, conn: Conn, user: CurrentUser
         projects_repo.delete(write_conn, project.id)
     for storage_key in run_storage_keys:
         storage_mod.delete_prefix(storage_key)
-    storage_mod.delete_prefix(str(project.id))
+    storage_mod.delete_prefix(project.storage_key)
     return OkResponse()
 
 

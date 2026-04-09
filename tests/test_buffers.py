@@ -27,6 +27,15 @@ def _create_worker(worker_label: str = "0") -> UUID:
         return worker.id
 
 
+def _run_storage_key(worker_id: UUID) -> str:
+    with db.engine.begin() as conn:
+        worker = workers_repo.get_by_id(conn, worker_id)
+        assert worker is not None
+        run = runs_repo.get_by_id(conn, worker.run_id)
+        assert run is not None
+        return run.storage_key
+
+
 def test_log_buffer_slices_by_cursor() -> None:
     rwid = _create_worker("worker-1")
     buffer = LogBuffer()
@@ -67,8 +76,8 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
     assert (segments[0].start_line, segments[0].end_line, segments[1].start_line, segments[1].end_line) == (
         0, 1, 1, 2,
     )
-    assert storage.read(segments[0].storage_key).decode() == "first\n"
-    assert storage.read(segments[1].storage_key).decode() == "second\n"
+    assert storage.read(f"{_run_storage_key(rwid)}/{segments[0].storage_key}").decode() == "first\n"
+    assert storage.read(f"{_run_storage_key(rwid)}/{segments[1].storage_key}").decode() == "second\n"
 
 
 def test_log_buffer_persists_in_place_then_rotates_on_flush(tmp_path: Path) -> None:
@@ -85,7 +94,7 @@ def test_log_buffer_persists_in_place_then_rotates_on_flush(tmp_path: Path) -> N
         buffer.persist(conn, storage, rwid)
         rows = conn.execute(rows_query).all()
         assert len(rows) == 1 and rows[0].end_line == 2
-        assert storage.read(rows[0].storage_key).decode() == "a\nb\n"
+        assert storage.read(f"{_run_storage_key(rwid)}/{rows[0].storage_key}").decode() == "a\nb\n"
 
         buffer.flush(conn, storage, rwid)
         assert buffer.buffer_start_line(rwid) is None
@@ -109,7 +118,7 @@ def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
             buffer.flush_if_needed(conn, storage, rwid)
             segments = conn.execute(select(log_segments).where(log_segments.c.worker_id == rwid)).all()
         assert len(segments) == 1
-        assert storage.read(segments[0].storage_key).decode() == "abcd\n"
+        assert storage.read(f"{_run_storage_key(rwid)}/{segments[0].storage_key}").decode() == "abcd\n"
     finally:
         config.buffer.max_segment_bytes = original
 

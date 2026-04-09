@@ -6,7 +6,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Literal
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 _LOG = re.compile(r"^([^/]+)/logs/([^/]+)/segments/(\d+)\.log$")
 _SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 _ARTIFACT = re.compile(r"^([^/]+)/artifacts/([^/]+)/(manifest|artifact)\.json$")
-_MEDIA = re.compile(r"^([^/]+)/media/([^/]+)/\d+$")
+_MEDIA = re.compile(r"^([^/]+)/media/([^/]+)/(.+)_(none|-?\d+)_(\d+)(\.[^/]+)$")
 
 
 class RunMetadata(BaseModel):
@@ -181,7 +181,7 @@ class BackfillService:
         project_id = uuid4()
         now = utcnow()
         conn.execute(projects.insert().values(
-            id=project_id, account_id=account_id, name=name,
+            id=project_id, account_id=account_id, name=name, storage_key=str(project_id),
             metadata={}, visibility="private", created_at=now, updated_at=now,
         ))
         projects_repo.create_alias(conn, project_id, account_id, name)
@@ -206,13 +206,17 @@ class BackfillService:
         for key in sorted(run_keys):
             if m := _LOG.match(key):
                 rwid = self._ensure_worker(conn, run_id, m.group(2))
-                self._ingest_log_segment(conn, rwid, key, int(m.group(3)))
+                self._ingest_log_segment(conn, run_id, rwid, key[len(f"{run_id}/"):], int(m.group(3)))
             elif m := _SCALAR.match(key):
                 rwid = self._ensure_worker(conn, run_id, m.group(2))
-                self._ingest_scalar_segment(conn, rwid, key, int(m.group(3)), int(m.group(4)))
+                self._ingest_scalar_segment(
+                    conn, run_id, rwid, key[len(f"{run_id}/"):], int(m.group(3)), int(m.group(4)),
+                )
 
-    def _ingest_log_segment(self, conn: Connection, worker_id: UUID, storage_key: str, start_line: int) -> None:
-        lines = self._storage.read(storage_key).decode().splitlines()
+    def _ingest_log_segment(
+        self, conn: Connection, run_id: UUID, worker_id: UUID, storage_key: str, start_line: int,
+    ) -> None:
+        lines = self._storage.read(f"{run_id}/{storage_key}").decode().splitlines()
         if not lines:
             return
         now = utcnow()
@@ -228,12 +232,12 @@ class BackfillService:
         ))
 
     def _ingest_scalar_segment(
-        self, conn: Connection, worker_id: UUID, storage_key: str, resolution: int, start_line: int,
+        self, conn: Connection, run_id: UUID, worker_id: UUID, storage_key: str, resolution: int, start_line: int,
     ) -> None:
         count = 0
         start_at: datetime | None = None
         end_at: datetime | None = None
-        for raw_line in self._storage.read(storage_key).decode().splitlines():
+        for raw_line in self._storage.read(f"{run_id}/{storage_key}").decode().splitlines():
             if not raw_line:
                 continue
             try:
@@ -269,10 +273,13 @@ class BackfillService:
                     seen_artifacts.add(artifact_id)
                     self._ingest_artifact(conn, run_id, artifact_id)
             elif m := _MEDIA.match(key):
-                media_id = m.group(2)
-                if media_id not in seen_media:
-                    seen_media.add(media_id)
-                    self._ingest_media(conn, run_id, media_id)
+                storage_key = f"media/{m.group(2)}/{m.group(3)}_{m.group(4)}_%d{m.group(6)}"
+                if storage_key not in seen_media:
+                    seen_media.add(storage_key)
+                    self._ingest_media(
+                        conn, run_id, run_keys, storage_key, m.group(3),
+                        None if m.group(4) == "none" else int(m.group(4)), m.group(2),
+                    )
 
     def _ingest_artifact(self, conn: Connection, run_id: UUID, artifact_id_str: str) -> None:
         try:
@@ -282,12 +289,14 @@ class BackfillService:
         if not (run_row := conn.execute(runs.select().where(runs.c.id == run_id)).first()):
             return
         try:
-            manifest = json.loads(self._storage.read(f"{run_id}/artifacts/{artifact_id_str}/manifest.json"))
+            manifest = json.loads(
+                self._storage.read(f"{run_row.storage_key}/artifacts/{artifact_id_str}/manifest.json"),
+            )
         except (json.JSONDecodeError, FileNotFoundError):
             return
-        storage_prefix = f"{run_id}/artifacts/{artifact_id_str}"
+        storage_prefix = f"artifacts/{artifact_id_str}"
         metadata: dict[str, object] = {}
-        metadata_key = f"{storage_prefix}/artifact.json"
+        metadata_key = f"{run_row.storage_key}/{storage_prefix}/artifact.json"
         if self._storage.exists(metadata_key):
             try:
                 metadata = json.loads(self._storage.read(metadata_key))
@@ -308,7 +317,7 @@ class BackfillService:
                 updated_at=now,
                 metadata=metadata.get("metadata"),
             ))
-        files_dir = f"{storage_prefix}/files"
+        files_dir = f"{run_row.storage_key}/{storage_prefix}/files"
         uploaded_paths = {
             path[len(files_dir) + 1:]
             for path in self._storage.list_files(files_dir)
@@ -322,31 +331,18 @@ class BackfillService:
             updated_at=now,
         ))
 
-    def _ingest_media(self, conn: Connection, run_id: UUID, media_id_str: str) -> None:
-        try:
-            media_id = UUID(media_id_str)
-        except ValueError:
-            return
-        media_dir = f"{run_id}/media/{media_id_str}"
-        entries = self._storage.list_dir(media_dir)
-        file_count = sum(1 for entry in entries if not entry.is_directory and entry.name.isdigit())
+    def _ingest_media(
+        self, conn: Connection, run_id: UUID, run_keys: list[str], storage_key: str, key_name: str, step: int | None,
+        media_type: str,
+    ) -> None:
+        media_id = uuid5(run_id, storage_key)
+        prefix = f"{run_id}/{storage_key.split('%d', 1)[0]}"
+        file_count = sum(
+            1 for key in run_keys if key.startswith(prefix) and key.rsplit("_", 2)[-1].split(".", 1)[0].isdigit()
+        )
         if not file_count:
             return
         existing = conn.execute(media.select().where(media.c.id == media_id)).first()
-        key_name = media_id_str
-        step: int | None = None
-        media_type = "image"
-        meta: dict[str, object] | None = None
-        metadata_key = f"{media_dir}/media.json"
-        if self._storage.exists(metadata_key):
-            try:
-                sidecar = json.loads(self._storage.read(metadata_key))
-                key_name = sidecar.get("key", media_id_str)
-                step = sidecar.get("step")
-                media_type = sidecar.get("type", "image")
-                meta = sidecar.get("metadata")
-            except (json.JSONDecodeError, FileNotFoundError):
-                pass
         if existing is None:
             conn.execute(media.insert().values(
                 id=media_id,
@@ -354,9 +350,9 @@ class BackfillService:
                 key=key_name,
                 step=step,
                 type=media_type,
-                storage_key=media_dir,
+                storage_key=storage_key,
                 count=file_count,
-                metadata=meta,
+                metadata=None,
                 created_at=utcnow(),
             ))
         elif existing.count != file_count:

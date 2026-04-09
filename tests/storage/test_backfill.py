@@ -147,41 +147,28 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     service, storage = _service()
     run_id = uuid4()
     artifact_id = uuid4()
-    media_id = uuid4()
 
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial C"})
-    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {
-        "name": "dataset-v1",
-        "type": "dataset",
-        "step": 10,
-        "metadata": {"format": "parquet"},
-    })
     _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {"files": ["a.bin", "b.bin"]})
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/a.bin", "a")
-    _write_text(storage, f"{run_id}/media/{media_id}/0", "m0")
-    _write_text(storage, f"{run_id}/media/{media_id}/1", "m1")
-    _write_json(storage, f"{run_id}/media/{media_id}/media.json", {
-        "key": "samples",
-        "step": 7,
-        "type": "image",
-        "metadata": {"split": "val"},
-    })
+    _write_text(storage, f"{run_id}/media/image/samples_7_0.png", "m0")
+    _write_text(storage, f"{run_id}/media/image/samples_7_1.png", "m1")
     _scan(service, storage)
 
     with db.engine.begin() as conn:
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
-        media_row = conn.execute(select(media).where(media.c.id == media_id)).first()
+        media_row = conn.execute(select(media)).first()
     assert artifact_row is not None and media_row is not None
     assert artifact_row.finalized_at is None
     assert media_row.count == 2
 
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/b.bin", "b")
-    _write_text(storage, f"{run_id}/media/{media_id}/2", "m2")
+    _write_text(storage, f"{run_id}/media/image/samples_7_2.png", "m2")
     _scan(service, storage)
 
     with db.engine.begin() as conn:
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
-        media_row = conn.execute(select(media).where(media.c.id == media_id)).first()
+        media_row = conn.execute(select(media)).first()
     assert artifact_row is not None and media_row is not None
     assert artifact_row.finalized_at is not None and artifact_row.stored_size_bytes == 2
     assert media_row.count == 3

@@ -24,8 +24,8 @@ def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) 
     assert created.status_code == 200
     media = created.json()
     media_id = media["id"]
-    assert media["storageKey"] == f"{run['id']}/media/image/val/gen/results_200_%d.png"
-    assert storage_mod.storage.exists(media["storageKey"] % 0)
+    assert media["storageKey"] == "media/image/val/gen/results_200_%d.png"
+    assert storage_mod.storage.exists(f"{run['id']}/{media['storageKey'] % 0}")
 
     listed = client.get(media_url, headers=owner_headers, params={"key": "val/gen/results", "step": 200})
     assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [media_id]

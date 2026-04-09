@@ -14,6 +14,7 @@ _columns = [
     projects.c.id,
     accounts.c.handle.label("owner"),
     projects.c.name,
+    projects.c.storage_key,
     projects.c.description,
     projects.c.metadata,
     projects.c.visibility,
@@ -89,7 +90,7 @@ def create(
     project_id = uuid4()
     now = utcnow()
     conn.execute(projects.insert().values(
-        id=project_id, account_id=account_id, name=name, description=description,
+        id=project_id, account_id=account_id, name=name, storage_key=str(project_id), description=description,
         metadata=metadata, visibility=visibility, created_at=now, updated_at=now,
     ))
     result = get_by_id(conn, project_id)

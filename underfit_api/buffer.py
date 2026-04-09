@@ -16,6 +16,7 @@ from underfit_api.helpers import utcnow
 from underfit_api.models import UTCDatetime
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
+from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.storage import Storage
 
@@ -23,12 +24,12 @@ K = TypeVar("K")
 V = TypeVar("V")
 
 
-def _log_storage_key(run_id: UUID, worker_label: str, start_line: int) -> str:
-    return f"{run_id}/logs/{worker_label}/segments/{start_line}.log"
+def _log_storage_key(worker_label: str, start_line: int) -> str:
+    return f"logs/{worker_label}/segments/{start_line}.log"
 
 
-def _scalar_storage_key(run_id: UUID, worker_label: str, resolution: int, start_line: int) -> str:
-    return f"{run_id}/scalars/{worker_label}/r{resolution}/{start_line}.jsonl"
+def _scalar_storage_key(worker_label: str, resolution: int, start_line: int) -> str:
+    return f"scalars/{worker_label}/r{resolution}/{start_line}.jsonl"
 
 
 def get_scalar_resolutions() -> list[int]:
@@ -151,9 +152,11 @@ class LogBuffer(_BaseBuffer[UUID, LogLine]):
                 return
             if not (worker := workers_repo.get_by_id(conn, worker_id)):
                 raise RuntimeError("Worker not found")
+            run = runs_repo.get_by_id(conn, worker.run_id)
+            assert run is not None
             content = "".join(f"{line.content}\n" for line in buf.lines)
-            storage_key = _log_storage_key(worker.run_id, worker.worker_label, buf.start_line)
-            storage.write(storage_key, content.encode())
+            storage_key = _log_storage_key(worker.worker_label, buf.start_line)
+            storage.write(f"{run.storage_key}/{storage_key}", content.encode())
             log_seg_repo.upsert(
                 conn, worker_id,
                 start_line=buf.start_line, end_line=buf.end_line,
@@ -257,9 +260,11 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
             return
         if not (worker := workers_repo.get_by_id(conn, worker_id)):
             raise RuntimeError("Worker not found")
+        run = runs_repo.get_by_id(conn, worker.run_id)
+        assert run is not None
         content = "".join(line.model_dump_json() + "\n" for line in buf.lines)
-        storage_key = _scalar_storage_key(worker.run_id, worker.worker_label, resolution, buf.start_line)
-        storage.write(storage_key, content.encode())
+        storage_key = _scalar_storage_key(worker.worker_label, resolution, buf.start_line)
+        storage.write(f"{run.storage_key}/{storage_key}", content.encode())
         scalar_seg_repo.upsert(
             conn, worker_id, resolution,
             start_line=buf.start_line, end_line=buf.end_line,

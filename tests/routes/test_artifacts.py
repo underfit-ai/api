@@ -17,7 +17,7 @@ RUN_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/runs/test-run/artifact
 
 
 def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    create_run(handle="owner", user_handle="owner", project_name="underfit", name="test-run")
+    run = create_run(handle="owner", user_handle="owner", project_name="underfit", name="test-run")
     payload_1 = {"step": 3, "name": "artifact", "type": "dataset"}
     assert client.post(PROJECT_ARTIFACTS, headers=owner_headers, json=payload_1).status_code == 400
 
@@ -26,8 +26,8 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
     assert created.status_code == 200
     artifact = created.json()
     assert artifact["storedSizeBytes"] is None
-    assert not storage_mod.storage.exists(f"{artifact['storageKey']}/manifest.json")
-    assert not storage_mod.storage.exists(f"{artifact['storageKey']}/artifact.json")
+    assert not storage_mod.storage.exists(f"{run.storage_key}/{artifact['storageKey']}/manifest.json")
+    assert not storage_mod.storage.exists(f"{run.storage_key}/{artifact['storageKey']}/artifact.json")
 
     file_base = f"/api/v1/artifacts/{artifact['id']}/files"
 
@@ -64,7 +64,7 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
     artifact = client.get(f"/api/v1/artifacts/{artifact['id']}", headers=owner_headers).json()
     assert artifact["storedSizeBytes"] == 9
 
-    manifest = json.loads(storage_mod.storage.read(f"{artifact['storageKey']}/manifest.json"))
+    manifest = json.loads(storage_mod.storage.read(f"{run.storage_key}/{artifact['storageKey']}/manifest.json"))
     assert manifest == {
         "files": ["weights.bin", "dir/config.json"],
         "references": [

@@ -89,6 +89,7 @@ class Project(_Base):
     id: UUID
     owner: str
     name: str
+    storage_key: str = Field(exclude=True)
     description: str | None
     metadata: dict[str, object] = Field(default_factory=dict)
     visibility: ProjectVisibility

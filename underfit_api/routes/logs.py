@@ -60,7 +60,7 @@ def read_logs(
     if buf_start is not None:
         segments = [s for s in segments if s.start_line < buf_start]
     for seg in segments:
-        data = storage_mod.storage.read(seg.storage_key)
+        data = storage_mod.storage.read(f"{run.storage_key}/{seg.storage_key}")
         all_lines = data.decode().splitlines()
         seg_start = max(cursor, seg.start_line)
         seg_end = min(cursor + count, seg.end_line)

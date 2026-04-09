@@ -13,6 +13,7 @@ from underfit_api.buffer import ScalarPoint, get_scalar_resolutions, scalar_buff
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, Scalar, Worker
 from underfit_api.repositories import run_workers as workers_repo
+from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
 
@@ -74,9 +75,11 @@ def _read_resolution(conn: Conn, worker: Worker, resolution: int) -> list[Scalar
     segments = scalar_seg_repo.list_by_resolution(conn, worker.id, resolution)
     if buf_start is not None:
         segments = [s for s in segments if s.start_line < buf_start]
+    run = runs_repo.get_by_id(conn, worker.run_id)
+    assert run is not None
     scalars: list[Scalar] = []
     for seg in segments:
-        data = storage_mod.storage.read(seg.storage_key)
+        data = storage_mod.storage.read(f"{run.storage_key}/{seg.storage_key}")
         for line in data.decode().splitlines():
             if line:
                 parsed = json.loads(line)

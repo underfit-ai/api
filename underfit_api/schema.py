@@ -107,6 +107,7 @@ projects = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
     sa.Column("name", sa.String(NAME_LENGTH), nullable=False),
+    sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("description", sa.Text),
     sa.Column("metadata", sa.JSON, nullable=False),
     sa.Column("visibility", sa.Text, nullable=False),
