@@ -57,4 +57,4 @@ lint.ignore = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--basetemp=/tmp/underfit-pytest"
+addopts = "--basetemp=/tmp/underfit-pytest --disable-plugin-autoload"

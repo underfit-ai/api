@@ -8,8 +8,6 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
-from pytest_mysql import factories as mysql_factories
-from pytest_postgresql import factories as postgresql_factories
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
@@ -48,11 +46,6 @@ TEST_DATABASE_ENV = "UNDERFIT_TEST_DATABASES"
 TEST_DATABASE_NAME = "underfit"
 SUPPORTED_DATABASES = ("sqlite", "postgresql", "mysql")
 
-_underfit_postgresql_proc = postgresql_factories.postgresql_proc(dbname=TEST_DATABASE_NAME, port=15432)
-_underfit_postgresql = postgresql_factories.postgresql("_underfit_postgresql_proc", dbname=TEST_DATABASE_NAME)
-_underfit_mysql_proc = mysql_factories.mysql_proc(port=13306)
-_underfit_mysql = mysql_factories.mysql("_underfit_mysql_proc", dbname=TEST_DATABASE_NAME, passwd="")
-
 
 def _selected_db_backends() -> list[str]:
     value = os.environ.get(TEST_DATABASE_ENV, '')
@@ -67,7 +60,24 @@ def _selected_db_backends() -> list[str]:
     return list(dict.fromkeys(requested))
 
 
-@pytest.fixture(params=_selected_db_backends(), ids=_selected_db_backends())
+SELECTED_DB_BACKENDS = _selected_db_backends()
+pytest_plugins = (
+    *(["pytest_postgresql.plugin"] if "postgresql" in SELECTED_DB_BACKENDS else []),
+    *(["pytest_mysql.plugin"] if "mysql" in SELECTED_DB_BACKENDS else []),
+)
+
+if "postgresql" in SELECTED_DB_BACKENDS:
+    from pytest_postgresql import factories as postgresql_factories
+    _underfit_postgresql_proc = postgresql_factories.postgresql_proc(dbname=TEST_DATABASE_NAME, port=15432)
+    _underfit_postgresql = postgresql_factories.postgresql("_underfit_postgresql_proc", dbname=TEST_DATABASE_NAME)
+
+if "mysql" in SELECTED_DB_BACKENDS:
+    from pytest_mysql import factories as mysql_factories
+    _underfit_mysql_proc = mysql_factories.mysql_proc(port=13306)
+    _underfit_mysql = mysql_factories.mysql("_underfit_mysql_proc", dbname=TEST_DATABASE_NAME, passwd="")
+
+
+@pytest.fixture(params=SELECTED_DB_BACKENDS, ids=SELECTED_DB_BACKENDS)
 def db_backend(request: pytest.FixtureRequest) -> str:
     return request.param
 
