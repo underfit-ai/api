@@ -7,10 +7,17 @@ from fastapi.responses import Response, StreamingResponse
 
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, MaybeUser
+from underfit_api.helpers import validate_path
 from underfit_api.routes.resolvers import resolve_run
 from underfit_api.storage import DirEntry
 
 router = APIRouter()
+
+
+def _storage_key(storage_key: str, path: str | None = None) -> str:
+    if not path:
+        return storage_key
+    return f"{storage_key}/{validate_path(path)}"
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/files")
@@ -23,10 +30,7 @@ def list_files(
     path: Annotated[str | None, Query()] = None,
 ) -> list[dict[str, object]]:
     run = resolve_run(conn, handle, project_name, run_name, user)
-    prefix = run.storage_key
-    if path:
-        prefix = f"{prefix}/{path}"
-    entries: list[DirEntry] = storage_mod.storage.list_dir(prefix)
+    entries: list[DirEntry] = storage_mod.storage.list_dir(_storage_key(run.storage_key, path))
     return [
         {"name": e.name, "isDirectory": e.is_directory, "size": e.size, "lastModified": e.last_modified}
         for e in entries
@@ -45,7 +49,7 @@ def download_file(
     if not path:
         raise HTTPException(400, "Path is required")
     run = resolve_run(conn, handle, project_name, run_name, user)
-    key = f"{run.storage_key}/{path}"
+    key = _storage_key(run.storage_key, path)
     if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     filename = path.rsplit("/", 1)[-1]

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 import underfit_api.storage as storage_mod
 from tests.conftest import AddCollaborator, CreateRun, Headers
-from underfit_api.routes.artifacts import _validate_path
+from underfit_api.helpers import validate_path
 
 PROJECT_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/artifacts"
 RUN_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/runs/test-run/artifacts"
@@ -170,7 +170,7 @@ def test_artifact_zip_browse(client: TestClient, owner_headers: Headers, create_
 ])
 def test_validate_artifact_path(path: str, normalized: str | None) -> None:
     if normalized:
-        assert _validate_path(path) == normalized
+        assert validate_path(path) == normalized
     else:
         with pytest.raises(HTTPException):
-            _validate_path(path)
+            validate_path(path)

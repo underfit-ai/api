@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import unicodedata
 from uuid import UUID, uuid4
 from zipfile import BadZipFile, ZipFile
 
@@ -12,6 +11,7 @@ from pydantic.alias_generators import to_camel
 
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
+from underfit_api.helpers import validate_path
 from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import artifacts as artifacts_repo
@@ -20,8 +20,6 @@ from underfit_api.routes.resolvers import resolve_artifact, resolve_project, res
 router = APIRouter()
 
 MAX_JSON_BYTES = 65536
-MAX_PATH_BYTES = 1024
-MAX_PATH_SEGMENT_BYTES = 255
 
 
 class ManifestReference(BaseModel):
@@ -84,29 +82,13 @@ class _ZipStorageFile:
 
 def _open_zip(artifact_id: UUID, zip_path: str, conn: Conn, user: MaybeUser) -> ZipFile:
     artifact = resolve_artifact(conn, artifact_id, user)
-    key = f"{artifact.storage_key}/files/{_validate_path(zip_path)}"
+    key = f"{artifact.storage_key}/files/{validate_path(zip_path)}"
     if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     try:
         return ZipFile(_ZipStorageFile(key))
     except BadZipFile as e:
         raise HTTPException(400, "Not a zip file") from e
-
-
-def _validate_path(path: str) -> str:
-    path = unicodedata.normalize("NFC", path)
-    if not path or path.startswith("/"):
-        raise HTTPException(400, "Invalid path")
-    if any(ch == "\\" or (ch.isspace() and ch != " ") or unicodedata.category(ch).startswith("C") for ch in path):
-        raise HTTPException(400, "Invalid path")
-    if len(path.encode()) > MAX_PATH_BYTES:
-        raise HTTPException(400, "Invalid path: too long")
-    for segment in path.split("/"):
-        if not segment or segment in (".", "..") or segment != segment.strip(" ") or segment.endswith("."):
-            raise HTTPException(400, "Invalid path segment")
-        if len(segment.encode()) > MAX_PATH_SEGMENT_BYTES:
-            raise HTTPException(400, "Invalid path: segment too long")
-    return path
 
 
 def _create_artifact(
@@ -158,7 +140,7 @@ async def upload_file(artifact_id: UUID, file_path: str, request: Request, conn:
     require_project_contributor(conn, artifact.project_id, user.id)
     if artifact.finalized_at is not None:
         raise HTTPException(409, "Artifact is finalized")
-    key = f"{artifact.storage_key}/files/{_validate_path(file_path)}"
+    key = f"{artifact.storage_key}/files/{validate_path(file_path)}"
     await storage_mod.storage.write_stream(key, request.stream())
     return artifact
 
@@ -167,7 +149,7 @@ async def upload_file(artifact_id: UUID, file_path: str, request: Request, conn:
 def head_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) -> Response:
     artifact = resolve_artifact(conn, artifact_id, user)
     try:
-        stat = storage_mod.storage.stat(f"{artifact.storage_key}/files/{_validate_path(file_path)}")
+        stat = storage_mod.storage.stat(f"{artifact.storage_key}/files/{validate_path(file_path)}")
     except FileNotFoundError as e:
         raise HTTPException(404, "File not found") from e
     headers = {"Content-Length": str(stat.size)}
@@ -181,7 +163,7 @@ def head_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) ->
 @router.get("/artifacts/{artifact_id}/files/{file_path:path}")
 def download_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) -> Response:
     artifact = resolve_artifact(conn, artifact_id, user)
-    key = f"{artifact.storage_key}/files/{_validate_path(file_path)}"
+    key = f"{artifact.storage_key}/files/{validate_path(file_path)}"
     if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")
@@ -194,7 +176,7 @@ def delete_file(artifact_id: UUID, file_path: str, conn: Conn, user: CurrentUser
     if artifact.finalized_at is not None:
         raise HTTPException(409, "Artifact is finalized")
     try:
-        storage_mod.storage.delete(f"{artifact.storage_key}/files/{_validate_path(file_path)}")
+        storage_mod.storage.delete(f"{artifact.storage_key}/files/{validate_path(file_path)}")
     except FileNotFoundError as e:
         raise HTTPException(404, "File not found") from e
     return artifact
@@ -224,7 +206,7 @@ def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, conn: Conn,
     require_project_contributor(conn, artifact.project_id, user.id)
     if artifact.finalized_at is not None:
         raise HTTPException(409, "Already finalized")
-    files = list(dict.fromkeys(_validate_path(f) for f in body.manifest.files))
+    files = list(dict.fromkeys(validate_path(f) for f in body.manifest.files))
     refs = list({ref.url: ref for ref in body.manifest.references}.values())
     declared_paths = set(files)
     files_prefix = f"{artifact.storage_key}/files"
