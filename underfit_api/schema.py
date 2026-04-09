@@ -2,12 +2,20 @@ import sqlalchemy as sa
 
 metadata = sa.MetaData()
 
+HANDLE_LENGTH = 255
+EMAIL_LENGTH = 320
+NAME_LENGTH = 255
+TOKEN_PREFIX_LENGTH = 8
+TOKEN_HASH_LENGTH = 64
+LAUNCH_ID_LENGTH = 255
+WORKER_LABEL_LENGTH = 255
+
 accounts = sa.Table(
     "accounts",
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("handle", sa.Text, nullable=False, unique=True),
-    sa.Column("type", sa.Text, nullable=False, server_default="USER"),
+    sa.Column("handle", sa.String(HANDLE_LENGTH), nullable=False, unique=True),
+    sa.Column("type", sa.Text, nullable=False),
 )
 
 account_aliases = sa.Table(
@@ -15,7 +23,7 @@ account_aliases = sa.Table(
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("handle", sa.Text, nullable=False, unique=True),
+    sa.Column("handle", sa.String(HANDLE_LENGTH), nullable=False, unique=True),
     sa.Column("created_at", sa.DateTime, nullable=False),
 )
 
@@ -32,9 +40,9 @@ users = sa.Table(
     "users",
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("email", sa.Text, nullable=False, unique=True),
+    sa.Column("email", sa.String(EMAIL_LENGTH), nullable=False, unique=True),
     sa.Column("name", sa.Text, nullable=False),
-    sa.Column("bio", sa.Text, nullable=False, server_default=""),
+    sa.Column("bio", sa.Text, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
 )
@@ -56,7 +64,7 @@ sessions = sa.Table(
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("user_id", sa.Uuid, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("token_hash", sa.Text, nullable=False, unique=True),
+    sa.Column("token_hash", sa.String(TOKEN_HASH_LENGTH), nullable=False, unique=True),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("expires_at", sa.DateTime, nullable=False),
 )
@@ -67,8 +75,8 @@ api_keys = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("user_id", sa.Uuid, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
     sa.Column("label", sa.Text),
-    sa.Column("token_prefix", sa.Text, nullable=False),
-    sa.Column("token_hash", sa.Text, nullable=False, unique=True),
+    sa.Column("token_prefix", sa.String(TOKEN_PREFIX_LENGTH), nullable=False),
+    sa.Column("token_hash", sa.String(TOKEN_HASH_LENGTH), nullable=False, unique=True),
     sa.Column("created_at", sa.DateTime, nullable=False),
 )
 
@@ -98,10 +106,10 @@ projects = sa.Table(
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("name", sa.String(NAME_LENGTH), nullable=False),
     sa.Column("description", sa.Text),
     sa.Column("metadata", sa.JSON, nullable=False),
-    sa.Column("visibility", sa.Text, nullable=False, server_default="private"),
+    sa.Column("visibility", sa.Text, nullable=False),
     sa.Column("pending_transfer_to", sa.Uuid, sa.ForeignKey("accounts.id"), nullable=True),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
@@ -115,7 +123,7 @@ project_aliases = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("project_id", sa.Uuid, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
     sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("name", sa.String(NAME_LENGTH), nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("account_id", "name"),
 )
@@ -137,8 +145,8 @@ runs = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("project_id", sa.Uuid, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
     sa.Column("user_id", sa.Uuid, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("launch_id", sa.Text, nullable=False),
-    sa.Column("name", sa.Text, nullable=False),
+    sa.Column("launch_id", sa.String(LAUNCH_ID_LENGTH), nullable=False),
+    sa.Column("name", sa.String(NAME_LENGTH), nullable=False),
     sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("terminal_state", sa.Text),
     sa.Column("config", sa.JSON),
@@ -156,7 +164,7 @@ run_workers = sa.Table(
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("run_id", sa.Uuid, sa.ForeignKey("runs.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("worker_label", sa.Text, nullable=False),
+    sa.Column("worker_label", sa.String(WORKER_LABEL_LENGTH), nullable=False),
     sa.Column("last_heartbeat", sa.DateTime, nullable=False),
     sa.Column("joined_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("run_id", "worker_label"),

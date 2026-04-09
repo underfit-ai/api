@@ -99,10 +99,18 @@ def test_backfill_ingests_segment_files() -> None:
         assert len(conn.execute(select(projects)).all()) == 1
         project_row = conn.execute(select(projects)).first()
         alias_row = conn.execute(select(project_aliases)).first()
-        run_row = conn.execute(select(runs)).first()
-        log_row = conn.execute(select(log_segments)).first()
-        scalar_row = conn.execute(select(scalar_segments)).first()
-        worker_row = conn.execute(select(run_workers)).first()
+        run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
+        log_worker_row = conn.execute(select(run_workers).where(
+            run_workers.c.run_id == run_id, run_workers.c.worker_label == "worker-1",
+        )).first()
+        scalar_worker_row = conn.execute(select(run_workers).where(
+            run_workers.c.run_id == run_id, run_workers.c.worker_label == "0",
+        )).first()
+        assert log_worker_row is not None and scalar_worker_row is not None
+        log_row = conn.execute(select(log_segments).where(log_segments.c.worker_id == log_worker_row.id)).first()
+        scalar_row = conn.execute(select(scalar_segments).where(
+            scalar_segments.c.worker_id == scalar_worker_row.id,
+        )).first()
 
     assert project_row is not None and project_row.name == "vision"
     assert alias_row is not None and alias_row.name == "vision"
@@ -110,7 +118,8 @@ def test_backfill_ingests_segment_files() -> None:
     assert run_row.id == run_id and run_row.name == "trial a" and run_row.storage_key == str(run_id)
     assert run_row.terminal_state is None and run_row.config == {"lr": 0.01, "seed": 7}
     assert run_row.metadata == {"summary": {"loss": 0.6}}
-    assert worker_row is not None and worker_row.worker_label == "worker-1"
+    assert log_worker_row.worker_label == "worker-1"
+    assert scalar_worker_row.worker_label == "0"
     assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
     assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (1, 0, 2)
     assert scalar_row.end_at.isoformat() == "2025-01-01T00:00:01"

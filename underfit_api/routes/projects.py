@@ -129,8 +129,7 @@ def initiate_transfer(
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
 
-    recipient = users_repo.get_by_email(conn, body.email)
-    if not recipient:
+    if not (recipient := users_repo.get_by_email(conn, body.email)):
         raise HTTPException(404, "No user found with that email")
     if recipient.id == account.id:
         raise HTTPException(400, "Cannot transfer a project to its current owner")
@@ -165,8 +164,7 @@ def cancel_transfer(handle: str, project_name: str, conn: Conn, user: CurrentUse
 
 @router.post("/transfer")
 def accept_transfer(body: AcceptTransferBody, conn: Conn, user: CurrentUser) -> Project:
-    raw = verify_signed_token(body.token)
-    if not raw:
+    if not (raw := verify_signed_token(body.token)):
         raise HTTPException(400, "Invalid or expired transfer token")
     try:
         payload = TransferTokenPayload.model_validate(raw)
@@ -175,9 +173,7 @@ def accept_transfer(body: AcceptTransferBody, conn: Conn, user: CurrentUser) -> 
 
     if user.id != payload.to_account_id:
         raise HTTPException(403, "This transfer is not addressed to you")
-
-    project = projects_repo.get_by_id(conn, payload.project_id)
-    if not project:
+    if not (project := projects_repo.get_by_id(conn, payload.project_id)):
         raise HTTPException(404, "Project not found")
     if project.pending_transfer_to != payload.to_account_id:
         raise HTTPException(400, "Transfer has been cancelled")

@@ -23,7 +23,7 @@ class PostgresqlDatabaseConfig(BaseModel):
     host: str = "localhost"
     port: int = 5432
     user: str = ""
-    password: str = ""
+    password: str | None = None
     database: str = "underfit"
 
 
@@ -34,11 +34,6 @@ class MysqlDatabaseConfig(BaseModel):
     user: str = ""
     password: str = ""
     database: str = "underfit"
-
-
-DatabaseConfig = Annotated[
-    Union[SqliteDatabaseConfig, PostgresqlDatabaseConfig, MysqlDatabaseConfig], Field(discriminator="type"),
-]
 
 
 class FileStorageConfig(BaseModel):
@@ -52,9 +47,6 @@ class S3StorageConfig(BaseModel):
     prefix: str = ""
     region: str = ""
     endpoint_url: str = ""
-
-
-StorageConfig = Annotated[Union[FileStorageConfig, S3StorageConfig], Field(discriminator="type")]
 
 
 class BackfillConfig(BaseModel):
@@ -86,6 +78,12 @@ class EmailConfig(BaseModel):
     smtp_password: str = ""
     from_address: str = "noreply@underfit.local"
     starttls: bool = True
+
+
+DatabaseConfig = Annotated[
+    Union[SqliteDatabaseConfig, PostgresqlDatabaseConfig, MysqlDatabaseConfig], Field(discriminator="type"),
+]
+StorageConfig = Annotated[Union[FileStorageConfig, S3StorageConfig], Field(discriminator="type")]
 
 
 class Config(BaseModel):
