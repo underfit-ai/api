@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import threading
-import weakref
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Generic, NamedTuple, TypeVar
@@ -68,38 +67,33 @@ class _Accumulator:
     last_timestamp: datetime | None = None
 
 
-class _WorkerLocks:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._locks: weakref.WeakValueDictionary[object, threading.RLock] = weakref.WeakValueDictionary()
-
-    def __getitem__(self, key: object) -> threading.RLock:
-        with self._lock:
-            if not (lock := self._locks.get(key)):
-                lock = threading.RLock()
-                self._locks[key] = lock
-            return lock
-
-
+# Locking invariant: self._dict_lock guards both the buffer dict and the per-worker lock dict.
+# Never hold it while acquiring a per-worker lock or doing IO — snapshot, release, then iterate.
 class LogBuffer:
     def __init__(self) -> None:
-        self._lock = threading.RLock()
-        self._locks = _WorkerLocks()
+        self._dict_lock = threading.Lock()
+        self._worker_locks: dict[UUID, threading.RLock] = {}
         self._buffers: dict[UUID, _LineBuffer[LogLine]] = {}
 
+    def _worker_lock(self, worker_id: UUID) -> threading.RLock:
+        with self._dict_lock:
+            if (lock := self._worker_locks.get(worker_id)) is None:
+                lock = self._worker_locks[worker_id] = threading.RLock()
+            return lock
+
     def get_end_line(self, conn: Connection, worker_id: UUID) -> int:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             buf = self._buffers.get(worker_id)
             if buf and buf.lines:
                 return buf.end_line
             return log_seg_repo.get_end_line(conn, worker_id)
 
     def append(self, conn: Connection, worker_id: UUID, start_line: int, lines: list[LogLine]) -> int | None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             expected = self.get_end_line(conn, worker_id)
             if start_line != expected:
                 return expected
-            with self._lock:
+            with self._dict_lock:
                 buf = self._buffers.setdefault(worker_id, _LineBuffer(start_line=start_line))
             for line in lines:
                 buf.lines.append(line)
@@ -107,7 +101,7 @@ class LogBuffer:
             return None
 
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID, *, clear: bool = False) -> None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             buf = self._buffers.get(worker_id)
             if not buf or not buf.lines:
                 return
@@ -133,37 +127,39 @@ class LogBuffer:
 
     def persist_due(self, conn: Connection, storage: Storage) -> None:
         cutoff = utcnow() - timedelta(milliseconds=config.buffer.persist_interval_ms)
-        with self._lock:
+        with self._dict_lock:
             ids = [w for w, b in self._buffers.items() if b.lines and b.last_persisted_at < cutoff]
         for wid in ids:
             self.persist(conn, storage, wid)
 
     def buffer_start_line(self, worker_id: UUID) -> int | None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             buf = self._buffers.get(worker_id)
             return buf.start_line if buf and buf.lines else None
 
     def flush_if_needed(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             buf = self._buffers.get(worker_id)
             if buf and buf.byte_count >= config.buffer.max_segment_bytes:
                 self.flush(conn, storage, worker_id)
 
     def flush_all(self, conn: Connection, storage: Storage) -> None:
-        with self._lock:
-            for rwid, buf in list(self._buffers.items()):
-                if buf.lines:
-                    self.flush(conn, storage, rwid)
+        with self._dict_lock:
+            ids = [w for w, b in self._buffers.items() if b.lines]
+        for wid in ids:
+            self.flush(conn, storage, wid)
 
     def flush_inactive(self, conn: Connection, storage: Storage) -> None:
-        with self._lock:
+        with self._dict_lock:
             worker_ids = {k for k, b in self._buffers.items() if b.lines}
-            for rwid in workers_repo.get_inactive_ids(conn, worker_ids):
-                self.flush(conn, storage, rwid)
+        for rwid in workers_repo.get_inactive_ids(conn, worker_ids):
+            self.flush(conn, storage, rwid)
+        with self._dict_lock:
             self._buffers = {k: b for k, b in self._buffers.items() if b.lines}
+            self._worker_locks = {k: v for k, v in self._worker_locks.items() if k in self._buffers}
 
     def read_buffered(self, worker_id: UUID, cursor: int, count: int) -> list[LogLine]:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             buf = self._buffers.get(worker_id)
             if not buf or not buf.lines:
                 return []
@@ -176,13 +172,19 @@ class LogBuffer:
 
 class ScalarBuffer:
     def __init__(self) -> None:
-        self._lock = threading.RLock()
-        self._locks = _WorkerLocks()
+        self._dict_lock = threading.Lock()
+        self._worker_locks: dict[UUID, threading.RLock] = {}
         self._buffers: dict[tuple[UUID, int], _LineBuffer[ScalarPoint]] = {}
         self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
 
+    def _worker_lock(self, worker_id: UUID) -> threading.RLock:
+        with self._dict_lock:
+            if (lock := self._worker_locks.get(worker_id)) is None:
+                lock = self._worker_locks[worker_id] = threading.RLock()
+            return lock
+
     def get_end_line(self, conn: Connection, worker_id: UUID, resolution: int = 1) -> int:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             k = (worker_id, resolution)
             buf = self._buffers.get(k)
             if buf and buf.lines:
@@ -190,11 +192,11 @@ class ScalarBuffer:
             return scalar_seg_repo.get_end_line(conn, worker_id, resolution)
 
     def append(self, conn: Connection, worker_id: UUID, start_line: int, scalars: list[ScalarPoint]) -> int | None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             expected = self.get_end_line(conn, worker_id, 1)
             if start_line != expected:
                 return expected
-            with self._lock:
+            with self._dict_lock:
                 buf = self._buffers.setdefault((worker_id, 1), _LineBuffer(start_line=start_line))
             for scalar in scalars:
                 buf.lines.append(scalar)
@@ -229,7 +231,7 @@ class ScalarBuffer:
         buf.byte_count += len(self._serialize_scalar(point).encode()) + 1
 
     def flush(self, conn: Connection, storage: Storage, worker_id: UUID, *, emit_partial: bool = True) -> None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             resolutions = get_scalar_resolutions()
             if emit_partial:
                 for (rwid, resolution), acc in list(self._accumulators.items()):
@@ -263,51 +265,54 @@ class ScalarBuffer:
             buf.byte_count = 0
 
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             for resolution in get_scalar_resolutions():
                 self._persist_resolution(conn, storage, worker_id, resolution)
 
     def persist_due(self, conn: Connection, storage: Storage) -> None:
         cutoff = utcnow() - timedelta(milliseconds=config.buffer.persist_interval_ms)
-        with self._lock:
+        with self._dict_lock:
             ids = {rwid for (rwid, _r), b in self._buffers.items() if b.lines and b.last_persisted_at < cutoff}
         for wid in ids:
             self.persist(conn, storage, wid)
 
     def buffer_start_line(self, worker_id: UUID, resolution: int) -> int | None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             buf = self._buffers.get((worker_id, resolution))
             return buf.start_line if buf and buf.lines else None
 
     def flush_if_needed(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             buf = self._buffers.get((worker_id, 1))
             if buf and buf.byte_count >= config.buffer.max_segment_bytes:
                 self.flush(conn, storage, worker_id, emit_partial=False)
 
     def flush_all(self, conn: Connection, storage: Storage) -> None:
-        with self._lock:
-            rwids = {rwid for (rwid, _res), buf in self._buffers.items() if buf.lines}
-            for rwid in rwids:
-                self.flush(conn, storage, rwid)
+        with self._dict_lock:
+            ids = {rwid for (rwid, _res), buf in self._buffers.items() if buf.lines}
+        for wid in ids:
+            self.flush(conn, storage, wid)
 
     def flush_inactive(self, conn: Connection, storage: Storage) -> None:
-        with self._lock:
+        with self._dict_lock:
             worker_ids = {rwid for (rwid, _res), buf in self._buffers.items() if buf.lines}
-            for rwid in workers_repo.get_inactive_ids(conn, worker_ids):
-                self.flush(conn, storage, rwid)
+        for rwid in workers_repo.get_inactive_ids(conn, worker_ids):
+            self.flush(conn, storage, rwid)
+        with self._dict_lock:
             self._buffers = {k: b for k, b in self._buffers.items() if b.lines}
             self._accumulators = {k: a for k, a in self._accumulators.items() if a.n > 0}
+            active = {wid for (wid, _) in self._buffers}
+            self._worker_locks = {k: v for k, v in self._worker_locks.items() if k in active}
 
     def read_buffered(self, worker_id: UUID, resolution: int) -> list[ScalarPoint]:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             buf = self._buffers.get((worker_id, resolution))
             if not buf or not buf.lines:
                 return []
             return list(buf.lines)
 
     def resolution_line_count(self, conn: Connection, worker_id: UUID, resolution: int) -> int:
-        with self._locks[worker_id]:
+        with self._worker_lock(worker_id):
             end = self.get_end_line(conn, worker_id, resolution)
             if buf := self._buffers.get((worker_id, resolution)):
                 end = max(end, buf.end_line)
