@@ -61,8 +61,11 @@ def read_scalars(
 
 def _select_resolution(conn: Conn, worker: Worker, max_points: int) -> int:
     for resolution in reversed(get_scalar_resolutions()):
-        if scalar_buffer.resolution_line_count(conn, worker.id, resolution) >= max_points:
+        if 0 < scalar_buffer.resolution_line_count(conn, worker.id, resolution) <= max_points:
             return resolution
+    for resolution in reversed(get_scalar_resolutions()):
+        if scalar_buffer.resolution_line_count(conn, worker.id, resolution) > 0:
+            return resolution  # Intentionally prefer full data at the coarsest available resolution.
     return 1
 
 

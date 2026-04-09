@@ -26,9 +26,10 @@ def test_write_and_read_scalars_with_auto_resolution(client: TestClient, owner_h
     assert full.status_code == 200
     assert len(full.json()) == 20
 
-    reduced = client.get(scalars_url, headers=owner_headers, params={"maxPoints": 2})
+    reduced = client.get(scalars_url, headers=owner_headers, params={"maxPoints": 5})
     assert reduced.status_code == 200
     assert len(reduced.json()) == 2
+    assert len(client.get(scalars_url, headers=owner_headers, params={"maxPoints": 1}).json()) == 2
 
 
 def test_scalars_validate_cursor_inputs(client: TestClient, owner_headers: Headers) -> None:
