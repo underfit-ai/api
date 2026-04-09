@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from collections.abc import AsyncIterator
 from typing import Annotated
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Json
 
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
+from underfit_api.helpers import validate_path
 from underfit_api.models import Media, MediaType
 from underfit_api.repositories import media as media_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -42,13 +44,18 @@ async def create_media(conn: Conn, worker: CurrentWorker, metadata: MediaMetadat
         raise HTTPException(400, "No files provided")
     if metadata.metadata is not None and len(json.dumps(metadata.metadata)) > MAX_JSON_BYTES:
         raise HTTPException(400, "Metadata too large")
-    media_id = uuid4()
-    storage_key = f"{run_worker.run_id}/media/{media_id}"
+    key = validate_path(metadata.key)
+    prefix, _, name = key.rpartition("/")
+    ext = mimetypes.guess_extension(files[0].content_type or "") or ".bin"
+    if any((mimetypes.guess_extension(f.content_type or "") or ".bin") != ext for f in files[1:]):
+        raise HTTPException(400, "All media files must use the same content type")
+    storage_key = "/".join([str(run_worker.run_id), "media", metadata.type, *([prefix] if prefix else []), name])
+    storage_key = f"{storage_key}_{metadata.step if metadata.step is not None else 'none'}_%d{ext}"
     for i, f in enumerate(files):
         async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
             while chunk := await f.read(262144):
                 yield chunk
-        await storage_mod.storage.write_stream(f"{storage_key}/{i}", _chunks())
+        await storage_mod.storage.write_stream(storage_key % i, _chunks())
     return media_repo.create(
         conn,
         run_id=run_worker.run_id,
@@ -81,7 +88,7 @@ def get_media_file(
         raise HTTPException(404, "Media not found")
     if index < 0 or index >= record.count:
         raise HTTPException(400, "Index out of range")
-    key = f"{record.storage_key}/{index}"
-    if not storage_mod.storage.exists(key):
+    key = record.storage_key % index if "%d" in record.storage_key else f"{record.storage_key}/{index}"
+    if not key or not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")
