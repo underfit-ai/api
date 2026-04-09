@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import cast
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ import underfit_api.storage as storage_mod
 from tests.conftest import AddCollaborator, CreateOrg, CreateOrgMember, CreateProject, Headers
 from underfit_api.auth import verify_signed_token
 from underfit_api.helpers import utcnow
+from underfit_api.repositories import runs as runs_repo
 from underfit_api.schema import run_workers
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
@@ -130,11 +132,20 @@ def test_launch_access_controls(
 def test_delete_run(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
     add_collaborator: AddCollaborator, create_org: CreateOrg, create_org_member: CreateOrgMember,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     create_project(handle="owner", name="underfit")
     add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
     run = client.post(LAUNCH, headers=outsider_headers, json={"runName": "mine", "launchId": "mine"}).json()
     storage_mod.storage.write(f"{run['id']}/logs/1.txt", b"log")
+    delete_prefix = storage_mod.delete_prefix
+
+    def _delete_prefix(prefix: str) -> None:
+        with db.engine.begin() as conn:
+            assert runs_repo.get_by_id(conn, UUID(cast(str, run["id"]))) is None
+        delete_prefix(prefix)
+
+    monkeypatch.setattr(storage_mod, "delete_prefix", _delete_prefix)
     assert client.delete(f"{RUNS}/{run['name']}", headers=outsider_headers).status_code == 200
     assert not storage_mod.storage.exists(f"{run['id']}/logs/1.txt")
 

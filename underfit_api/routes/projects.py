@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
+import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.auth import create_signed_token, verify_signed_token
 from underfit_api.config import config
@@ -98,10 +99,12 @@ def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn
 def delete_project(handle: str, project_name: str, conn: Conn, user: CurrentUser) -> OkResponse:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
-    for run in runs_repo.list_by_project(conn, project.id):
-        storage_mod.delete_prefix(run.storage_key)
+    run_storage_keys = [run.storage_key for run in runs_repo.list_by_project(conn, project.id)]
+    with db.engine.begin() as write_conn:
+        projects_repo.delete(write_conn, project.id)
+    for storage_key in run_storage_keys:
+        storage_mod.delete_prefix(storage_key)
     storage_mod.delete_prefix(str(project.id))
-    projects_repo.delete(conn, project.id)
     return OkResponse()
 
 

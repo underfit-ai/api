@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentUser, CurrentWorker, MaybeUser
@@ -112,8 +113,9 @@ def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, user: 
     if run.user != user.handle:
         assert (owner_account := accounts_repo.get_by_handle(conn, run.project_owner)) is not None
         require_account_admin(conn, owner_account.id, owner_account.type, user.id)
+    with db.engine.begin() as write_conn:
+        runs_repo.delete(write_conn, run.id)
     storage_mod.delete_prefix(run.storage_key)
-    runs_repo.delete(conn, run.id)
     return OkResponse()
 
 

@@ -6,8 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
 
+import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from tests.conftest import CreateOrg, CreateOrgMember, CreateProject, CreateUser, Headers
+from underfit_api.repositories import projects as projects_repo
 
 BASE = "/api/v1/accounts/owner/projects"
 
@@ -175,7 +177,7 @@ def test_rename_project_conflicts(client: TestClient, owner_headers: Headers, cr
 
 def test_delete_project(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
-    create_org: CreateOrg, create_org_member: CreateOrgMember,
+    create_org: CreateOrg, create_org_member: CreateOrgMember, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = create_project(handle="owner", name="underfit")
     run = client.post("/api/v1/accounts/owner/projects/underfit/runs/launch", headers=owner_headers, json={
@@ -183,6 +185,14 @@ def test_delete_project(
     }).json()
     storage_mod.storage.write(f"{project.id}/artifacts/project.txt", b"project")
     storage_mod.storage.write(f"{run['id']}/files/run.txt", b"run")
+    delete_prefix = storage_mod.delete_prefix
+
+    def _delete_prefix(prefix: str) -> None:
+        with db.engine.begin() as conn:
+            assert projects_repo.get_by_id(conn, project.id) is None
+        delete_prefix(prefix)
+
+    monkeypatch.setattr(storage_mod, "delete_prefix", _delete_prefix)
     assert client.delete(f"{BASE}/underfit", headers=outsider_headers).status_code == 403
     assert client.delete(f"{BASE}/underfit", headers=owner_headers).status_code == 200
     assert not storage_mod.storage.exists(f"{project.id}/artifacts/project.txt")
