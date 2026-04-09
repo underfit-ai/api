@@ -10,7 +10,7 @@ from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentUser, CurrentWorker, MaybeUser
 from underfit_api.helpers import as_conflict
 from underfit_api.models import Run, RunTerminalState
-from underfit_api.permissions import can_view_project, require_project_contributor
+from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
@@ -54,8 +54,7 @@ def _launch_response(conn: Conn, run: Run, worker_id: object) -> Run:
 def list_user_runs(handle: str, conn: Conn, user: MaybeUser) -> list[Run]:
     if not (target := users_repo.get_by_handle(conn, handle)):
         raise HTTPException(404, "User not found")
-    runs = runs_repo.list_by_user(conn, target.id)
-    return [r for r in runs if can_view_project(conn, r.project_id, user.id if user else None)]
+    return runs_repo.list_visible_by_user(conn, target.id, user.id if user else None)
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs")

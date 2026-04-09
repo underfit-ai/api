@@ -23,14 +23,14 @@ _columns = [
 ]
 
 
-def _is_collaborator(user_id: UUID) -> sa.Exists:
+def is_collaborator(user_id: UUID) -> sa.Exists:
     return sa.exists(sa.select(1).where(
         project_collaborators.c.project_id == projects.c.id,
         project_collaborators.c.user_id == user_id,
     ))
 
 
-def _is_org_admin(user_id: UUID) -> sa.Exists:
+def is_org_admin(user_id: UUID) -> sa.Exists:
     return sa.exists(sa.select(1).where(
         organization_members.c.organization_id == projects.c.account_id,
         organization_members.c.user_id == user_id,
@@ -57,8 +57,8 @@ def list_visible_by_account(conn: Connection, account_id: UUID, viewer_id: UUID 
     if viewer_id is not None:
         visibility_filters.extend([
             projects.c.account_id == viewer_id,
-            _is_collaborator(viewer_id),
-            _is_org_admin(viewer_id),
+            is_collaborator(viewer_id),
+            is_org_admin(viewer_id),
         ])
     rows = conn.execute(
         sa.select(*_columns).select_from(_join)
@@ -73,7 +73,7 @@ def list_related_to_user(conn: Connection, user_id: UUID) -> list[Project]:
     j = _join.outerjoin(runs, (runs.c.project_id == projects.c.id) & (runs.c.user_id == user_id))
     rows = conn.execute(
         sa.select(*_columns, run_count).select_from(j)
-        .where(sa.or_(projects.c.account_id == user_id, _is_collaborator(user_id), _is_org_admin(user_id)))
+        .where(sa.or_(projects.c.account_id == user_id, is_collaborator(user_id), is_org_admin(user_id)))
         .group_by(projects.c.id)
         .order_by(run_count.desc(), projects.c.updated_at.desc()),
     ).all()

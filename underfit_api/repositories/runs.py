@@ -9,6 +9,7 @@ from sqlalchemy import Connection
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
 from underfit_api.models import Run
+from underfit_api.repositories.projects import is_collaborator, is_org_admin
 from underfit_api.schema import accounts, projects, run_workers, runs
 
 _join = runs.join(projects, runs.c.project_id == projects.c.id).join(accounts, projects.c.account_id == accounts.c.id)
@@ -67,8 +68,17 @@ def list_by_project(conn: Connection, project_id: UUID) -> list[Run]:
     return [Run.model_validate(row) for row in rows]
 
 
-def list_by_user(conn: Connection, user_id: UUID) -> list[Run]:
-    rows = conn.execute(_query().where(runs.c.user_id == user_id).order_by(runs.c.created_at.desc())).all()
+def list_visible_by_user(conn: Connection, user_id: UUID, viewer_id: UUID | None) -> list[Run]:
+    visibility_filters: list[sa.ColumnElement[bool]] = [projects.c.visibility == "public"]
+    if viewer_id is not None:
+        visibility_filters.extend([
+            projects.c.account_id == viewer_id,
+            is_collaborator(viewer_id),
+            is_org_admin(viewer_id),
+        ])
+    rows = conn.execute(
+        _query().where(runs.c.user_id == user_id, sa.or_(*visibility_filters)).order_by(runs.c.created_at.desc()),
+    ).all()
     return [Run.model_validate(row) for row in rows]
 
 
