@@ -14,6 +14,11 @@ def build_storage() -> Storage:
     raise ValueError(f"Unsupported storage type: {config.storage.type}")
 
 
+def delete_prefix(prefix: str) -> None:
+    for key in storage.list_files(prefix):
+        storage.delete(key)
+
+
 storage = build_storage()
 
-__all__ = ["DirEntry", "FileStat", "Storage", "build_storage", "storage"]
+__all__ = ["DirEntry", "FileStat", "Storage", "build_storage", "delete_prefix", "storage"]

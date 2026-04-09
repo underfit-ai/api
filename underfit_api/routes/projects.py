@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
+import underfit_api.storage as storage_mod
 from underfit_api.auth import create_signed_token, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
@@ -16,6 +17,7 @@ from underfit_api.permissions import require_account_admin
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
 from underfit_api.repositories import projects as projects_repo
+from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
 
@@ -90,6 +92,17 @@ def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn
     if not (updated := projects_repo.update(conn, project.id, body.description, body.visibility, body.metadata)):
         raise HTTPException(404, "Project not found")
     return updated
+
+
+@router.delete("/accounts/{handle}/projects/{project_name}")
+def delete_project(handle: str, project_name: str, conn: Conn, user: CurrentUser) -> OkResponse:
+    account, project = resolve_account_and_project(conn, handle, project_name, user)
+    require_account_admin(conn, account.id, account.type, user.id)
+    for run in runs_repo.list_by_project(conn, project.id):
+        storage_mod.delete_prefix(run.storage_key)
+    storage_mod.delete_prefix(str(project.id))
+    projects_repo.delete(conn, project.id)
+    return OkResponse()
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/rename")

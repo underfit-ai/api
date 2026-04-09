@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import underfit_api.db as db
-from tests.conftest import AddCollaborator, CreateProject, Headers
+import underfit_api.storage as storage_mod
+from tests.conftest import AddCollaborator, CreateOrg, CreateOrgMember, CreateProject, Headers
 from underfit_api.auth import verify_signed_token
 from underfit_api.helpers import utcnow
 from underfit_api.schema import run_workers
@@ -125,3 +126,28 @@ def test_launch_access_controls(
     assert client.post(LAUNCH, headers=outsider_headers, json=body).status_code == 403
     add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
     assert client.post(LAUNCH, headers=outsider_headers, json=body).status_code == 200
+
+
+def test_delete_run(
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
+    add_collaborator: AddCollaborator, create_org: CreateOrg, create_org_member: CreateOrgMember,
+) -> None:
+    create_project(handle="owner", name="underfit")
+    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
+    run = client.post(LAUNCH, headers=outsider_headers, json={"runName": "mine", "launchId": "mine"}).json()
+    storage_mod.storage.write(f"{run['id']}/logs/1.txt", b"log")
+    assert client.delete(f"{RUNS}/{run['name']}", headers=outsider_headers).status_code == 200
+    assert not storage_mod.storage.exists(f"{run['id']}/logs/1.txt")
+
+    org = create_org(owner_headers)
+    admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
+    create_project(handle="core", name="secret")
+    org_run = client.post("/api/v1/accounts/core/projects/secret/runs/launch", headers=owner_headers, json={
+        "runName": "org-run", "launchId": "org-run",
+    }).json()
+    storage_mod.storage.write(f"{org_run['id']}/media/0", b"media")
+    assert client.delete(
+        "/api/v1/accounts/core/projects/secret/runs/org-run", headers=outsider_headers,
+    ).status_code == 403
+    assert client.delete("/api/v1/accounts/core/projects/secret/runs/org-run", headers=admin_headers).status_code == 200
+    assert not storage_mod.storage.exists(f"{org_run['id']}/media/0")

@@ -6,15 +6,17 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+import underfit_api.storage as storage_mod
 from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentUser, CurrentWorker, MaybeUser
 from underfit_api.helpers import as_conflict
-from underfit_api.models import Run, RunTerminalState
-from underfit_api.permissions import require_project_contributor
+from underfit_api.models import OkResponse, Run, RunTerminalState
+from underfit_api.permissions import require_account_admin, require_project_contributor
+from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
-from underfit_api.routes.resolvers import resolve_project, resolve_run
+from underfit_api.routes.resolvers import resolve_account_and_project_path, resolve_project, resolve_run
 
 router = APIRouter()
 
@@ -100,6 +102,19 @@ def update_run(
     if not (updated := runs_repo.update(conn, run.id, body.metadata)):
         raise HTTPException(404, "Run not found")
     return updated
+
+
+@router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
+def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, user: CurrentUser) -> OkResponse:
+    _, project = resolve_account_and_project_path(conn, handle, project_name)
+    if not (run := runs_repo.get_by_project_and_name(conn, project.id, run_name)):
+        raise HTTPException(404, "Run not found")
+    if run.user != user.handle:
+        assert (owner_account := accounts_repo.get_by_handle(conn, run.project_owner)) is not None
+        require_account_admin(conn, owner_account.id, owner_account.type, user.id)
+    storage_mod.delete_prefix(run.storage_key)
+    runs_repo.delete(conn, run.id)
+    return OkResponse()
 
 
 @router.put("/runs/terminal-state")

@@ -109,3 +109,7 @@ def update(conn: Connection, pk: UUID, metadata: dict[str, object] | None) -> Ru
 def update_terminal_state(conn: Connection, pk: UUID, terminal_state: str) -> Run | None:
     conn.execute(runs.update().where(runs.c.id == pk).values(terminal_state=terminal_state, updated_at=utcnow()))
     return get_by_id(conn, pk)
+
+
+def delete(conn: Connection, pk: UUID) -> None:
+    conn.execute(runs.delete().where(runs.c.id == pk))

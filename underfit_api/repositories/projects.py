@@ -144,3 +144,7 @@ def get_alias_by_account_and_name(conn: Connection, account_id: UUID, name: str)
             project_aliases.c.account_id == account_id, project_aliases.c.name == name.lower(),
         ),
     ).first()
+
+
+def delete(conn: Connection, project_id: UUID) -> None:
+    conn.execute(projects.delete().where(projects.c.id == project_id))

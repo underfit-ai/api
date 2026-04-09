@@ -45,9 +45,7 @@ def resolve_organization(conn: Conn, handle: str) -> Organization:
     return account
 
 
-def resolve_account_and_project(
-    conn: Conn, handle: str, project_name: str, user: User | None = None,
-) -> tuple[Account, Project]:
+def resolve_account_and_project_path(conn: Conn, handle: str, project_name: str) -> tuple[Account, Project]:
     account = resolve_account(conn, handle)
     alias = projects_repo.get_alias_by_account_and_name(conn, account.id, project_name)
     if not alias:
@@ -59,6 +57,13 @@ def resolve_account_and_project(
         raise AliasRedirectError("/projects", project_name.lower(), project.name)
     if handle.lower() != project.owner:
         raise AliasRedirectError("/accounts", handle.lower(), project.owner)
+    return account, project
+
+
+def resolve_account_and_project(
+    conn: Conn, handle: str, project_name: str, user: User | None = None,
+) -> tuple[Account, Project]:
+    account, project = resolve_account_and_project_path(conn, handle, project_name)
     require_project_viewer(conn, project, user.id if user else None)
     return account, project
 
