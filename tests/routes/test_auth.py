@@ -70,16 +70,18 @@ def test_session_cookie_secure_flag(
     assert ("Secure" in response.headers["set-cookie"]) is expect_secure
 
 
-def test_auth_modes(client: TestClient, create_user: CreateUser, session_for_user: SessionForUser) -> None:
-    assert client.get("/api/v1/me").status_code == 401
+def test_auth_modes(create_user: CreateUser, session_for_user: SessionForUser) -> None:
+    with TestClient(app) as client:
+        assert client.get("/api/v1/me").status_code == 401
 
-    user = create_user(email="cookie@example.com", handle="cookie", name="Cookie")
-    cookie_headers = session_for_user(user)
-    token = client.post("/api/v1/me/api-keys", headers=cookie_headers, json={"label": "test"}).json()["token"]
-    current = client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
-    assert current.status_code == 200 and current.json()["handle"] == "cookie"
+        user = create_user(email="cookie@example.com", handle="cookie", name="Cookie")
+        cookie_headers = session_for_user(user)
+        token = client.post("/api/v1/me/api-keys", headers=cookie_headers, json={"label": "test"}).json()["token"]
+        current = client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+        assert current.status_code == 200 and current.json()["handle"] == "cookie"
 
     config.auth_enabled = False
-    current = client.get("/api/v1/me")
+    with TestClient(app) as client:
+        current = client.get("/api/v1/me")
     assert current.status_code == 200
     assert (current.json()["handle"], current.json()["email"]) == ("local", "local@underfit.local")

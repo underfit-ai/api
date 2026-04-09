@@ -20,6 +20,8 @@ from underfit_api.auth import get_app_secret
 from underfit_api.buffer import log_buffer, scalar_buffer
 from underfit_api.config import config
 from underfit_api.models import HealthResponse
+from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.repositories import users as users_repo
 from underfit_api.routes.account_avatars import router as account_avatars_router
 from underfit_api.routes.accounts import router as accounts_router
 from underfit_api.routes.api_keys import router as api_keys_router
@@ -72,6 +74,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     backfill: BackfillService | None = None
     if config.auth_enabled:
         get_app_secret()
+    else:
+        with db.engine.begin() as conn:
+            if not users_repo.get_by_email(conn, "local@underfit.local"):
+                user = users_repo.create(conn, "local@underfit.local", "local", "Local User")
+                accounts_repo.create_alias(conn, user.id, "local")
     if config.backfill.enabled:
         backfill = BackfillService(storage_mod.storage, db.engine, config.backfill)
         await backfill.start()
