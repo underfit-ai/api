@@ -61,7 +61,10 @@ def read_logs(
     if not (worker := workers_repo.get(conn, run.id, worker_label)):
         raise HTTPException(404, "Worker not found")
     entries: list[LogEntry] = []
+    buf_start = log_buffer.buffer_start_line(worker.id)
     segments = log_seg_repo.list_for_range(conn, worker.id, cursor, count)
+    if buf_start is not None:
+        segments = [s for s in segments if s.start_line < buf_start]
     for seg in segments:
         data = storage_mod.storage.read(seg.storage_key)
         all_lines = data.decode().splitlines()

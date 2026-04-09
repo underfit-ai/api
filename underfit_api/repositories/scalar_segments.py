@@ -21,27 +21,20 @@ def get_end_line(conn: Connection, worker_id: UUID, resolution: int) -> int:
     return row.end_line if row else 0
 
 
-def insert(
-    conn: Connection,
-    worker_id: UUID,
-    resolution: int,
-    start_line: int,
-    end_line: int,
-    start_at: datetime,
-    end_at: datetime,
-    storage_key: str,
+def upsert(
+    conn: Connection, worker_id: UUID, resolution: int, start_line: int, end_line: int,
+    start_at: datetime, end_at: datetime, storage_key: str,
 ) -> None:
-    conn.execute(scalar_segments.insert().values(
-        id=uuid4(),
-        worker_id=worker_id,
-        resolution=resolution,
-        start_line=start_line,
-        end_line=end_line,
-        start_at=start_at,
-        end_at=end_at,
-        storage_key=storage_key,
-        created_at=utcnow(),
-    ))
+    updated = conn.execute(scalar_segments.update().where(
+        scalar_segments.c.worker_id == worker_id,
+        scalar_segments.c.resolution == resolution,
+        scalar_segments.c.start_line == start_line,
+    ).values(end_line=end_line, end_at=end_at, storage_key=storage_key)).rowcount
+    if updated == 0:
+        conn.execute(scalar_segments.insert().values(
+            id=uuid4(), worker_id=worker_id, resolution=resolution, start_line=start_line, end_line=end_line,
+            start_at=start_at, end_at=end_at, storage_key=storage_key, created_at=utcnow(),
+        ))
 
 
 def list_by_resolution(conn: Connection, worker_id: UUID, resolution: int) -> Sequence[Row]:

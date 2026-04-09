@@ -4,7 +4,7 @@ import json
 import threading
 import weakref
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Generic, NamedTuple, TypeVar
 from uuid import UUID
 
@@ -52,6 +52,7 @@ class _LineBuffer(Generic[T]):
     lines: list[T] = field(default_factory=list)
     byte_count: int = 0
     start_line: int = 0
+    last_persisted_at: datetime = field(default_factory=utcnow)
 
     @property
     def end_line(self) -> int:
@@ -108,7 +109,7 @@ class LogBuffer:
                 self._total_bytes += size
             return None
 
-    def flush(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
+    def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
         with self._locks[worker_id]:
             buf = self._buffers.get(worker_id)
             if not buf or not buf.lines:
@@ -118,16 +119,36 @@ class LogBuffer:
             content = "".join(f"{line.content}\n" for line in buf.lines)
             storage_key = _log_storage_key(worker.run_id, worker.worker_label, buf.start_line)
             storage.write(storage_key, content.encode())
-            log_seg_repo.insert(
+            log_seg_repo.upsert(
                 conn, worker_id,
                 start_line=buf.start_line, end_line=buf.end_line,
                 start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
                 storage_key=storage_key,
             )
+            buf.last_persisted_at = utcnow()
+
+    def flush(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
+        with self._locks[worker_id]:
+            buf = self._buffers.get(worker_id)
+            if not buf or not buf.lines:
+                return
+            self.persist(conn, storage, worker_id)
             self._total_bytes -= buf.byte_count
             buf.start_line = buf.end_line
             buf.lines.clear()
             buf.byte_count = 0
+
+    def persist_due(self, conn: Connection, storage: Storage) -> None:
+        cutoff = utcnow() - timedelta(milliseconds=config.buffer.persist_interval_ms)
+        with self._lock:
+            ids = [w for w, b in self._buffers.items() if b.lines and b.last_persisted_at < cutoff]
+        for wid in ids:
+            self.persist(conn, storage, wid)
+
+    def buffer_start_line(self, worker_id: UUID) -> int | None:
+        with self._locks[worker_id]:
+            buf = self._buffers.get(worker_id)
+            return buf.start_line if buf and buf.lines else None
 
     def flush_if_needed(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
         with self._locks[worker_id]:
@@ -237,27 +258,49 @@ class ScalarBuffer:
             for resolution in resolutions:
                 self._flush_resolution(conn, storage, worker_id, resolution)
 
-    def _flush_resolution(self, conn: Connection, storage: Storage, worker_id: UUID, resolution: int) -> None:
+    def _persist_resolution(self, conn: Connection, storage: Storage, worker_id: UUID, resolution: int) -> None:
         buf = self._buffers.get((worker_id, resolution))
         if not buf or not buf.lines:
             return
         if not (worker := workers_repo.get_by_id(conn, worker_id)):
             raise RuntimeError("Worker not found")
-        lines_data = [self._serialize_scalar(line) for line in buf.lines]
-        content = "".join(s + "\n" for s in lines_data)
+        content = "".join(self._serialize_scalar(line) + "\n" for line in buf.lines)
         storage_key = _scalar_storage_key(worker.run_id, worker.worker_label, resolution, buf.start_line)
         storage.write(storage_key, content.encode())
-        scalar_seg_repo.insert(
+        scalar_seg_repo.upsert(
             conn, worker_id, resolution,
             start_line=buf.start_line, end_line=buf.end_line,
             start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
             storage_key=storage_key,
         )
+        buf.last_persisted_at = utcnow()
+
+    def _flush_resolution(self, conn: Connection, storage: Storage, worker_id: UUID, resolution: int) -> None:
+        buf = self._buffers.get((worker_id, resolution))
+        if not buf or not buf.lines:
+            return
+        self._persist_resolution(conn, storage, worker_id, resolution)
         self._total_bytes -= buf.byte_count
-        new_start = buf.end_line
+        buf.start_line = buf.end_line
         buf.lines.clear()
         buf.byte_count = 0
-        buf.start_line = new_start
+
+    def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
+        with self._locks[worker_id]:
+            for resolution in get_scalar_resolutions():
+                self._persist_resolution(conn, storage, worker_id, resolution)
+
+    def persist_due(self, conn: Connection, storage: Storage) -> None:
+        cutoff = utcnow() - timedelta(milliseconds=config.buffer.persist_interval_ms)
+        with self._lock:
+            ids = {rwid for (rwid, _r), b in self._buffers.items() if b.lines and b.last_persisted_at < cutoff}
+        for wid in ids:
+            self.persist(conn, storage, wid)
+
+    def buffer_start_line(self, worker_id: UUID, resolution: int) -> int | None:
+        with self._locks[worker_id]:
+            buf = self._buffers.get((worker_id, resolution))
+            return buf.start_line if buf and buf.lines else None
 
     def flush_if_needed(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
         with self._locks[worker_id]:

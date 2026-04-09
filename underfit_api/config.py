@@ -68,6 +68,7 @@ class BufferConfig(BaseModel):
     max_segment_bytes: int = 256 * 1024
     max_buffer_bytes: int = 64 * 1024 * 1024
     flush_interval_ms: int = 10_000
+    persist_interval_ms: int = 600_000
     worker_timeout_s: int = 15
     scalar_resolutions: list[int] = [1, 10, 100, 1000]
 

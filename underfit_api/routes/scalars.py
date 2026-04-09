@@ -74,7 +74,10 @@ def _select_resolution(conn: Conn, worker: Worker, max_points: int) -> int:
 
 
 def _read_resolution(conn: Conn, worker: Worker, resolution: int) -> list[Scalar]:
+    buf_start = scalar_buffer.buffer_start_line(worker.id, resolution)
     segments = scalar_seg_repo.list_by_resolution(conn, worker.id, resolution)
+    if buf_start is not None:
+        segments = [s for s in segments if s.start_line < buf_start]
     scalars: list[Scalar] = []
     for seg in segments:
         data = storage_mod.storage.read(seg.storage_key)
