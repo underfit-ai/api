@@ -18,7 +18,7 @@ def build_engine() -> Engine:
         return create_engine(url, connect_args={"check_same_thread": False})
     if isinstance(db, PostgresqlDatabaseConfig):
         url = URL.create(
-            "postgresql",
+            "postgresql+psycopg",
             username=db.user or None,
             password=db.password or None,
             host=db.host,
@@ -28,7 +28,7 @@ def build_engine() -> Engine:
         return create_engine(url)
     if isinstance(db, MysqlDatabaseConfig):
         url = URL.create(
-            "mysql",
+            "mysql+pymysql",
             username=db.user or None,
             password=db.password or None,
             host=db.host,
