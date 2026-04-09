@@ -13,11 +13,15 @@ from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 
 
-class AliasRedirectError(Exception):
-    def __init__(self, path_segment: str, old_name: str, new_name: str) -> None:
-        self.path_segment = path_segment
-        self.old_name = old_name
-        self.new_name = new_name
+class AccountAliasRedirectError(Exception):
+    def __init__(self, new_handle: str) -> None:
+        self.new_handle = new_handle
+
+
+class ProjectAliasRedirectError(Exception):
+    def __init__(self, new_account_handle: str, new_project_name: str) -> None:
+        self.new_account_handle = new_account_handle
+        self.new_project_name = new_project_name
 
 
 def resolve_account(conn: Conn, handle: str) -> Account:
@@ -28,7 +32,7 @@ def resolve_account(conn: Conn, handle: str) -> Account:
     if not account:
         raise HTTPException(404, "Account not found")
     if handle.lower() != account.handle:
-        raise AliasRedirectError("/accounts", handle.lower(), account.handle)
+        raise AccountAliasRedirectError(account.handle)
     return account
 
 
@@ -40,7 +44,7 @@ def resolve_organization(conn: Conn, handle: str) -> Organization:
     if not account or account.type != "ORGANIZATION":
         raise HTTPException(404, "Organization not found")
     if handle.lower() != account.handle:
-        raise AliasRedirectError("/organizations", handle.lower(), account.handle)
+        raise AccountAliasRedirectError(account.handle)
     assert isinstance(account, Organization)
     return account
 
@@ -53,10 +57,8 @@ def resolve_account_and_project_path(conn: Conn, handle: str, project_name: str)
     project = projects_repo.get_by_id(conn, alias.project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    if project_name.lower() != project.name:
-        raise AliasRedirectError("/projects", project_name.lower(), project.name)
-    if handle.lower() != project.owner:
-        raise AliasRedirectError("/accounts", handle.lower(), project.owner)
+    if handle.lower() != project.owner or project_name.lower() != project.name:
+        raise ProjectAliasRedirectError(project.owner, project.name)
     return account, project
 
 
