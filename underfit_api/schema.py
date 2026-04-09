@@ -91,6 +91,7 @@ organization_members = sa.Table(
     sa.Column("role", sa.Text, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
+    sa.UniqueConstraint("organization_id", "user_id"),
 )
 
 projects = sa.Table(
@@ -128,6 +129,7 @@ project_collaborators = sa.Table(
     sa.Column("user_id", sa.Uuid, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
+    sa.UniqueConstraint("project_id", "user_id"),
 )
 
 runs = sa.Table(
