@@ -86,7 +86,6 @@ class LogBuffer:
         self._lock = threading.RLock()
         self._locks = _WorkerLocks()
         self._buffers: dict[UUID, _LineBuffer[LogLine]] = {}
-        self._total_bytes = 0
 
     def get_end_line(self, conn: Connection, worker_id: UUID) -> int:
         with self._locks[worker_id]:
@@ -103,10 +102,8 @@ class LogBuffer:
             with self._lock:
                 buf = self._buffers.setdefault(worker_id, _LineBuffer(start_line=start_line))
             for line in lines:
-                size = len(line.content.encode()) + 1
                 buf.lines.append(line)
-                buf.byte_count += size
-                self._total_bytes += size
+                buf.byte_count += len(line.content.encode()) + 1
             return None
 
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
@@ -133,7 +130,6 @@ class LogBuffer:
             if not buf or not buf.lines:
                 return
             self.persist(conn, storage, worker_id)
-            self._total_bytes -= buf.byte_count
             buf.start_line = buf.end_line
             buf.lines.clear()
             buf.byte_count = 0
@@ -155,13 +151,6 @@ class LogBuffer:
             buf = self._buffers.get(worker_id)
             if buf and buf.byte_count >= config.buffer.max_segment_bytes:
                 self.flush(conn, storage, worker_id)
-        with self._lock:
-            while self._total_bytes > config.buffer.max_buffer_bytes:
-                nonempty = (k for k, b in self._buffers.items() if b.lines)
-                largest = max(nonempty, key=lambda k: self._buffers[k].byte_count, default=None)
-                if largest is None:
-                    break
-                self.flush(conn, storage, largest)
 
     def flush_all(self, conn: Connection, storage: Storage) -> None:
         with self._lock:
@@ -194,7 +183,6 @@ class ScalarBuffer:
         self._locks = _WorkerLocks()
         self._buffers: dict[tuple[UUID, int], _LineBuffer[ScalarPoint]] = {}
         self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
-        self._total_bytes = 0
 
     def get_end_line(self, conn: Connection, worker_id: UUID, resolution: int = 1) -> int:
         with self._locks[worker_id]:
@@ -213,9 +201,7 @@ class ScalarBuffer:
                 buf = self._buffers.setdefault((worker_id, 1), _LineBuffer(start_line=start_line))
             for scalar in scalars:
                 buf.lines.append(scalar)
-                size = len(self._serialize_scalar(scalar).encode()) + 1
-                buf.byte_count += size
-                self._total_bytes += size
+                buf.byte_count += len(self._serialize_scalar(scalar).encode()) + 1
                 self._feed_accumulators(conn, worker_id, scalar)
             return None
 
@@ -242,10 +228,8 @@ class ScalarBuffer:
         point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=ts)
         start_line = scalar_seg_repo.get_end_line(conn, worker_id, resolution)
         buf = self._buffers.setdefault((worker_id, resolution), _LineBuffer(start_line=start_line))
-        size = len(self._serialize_scalar(point).encode()) + 1
         buf.lines.append(point)
-        buf.byte_count += size
-        self._total_bytes += size
+        buf.byte_count += len(self._serialize_scalar(point).encode()) + 1
 
     def flush(self, conn: Connection, storage: Storage, worker_id: UUID, *, emit_partial: bool = True) -> None:
         with self._locks[worker_id]:
@@ -280,7 +264,6 @@ class ScalarBuffer:
         if not buf or not buf.lines:
             return
         self._persist_resolution(conn, storage, worker_id, resolution)
-        self._total_bytes -= buf.byte_count
         buf.start_line = buf.end_line
         buf.lines.clear()
         buf.byte_count = 0
@@ -307,13 +290,6 @@ class ScalarBuffer:
             buf = self._buffers.get((worker_id, 1))
             if buf and buf.byte_count >= config.buffer.max_segment_bytes:
                 self.flush(conn, storage, worker_id, emit_partial=False)
-        with self._lock:
-            while self._total_bytes > config.buffer.max_buffer_bytes:
-                nonempty = (k for k, b in self._buffers.items() if b.lines)
-                largest = max(nonempty, key=lambda k: self._buffers[k].byte_count, default=None)
-                if largest is None:
-                    break
-                self.flush(conn, storage, largest[0], emit_partial=False)
 
     def flush_all(self, conn: Connection, storage: Storage) -> None:
         with self._lock:
