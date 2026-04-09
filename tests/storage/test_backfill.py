@@ -130,8 +130,8 @@ def test_backfill_stops_scalar_segment_at_invalid_json() -> None:
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial B", "terminal_state": "finished"})
     _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", (
-        '{"step":0,"timestamp":"2025-01-01T00:00:00Z"}\n'
-        '{"step":1,"timestamp":"2025-01-01T00:00:01Z"}\n'
+        '{"step":0,"values":{"loss":0.9},"timestamp":"2025-01-01T00:00:00Z"}\n'
+        '{"step":1,"values":{"loss":0.8},"timestamp":"2025-01-01T00:00:01Z"}\n'
         "{bad-json}\n"
     ))
     _scan(service, storage)

@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime
 from typing import Literal
 from uuid import UUID, uuid4, uuid5
 
@@ -12,6 +11,7 @@ import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import Connection, Engine
 
+from underfit_api.buffer import ScalarPoint
 from underfit_api.config import BackfillConfig
 from underfit_api.helpers import utcnow
 from underfit_api.repositories import projects as projects_repo
@@ -45,15 +45,6 @@ class RunMetadata(BaseModel):
     terminal_state: Literal["finished", "failed", "cancelled"] | None = None
     config: dict[str, object] | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
-
-
-def _parse_ts(raw: str | None) -> datetime:
-    if raw:
-        try:
-            return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
-        except ValueError:
-            pass
-    return utcnow()
 
 
 class BackfillService:
@@ -234,31 +225,24 @@ class BackfillService:
     def _ingest_scalar_segment(
         self, conn: Connection, run_id: UUID, worker_id: UUID, storage_key: str, resolution: int, start_line: int,
     ) -> None:
-        count = 0
-        start_at: datetime | None = None
-        end_at: datetime | None = None
+        points: list[ScalarPoint] = []
         for raw_line in self._storage.read(f"{run_id}/{storage_key}").decode().splitlines():
             if not raw_line:
                 continue
             try:
-                payload = json.loads(raw_line)
-            except json.JSONDecodeError:
+                points.append(ScalarPoint.model_validate_json(raw_line))
+            except ValidationError:
                 break
-            ts = _parse_ts(payload.get("timestamp"))
-            if start_at is None:
-                start_at = ts
-            end_at = ts
-            count += 1
-        if count == 0 or start_at is None or end_at is None:
+        if not points:
             return
         conn.execute(scalar_segments.insert().values(
             id=uuid4(),
             worker_id=worker_id,
             resolution=resolution,
             start_line=start_line,
-            end_line=start_line + count,
-            start_at=start_at,
-            end_at=end_at,
+            end_line=start_line + len(points),
+            start_at=points[0].timestamp,
+            end_at=points[-1].timestamp,
             storage_key=storage_key,
             created_at=utcnow(),
         ))
