@@ -17,16 +17,10 @@ def get(conn: Connection, account_id: UUID) -> bytes | None:
 
 def upsert(conn: Connection, account_id: UUID, image: bytes) -> None:
     now = utcnow()
-    existing = conn.execute(
-        account_avatars.select().where(account_avatars.c.account_id == account_id),
-    ).first()
-    if existing:
-        conn.execute(
-            account_avatars.update()
-            .where(account_avatars.c.account_id == account_id)
-            .values(image=image, updated_at=now),
-        )
-    else:
+    updated = conn.execute(
+        account_avatars.update().where(account_avatars.c.account_id == account_id).values(image=image, updated_at=now),
+    ).rowcount
+    if updated == 0:
         conn.execute(account_avatars.insert().values(
             account_id=account_id, image=image, created_at=now, updated_at=now,
         ))

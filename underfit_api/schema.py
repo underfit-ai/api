@@ -182,6 +182,7 @@ log_segments = sa.Table(
     sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("worker_id", "start_line"),
+    sa.UniqueConstraint("worker_id", "end_line"),
 )
 
 scalar_segments = sa.Table(
@@ -197,6 +198,7 @@ scalar_segments = sa.Table(
     sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("worker_id", "resolution", "start_line"),
+    sa.UniqueConstraint("worker_id", "resolution", "end_line"),
 )
 
 artifacts = sa.Table(

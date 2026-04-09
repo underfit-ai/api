@@ -26,12 +26,8 @@ def get_password_hash_prefix(conn: Connection, user_id: UUID, length: int = 8) -
 
 
 def update_password(
-    conn: Connection,
-    user_id: UUID,
-    password_hash: str,
-    password_salt: str,
-    password_iterations: int,
-    password_digest: str,
+    conn: Connection, user_id: UUID, password_hash: str, password_salt: str,
+    password_iterations: int, password_digest: str,
 ) -> None:
     conn.execute(user_auth.update().where(user_auth.c.id == user_id).values(
         password_hash=password_hash, password_salt=password_salt,
@@ -41,12 +37,8 @@ def update_password(
 
 
 def create(
-    conn: Connection,
-    user_id: UUID,
-    password_hash: str,
-    password_salt: str,
-    password_iterations: int,
-    password_digest: str,
+    conn: Connection, user_id: UUID, password_hash: str, password_salt: str,
+    password_iterations: int, password_digest: str,
 ) -> None:
     now = utcnow()
     conn.execute(user_auth.insert().values(

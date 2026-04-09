@@ -24,15 +24,8 @@ def list_by_project(conn: Connection, project_id: UUID) -> list[Artifact]:
 
 
 def create(
-    conn: Connection,
-    artifact_id: UUID,
-    project_id: UUID,
-    run_id: UUID | None,
-    step: int | None,
-    name: str,
-    artifact_type: str,
-    storage_key: str,
-    metadata: dict[str, object] | None,
+    conn: Connection, artifact_id: UUID, project_id: UUID, run_id: UUID | None, step: int | None,
+    name: str, artifact_type: str, storage_key: str, metadata: dict[str, object] | None,
 ) -> Artifact:
     now = utcnow()
     conn.execute(artifacts.insert().values(

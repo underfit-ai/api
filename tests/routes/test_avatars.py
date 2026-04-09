@@ -22,6 +22,8 @@ def test_update_avatar(client: TestClient, create_user: CreateUser, session_for_
     uploaded = client.put("/api/v1/me/avatar", headers=headers, content=_png_bytes(512, 256))
     assert uploaded.status_code == 200
     assert uploaded.json() == {"status": "ok"}
+    replaced = client.put("/api/v1/me/avatar", headers=headers, content=_png_bytes(256, 512, (200, 120, 20)))
+    assert replaced.status_code == 200
 
     fetched = client.get("/api/v1/accounts/sam/avatar")
     assert fetched.status_code == 200
