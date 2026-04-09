@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from sqlalchemy import Connection, func, select
+from sqlalchemy import Connection, select
+from sqlalchemy.sql.selectable import Exists
 
 from underfit_api.helpers import utcnow
 from underfit_api.models import OrganizationMember, UserMembership
@@ -19,6 +20,15 @@ _select = select(
     organization_members.c.created_at.label("membership_created_at"),
     organization_members.c.updated_at.label("membership_updated_at"),
 ).select_from(_join)
+
+
+def _has_other_admin(org_id: UUID, user_id: UUID) -> Exists:
+    admins = select(organization_members.c.id).where(
+        organization_members.c.organization_id == org_id,
+        organization_members.c.role == "ADMIN",
+        organization_members.c.user_id != user_id,
+    ).subquery()
+    return select(1).select_from(admins).exists()
 
 
 def add_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> None:
@@ -65,46 +75,25 @@ def get_member(conn: Connection, org_id: UUID, user_id: UUID) -> OrganizationMem
     return OrganizationMember.model_validate(row) if row else None
 
 
-def update_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> None:
-    conn.execute(
-        organization_members.update()
-        .where(organization_members.c.organization_id == org_id, organization_members.c.user_id == user_id)
-        .values(role=role, updated_at=utcnow()),
+def update_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> bool:
+    query = organization_members.update().where(
+        organization_members.c.organization_id == org_id, organization_members.c.user_id == user_id,
     )
+    if role != "ADMIN":
+        query = query.where((organization_members.c.role != "ADMIN") | _has_other_admin(org_id, user_id))
+    result = conn.execute(query.values(role=role, updated_at=utcnow()))
+    return result.rowcount > 0
 
 
-def remove_member(conn: Connection, org_id: UUID, user_id: UUID) -> None:
-    conn.execute(
+def remove_member(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
+    result = conn.execute(
         organization_members.delete().where(
             organization_members.c.organization_id == org_id,
             organization_members.c.user_id == user_id,
+            (organization_members.c.role != "ADMIN") | _has_other_admin(org_id, user_id),
         ),
     )
-
-
-def admin_count(conn: Connection, org_id: UUID) -> int:
-    return conn.execute(
-        select(func.count()).select_from(organization_members).where(
-            organization_members.c.organization_id == org_id,
-            organization_members.c.role == "ADMIN",
-        ),
-    ).scalar_one()
-
-
-def is_sole_admin_anywhere(conn: Connection, user_id: UUID) -> bool:
-    admins = organization_members.alias()
-    join = organization_members.join(admins, admins.c.organization_id == organization_members.c.organization_id)
-    return conn.execute(
-        select(organization_members.c.organization_id)
-        .select_from(join)
-        .where(
-            organization_members.c.user_id == user_id,
-            organization_members.c.role == "ADMIN",
-            admins.c.role == "ADMIN",
-        )
-        .group_by(organization_members.c.organization_id)
-        .having(func.count(admins.c.id) <= 1),
-    ).first() is not None
+    return result.rowcount > 0
 
 
 def list_user_memberships(conn: Connection, user_id: UUID) -> list[UserMembership]:

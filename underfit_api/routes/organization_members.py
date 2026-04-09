@@ -33,12 +33,10 @@ def add_or_update_member(
         raise HTTPException(404, "User not found")
     if body.role not in ("ADMIN", "MEMBER"):
         raise HTTPException(400, "Invalid role")
-    if organization_members_repo.is_member(conn, org.id, target.id):
-        current_role = organization_members_repo.get_member_role(conn, org.id, target.id)
-        is_only_admin = current_role == "ADMIN" and organization_members_repo.admin_count(conn, org.id) <= 1
-        if is_only_admin and body.role != "ADMIN":
+    if current_role := organization_members_repo.get_member_role(conn, org.id, target.id):
+        updated = organization_members_repo.update_member(conn, org.id, target.id, body.role)
+        if current_role == "ADMIN" and body.role != "ADMIN" and not updated:
             raise HTTPException(400, "Cannot remove only admin")
-        organization_members_repo.update_member(conn, org.id, target.id, body.role)
     else:
         organization_members_repo.add_member(conn, org.id, target.id, body.role)
     if not (member := organization_members_repo.get_member(conn, org.id, target.id)):
@@ -51,16 +49,12 @@ def remove_member(handle: str, user_handle: str, conn: Conn, user: CurrentUser) 
     org = resolve_organization(conn, handle)
     if not (target := users_repo.get_by_handle(conn, user_handle)):
         raise HTTPException(404, "User not found")
-    if not organization_members_repo.is_member(conn, org.id, target.id):
+    if not (current_role := organization_members_repo.get_member_role(conn, org.id, target.id)):
         raise HTTPException(404, "Member not found")
     is_self = user.id == target.id
     if not is_self and not organization_members_repo.is_admin(conn, org.id, user.id):
         raise HTTPException(403, "Forbidden")
-    is_last_admin = (
-        organization_members_repo.get_member_role(conn, org.id, target.id) == "ADMIN"
-        and organization_members_repo.admin_count(conn, org.id) <= 1
-    )
-    if is_last_admin:
+    removed = organization_members_repo.remove_member(conn, org.id, target.id)
+    if current_role == "ADMIN" and not removed:
         raise HTTPException(400, "Cannot remove only admin")
-    organization_members_repo.remove_member(conn, org.id, target.id)
     return OkResponse()
