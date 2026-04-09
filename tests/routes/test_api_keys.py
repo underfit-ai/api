@@ -14,12 +14,12 @@ def test_api_key_lifecycle(client: TestClient, create_user: CreateUser, session_
     key = created.json()
     assert key["userId"] == str(user.id)
     assert key["label"] == "CI"
-    assert isinstance(key["token"], str)
 
     listed = client.get("/api/v1/me/api-keys", headers=headers)
     assert listed.status_code == 200
     assert len(listed.json()) == 1
     assert listed.json()[0]["id"] == key["id"]
+    assert listed.json()[0]["tokenPrefix"] == key["tokenPrefix"]
     assert "token" not in listed.json()[0]
 
     deleted = client.delete(f"/api/v1/me/api-keys/{key['id']}", headers=headers)

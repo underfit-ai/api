@@ -36,7 +36,7 @@ def create(conn: Connection, user_id: UUID, label: str | None) -> ApiKeyWithToke
         token_hash=token_hash,
         created_at=now,
     ))
-    return ApiKeyWithToken(id=key_id, user_id=user_id, label=label, token=token, created_at=now)
+    return ApiKeyWithToken(id=key_id, user_id=user_id, label=label, token_prefix=prefix, token=token, created_at=now)
 
 
 def delete(conn: Connection, key_id: UUID, user_id: UUID) -> bool:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import Connection, Engine, create_engine
+from sqlalchemy import Connection, Engine, create_engine, event
 from sqlalchemy.engine import URL
 
 from underfit_api.config import MysqlDatabaseConfig, PostgresqlDatabaseConfig, SqliteDatabaseConfig, config
@@ -15,7 +15,9 @@ def build_engine() -> Engine:
         if db.path != ":memory:":
             Path(db.path).parent.mkdir(parents=True, exist_ok=True)
         url = f"sqlite:///{db.path}" if db.path != ":memory:" else "sqlite://"
-        return create_engine(url, connect_args={"check_same_thread": False})
+        engine = create_engine(url, connect_args={"check_same_thread": False})
+        event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON"))
+        return engine
     if isinstance(db, PostgresqlDatabaseConfig):
         url = URL.create(
             "postgresql+psycopg",

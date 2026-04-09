@@ -56,7 +56,6 @@ sessions = sa.Table(
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("user_id", sa.Uuid, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("token_prefix", sa.Text, nullable=False),
     sa.Column("token_hash", sa.Text, nullable=False, unique=True),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("expires_at", sa.DateTime, nullable=False),

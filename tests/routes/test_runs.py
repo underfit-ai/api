@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,9 +35,7 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert run["name"] == "my-run"
     assert run["workerToken"] is not None
 
-    name = run["name"]
-    assert isinstance(name, str)
-    fetched = client.get(f"{RUNS}/{name.upper()}", headers=owner_headers)
+    fetched = client.get(f"{RUNS}/{cast(str, run['name']).upper()}", headers=owner_headers)
     assert fetched.status_code == 200
     assert fetched.json()["id"] == run["id"]
 

@@ -67,6 +67,7 @@ class ApiKey(_Base):
     id: UUID
     user_id: UUID
     label: str | None
+    token_prefix: str
     created_at: UTCDatetime
 
 

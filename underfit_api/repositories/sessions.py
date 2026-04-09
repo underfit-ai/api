@@ -25,7 +25,6 @@ def get_user_id_by_token_hash(conn: Connection, token_hash: str) -> UUID | None:
 
 def create(conn: Connection, user_id: UUID) -> Session:
     token = urlsafe_b64encode(os.urandom(32)).decode()
-    prefix = token[:8]
     token_hash = hash_token(token)
     now = utcnow()
     expires = now + timedelta(days=SESSION_TTL_DAYS)
@@ -33,7 +32,6 @@ def create(conn: Connection, user_id: UUID) -> Session:
     conn.execute(sessions.insert().values(
         id=session_id,
         user_id=user_id,
-        token_prefix=prefix,
         token_hash=token_hash,
         created_at=now,
         expires_at=expires,
