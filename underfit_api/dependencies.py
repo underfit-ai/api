@@ -48,9 +48,12 @@ def get_maybe_user(
 def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Unauthorized")
-    if not (token := verify_signed_token(authorization[7:])):
-        raise HTTPException(401, "Unauthorized")
     try:
+        if not config.auth_enabled:
+            return UUID(authorization[7:])
+        token = verify_signed_token(authorization[7:])
+        if not token:
+            raise HTTPException(401, "Unauthorized")
         return UUID(token["worker_id"])
     except (KeyError, ValueError, TypeError):
         raise HTTPException(401, "Unauthorized") from None

@@ -73,7 +73,3 @@ def verify_signed_token(token: str) -> dict[str, Any] | None:
     if datetime.now(timezone.utc) > exp:
         return None
     return payload
-
-
-def create_worker_token(worker_id: object) -> str:
-    return create_signed_token({"worker_id": str(worker_id)}, timedelta(days=3650))
