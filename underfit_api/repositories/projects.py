@@ -69,12 +69,14 @@ def list_visible_by_account(conn: Connection, account_id: UUID, viewer_id: UUID 
 
 
 def list_related_to_user(conn: Connection, user_id: UUID) -> list[Project]:
-    run_count = func.count(runs.c.id).label("run_count")
-    j = _join.outerjoin(runs, (runs.c.project_id == projects.c.id) & (runs.c.user_id == user_id))
+    run_counts = sa.select(
+        runs.c.project_id, func.count(runs.c.id).label("run_count"),
+    ).where(runs.c.user_id == user_id).group_by(runs.c.project_id).subquery()
+    run_count = func.coalesce(run_counts.c.run_count, 0).label("run_count")
+    j = _join.outerjoin(run_counts, run_counts.c.project_id == projects.c.id)
     rows = conn.execute(
         sa.select(*_columns, run_count).select_from(j)
         .where(sa.or_(projects.c.account_id == user_id, is_collaborator(user_id), is_org_admin(user_id)))
-        .group_by(projects.c.id)
         .order_by(run_count.desc(), projects.c.updated_at.desc()),
     ).all()
     return [Project.model_validate(row) for row in rows]

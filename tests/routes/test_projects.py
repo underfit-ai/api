@@ -66,8 +66,13 @@ def test_list_projects(
     assert outsider_projects.status_code == 200 and _project_names(outsider_projects) == {"public", "shared"}
     public_projects = client.get(BASE)
     assert public_projects.status_code == 200 and _project_names(public_projects) == {"public"}
+    launched = client.post("/api/v1/accounts/owner/projects/shared/runs/launch", headers=outsider_headers, json={
+        "runName": "r", "launchId": "1",
+    })
+    assert launched.status_code == 200
     my_projects = client.get("/api/v1/me/projects", headers=outsider_headers)
-    assert my_projects.status_code == 200 and _project_names(my_projects) == {"outsider-private", "shared"}
+    assert my_projects.status_code == 200
+    assert [cast(str, project["name"]) for project in my_projects.json()] == ["shared", "outsider-private"]
 
     org = create_org(owner_headers)
     admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
