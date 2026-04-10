@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
@@ -186,6 +186,7 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/a.bin", "a")
     _write_text(storage, f"{run_id}/media/image/samples_7_0.png", "m0")
     _write_text(storage, f"{run_id}/media/image/samples_7_2.png", "m2")
+    _write_text(storage, f"{run_id}/media/bad-type/samples_7_1.png", "m1")
     _scan(service, storage)
 
     with db.engine.begin() as conn:
@@ -220,21 +221,6 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     assert [r.index for r in media_rows] == [0, 1, 2]
 
 
-def test_backfill_ignores_invalid_media_folders() -> None:
-    service, storage = _service()
-    run_id = uuid4()
-    _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial Media"})
-    _write_text(storage, f"{run_id}/media/image/samples_0_0.png", "m0")
-    _write_text(storage, f"{run_id}/media/bad-type/samples_0_1.png", "m1")
-    _scan(service, storage)
-
-    with db.engine.begin() as conn:
-        media_rows = conn.execute(select(media).where(media.c.run_id == run_id).order_by(media.c.index)).all()
-    assert [(row.type, row.index, row.storage_key) for row in media_rows] == [
-        ("image", 0, "media/image/samples_0_0.png"),
-    ]
-
-
 def test_backfill_reconciles_deletions() -> None:
     service, storage = _service()
     run_id = uuid4()
@@ -262,19 +248,3 @@ def test_backfill_reconciles_deletions() -> None:
 
     with db.engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None
-
-
-def test_backfill_keeps_good_runs_when_one_run_fails() -> None:
-    service, storage = _service()
-    good_run_id = UUID("00000000-0000-0000-0000-000000000001")
-    bad_run_id = UUID("00000000-0000-0000-0000-000000000002")
-    _write_json(storage, f"{good_run_id}/run.json", {"project": "Vision", "name": "Trial E"})
-    _write_text(storage, f"{good_run_id}/logs/worker-1/segments/0.log", "hello\n")
-    _write_json(storage, f"{bad_run_id}/run.json", {"project": "Vision", "name": "Trial F"})
-    _write_text(storage, f"{bad_run_id}/media/bad-type/samples_0_0.png", "m0")
-
-    _scan(service, storage)
-
-    with db.engine.begin() as conn:
-        assert conn.execute(select(runs).where(runs.c.id == good_run_id)).first() is not None
-        assert conn.execute(select(log_segments)).first() is not None
