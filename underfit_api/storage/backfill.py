@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 _LOG = re.compile(r"^([^/]+)/logs/([^/]+)/segments/(\d+)\.log$")
 _SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 _ARTIFACT = re.compile(r"^([^/]+)/artifacts/([^/]+)/(manifest|artifact)\.json$")
-_MEDIA = re.compile(r"^([^/]+)/media/([^/]+)/(.+)_(-?\d+)_(\d+)(\.[^/]+)$")
+_MEDIA = re.compile(r"^([^/]+)/media/(image|video|audio|html)/(.+)_(-?\d+)_(\d+)(\.[^/]+)$")
 
 
 class RunMetadata(BaseModel):
