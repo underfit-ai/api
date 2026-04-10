@@ -14,6 +14,7 @@ from sqlalchemy import Connection, Engine
 from underfit_api.buffer import ScalarPoint
 from underfit_api.config import BackfillConfig
 from underfit_api.helpers import utcnow
+from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.schema import (
     accounts,
@@ -170,13 +171,16 @@ class BackfillService:
         return run_uuid
 
     def _resolve_account(self, conn: Connection, handle: str) -> UUID | None:
-        if row := conn.execute(accounts.select().where(accounts.c.handle == handle)).first():
-            return row.id
-        if handle != "local":
+        if alias := accounts_repo.get_alias_by_handle(conn, handle):
+            return alias.account_id
+        if account := accounts_repo.get_by_handle(conn, handle):
+            return account.id
+        if handle.lower() != "local":
             return None
         uid = uuid4()
         now = utcnow()
         conn.execute(accounts.insert().values(id=uid, handle="local", type="USER"))
+        accounts_repo.create_alias(conn, uid, "local")
         conn.execute(users.insert().values(
             id=uid, email="local@underfit.local", name="Local User", bio="", created_at=now, updated_at=now,
         ))

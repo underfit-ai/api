@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 import underfit_api.db as db
 from underfit_api.config import BackfillConfig, FileStorageConfig, config
+from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import (
     accounts,
@@ -150,6 +151,7 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     artifact_id = uuid4()
     with db.engine.begin() as conn:
         user = users_repo.create(conn, "sam@example.com", "sam", "Sam")
+        accounts_repo.create_alias(conn, user.id, "sam")
 
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial C"})
     _write_json(storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {"name": "base", "metadata": {"tag": "v1"}})
@@ -166,7 +168,7 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     assert artifact_row.finalized_at is None
     assert media_row.count == 2
 
-    _write_json(storage, f"{run_id}/run.json", {"project": "NLP", "user": "sam", "name": "Trial D"})
+    _write_json(storage, f"{run_id}/run.json", {"project": "NLP", "user": "Sam", "name": "Trial D"})
     _write_json(
         storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {"step": 3, "name": "best", "type": "model"},
     )
