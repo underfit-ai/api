@@ -18,8 +18,8 @@ from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
+from underfit_api.repositories import users as users_repo
 from underfit_api.schema import (
-    accounts,
     artifacts,
     log_segments,
     media,
@@ -27,7 +27,6 @@ from underfit_api.schema import (
     run_workers,
     runs,
     scalar_segments,
-    users,
 )
 from underfit_api.storage.file import FileStorage
 from underfit_api.storage.types import Storage
@@ -140,15 +139,15 @@ class BackfillService:
             return None
         run_name = (metadata.name or str(run_uuid)).lower()
         storage_key = str(run_uuid)
-        if not (account_id := self._resolve_account(conn, metadata.user)):
+        if not (user_id := self._resolve_user(conn, metadata.user)):
             return None
-        project_id = self._resolve_project(conn, account_id, metadata.project)
+        project_id = self._resolve_project(conn, user_id, metadata.project)
         if not (existing := conn.execute(runs.select().where(runs.c.id == run_uuid)).first()):
             now = utcnow()
             conn.execute(runs.insert().values(
                 id=run_uuid,
                 project_id=project_id,
-                user_id=account_id,
+                user_id=user_id,
                 launch_id=str(run_uuid),
                 name=run_name,
                 storage_key=storage_key,
@@ -160,7 +159,7 @@ class BackfillService:
             ))
         elif (
             existing.project_id != project_id
-            or existing.user_id != account_id
+            or existing.user_id != user_id
             or existing.name != run_name
             or existing.storage_key != storage_key
             or existing.terminal_state != metadata.terminal_state
@@ -171,7 +170,7 @@ class BackfillService:
                 conn.execute(artifacts.delete().where(artifacts.c.run_id == run_uuid))
             conn.execute(runs.update().where(runs.c.id == run_uuid).values(
                 project_id=project_id,
-                user_id=account_id,
+                user_id=user_id,
                 name=run_name,
                 storage_key=storage_key,
                 terminal_state=metadata.terminal_state,
@@ -181,21 +180,18 @@ class BackfillService:
             ))
         return run_uuid
 
-    def _resolve_account(self, conn: Connection, handle: str) -> UUID | None:
+    def _resolve_user(self, conn: Connection, handle: str) -> UUID | None:
         if alias := accounts_repo.get_alias_by_handle(conn, handle):
-            return alias.account_id
-        if account := accounts_repo.get_by_handle(conn, handle):
-            return account.id
+            if user := users_repo.get_by_id(conn, alias.account_id):
+                return user.id
+            return None
+        if user := users_repo.get_by_handle(conn, handle):
+            return user.id
         if handle.lower() != "local":
             return None
-        uid = uuid4()
-        now = utcnow()
-        conn.execute(accounts.insert().values(id=uid, handle="local", type="USER"))
-        accounts_repo.create_alias(conn, uid, "local")
-        conn.execute(users.insert().values(
-            id=uid, email="local@underfit.local", name="Local User", bio="", created_at=now, updated_at=now,
-        ))
-        return uid
+        user = users_repo.create(conn, "local@underfit.local", "local", "Local User")
+        accounts_repo.create_alias(conn, user.id, "local")
+        return user.id
 
     def _resolve_project(self, conn: Connection, account_id: UUID, name: str) -> UUID:
         name = name.lower()

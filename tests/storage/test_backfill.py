@@ -12,6 +12,7 @@ from sqlalchemy import select
 import underfit_api.db as db
 from underfit_api.config import BackfillConfig, FileStorageConfig, config
 from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import (
     accounts,
@@ -152,6 +153,23 @@ def test_backfill_stops_scalar_segment_at_invalid_json() -> None:
     assert scalar_row is not None and (scalar_row.start_line, scalar_row.end_line, scalar_row.end_at.isoformat()) == (
         0, 2, "2025-01-01T00:00:01",
     )
+
+
+def test_backfill_rejects_runs_attributed_to_org_handle() -> None:
+    service, storage = _service()
+    run_id = uuid4()
+    with db.engine.begin() as conn:
+        organizations_repo.create(conn, "core", "Core")
+
+    _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "user": "core", "name": "Trial Org"})
+    _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\n")
+    _scan(service, storage)
+
+    with db.engine.begin() as conn:
+        assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None
+        assert conn.execute(select(run_workers).where(run_workers.c.run_id == run_id)).first() is None
+        assert conn.execute(select(log_segments)).first() is None
+        assert conn.execute(select(projects)).first() is None
 
 
 def test_backfill_updates_artifact_and_media_records() -> None:
