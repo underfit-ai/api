@@ -39,3 +39,15 @@ def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) 
     )
     assert duplicate.status_code == 409
     assert duplicate.json()["error"] == "Media already exists for this type/key/step"
+
+
+def test_media_ingest_rejects_mixed_types(client: TestClient, owner_headers: Headers) -> None:
+    client.post(
+        "/api/v1/accounts/owner/projects", headers=owner_headers, json={"name": "underfit", "visibility": "private"},
+    )
+    run = client.post(LAUNCH, headers=owner_headers, json={"runName": "r", "launchId": "1"}).json()
+    mixed = [MEDIA_FILES[0], ("files", ("b.mp4", b"file-b", "video/mp4"))]
+    headers = {"Authorization": f"Bearer {run['workerToken']}"}
+    response = client.post("/api/v1/ingest/media", headers=headers, data={"metadata": MEDIA_METADATA}, files=mixed)
+    assert response.status_code == 400
+    assert response.json()["error"] == "Files must all match the declared media type"

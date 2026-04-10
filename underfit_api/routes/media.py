@@ -43,10 +43,19 @@ MediaMetadata = Annotated[Json[CreateMediaMetadata], Form()]
 MediaFiles = Annotated[list[UploadFile], File()]
 
 
+def _content_type_is_valid(media_type: str, content_type: str) -> bool:
+    if media_type == "html":
+        return content_type in {"text/html", "application/xhtml+xml"}
+    else:
+        return content_type.startswith(f"{media_type}/")
+
+
 @router.post("/ingest/media")
 async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: MediaFiles) -> list[Media]:
     if not files:
         raise HTTPException(400, "No files provided")
+    if any(f.content_type and not _content_type_is_valid(metadata.type.value, f.content_type) for f in files):
+        raise HTTPException(400, "Files must all match the declared media type")
     if metadata.metadata is not None and len(json.dumps(metadata.metadata)) > MAX_JSON_BYTES:
         raise HTTPException(400, "Metadata too large")
     with db.engine.begin() as conn:
