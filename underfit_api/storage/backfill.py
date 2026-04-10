@@ -15,7 +15,9 @@ from underfit_api.buffer import ScalarPoint
 from underfit_api.config import BackfillConfig
 from underfit_api.helpers import utcnow
 from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import projects as projects_repo
+from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.schema import (
     accounts,
     artifacts,
@@ -213,40 +215,56 @@ class BackfillService:
         return rwid
 
     def _reconcile_segments(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
-        conn.execute(run_workers.delete().where(run_workers.c.run_id == run_id))
+        seen_logs: set[str] = set()
+        seen_scalars: set[str] = set()
         for key in sorted(run_keys):
+            rel = key[len(f"{run_id}/"):]
             if m := _LOG.match(key):
                 rwid = self._ensure_worker(conn, run_id, m.group(2))
-                self._ingest_log_segment(conn, run_id, rwid, key[len(f"{run_id}/"):], int(m.group(3)))
+                self._ingest_log_segment(conn, rwid, key, rel, int(m.group(3)))
+                seen_logs.add(rel)
             elif m := _SCALAR.match(key):
                 rwid = self._ensure_worker(conn, run_id, m.group(2))
-                self._ingest_scalar_segment(
-                    conn, run_id, rwid, key[len(f"{run_id}/"):], int(m.group(3)), int(m.group(4)),
-                )
-
-    def _ingest_log_segment(
-        self, conn: Connection, run_id: UUID, worker_id: UUID, storage_key: str, start_line: int,
-    ) -> None:
-        lines = self._storage.read(f"{run_id}/{storage_key}").decode().splitlines()
-        if not lines:
-            return
-        now = utcnow()
-        conn.execute(log_segments.insert().values(
-            id=uuid4(),
-            worker_id=worker_id,
-            start_line=start_line,
-            end_line=start_line + len(lines),
-            start_at=now,
-            end_at=now,
-            storage_key=storage_key,
-            created_at=now,
+                self._ingest_scalar_segment(conn, rwid, key, rel, int(m.group(3)), int(m.group(4)))
+                seen_scalars.add(rel)
+        worker_ids = sa.select(run_workers.c.id).where(run_workers.c.run_id == run_id).scalar_subquery()
+        conn.execute(log_segments.delete().where(
+            log_segments.c.worker_id.in_(worker_ids), log_segments.c.storage_key.not_in(seen_logs),
+        ))
+        conn.execute(scalar_segments.delete().where(
+            scalar_segments.c.worker_id.in_(worker_ids), scalar_segments.c.storage_key.not_in(seen_scalars),
+        ))
+        conn.execute(run_workers.delete().where(
+            run_workers.c.run_id == run_id,
+            ~sa.exists().where(log_segments.c.worker_id == run_workers.c.id),
+            ~sa.exists().where(scalar_segments.c.worker_id == run_workers.c.id),
         ))
 
+    def _ingest_log_segment(
+        self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str, start_line: int,
+    ) -> None:
+        lines = self._storage.read(full_key).decode().splitlines()
+        if not lines:
+            return
+        end_line = start_line + len(lines)
+        existing = conn.execute(sa.select(log_segments.c.end_line).where(
+            log_segments.c.worker_id == worker_id, log_segments.c.start_line == start_line,
+        )).scalar()
+        if existing is not None and existing >= end_line:
+            return
+        now = utcnow()
+        log_seg_repo.upsert(
+            conn, worker_id, start_line=start_line, end_line=end_line,
+            start_at=now, end_at=now, storage_key=storage_key,
+        )
+        conn.execute(run_workers.update().where(run_workers.c.id == worker_id).values(last_heartbeat=now))
+
     def _ingest_scalar_segment(
-        self, conn: Connection, run_id: UUID, worker_id: UUID, storage_key: str, resolution: int, start_line: int,
+        self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str,
+        resolution: int, start_line: int,
     ) -> None:
         points: list[ScalarPoint] = []
-        for raw_line in self._storage.read(f"{run_id}/{storage_key}").decode().splitlines():
+        for raw_line in self._storage.read(full_key).decode().splitlines():
             if not raw_line:
                 continue
             try:
@@ -255,17 +273,19 @@ class BackfillService:
                 break
         if not points:
             return
-        conn.execute(scalar_segments.insert().values(
-            id=uuid4(),
-            worker_id=worker_id,
-            resolution=resolution,
-            start_line=start_line,
-            end_line=start_line + len(points),
-            start_at=points[0].timestamp,
-            end_at=points[-1].timestamp,
-            storage_key=storage_key,
-            created_at=utcnow(),
-        ))
+        end_line = start_line + len(points)
+        existing = conn.execute(sa.select(scalar_segments.c.end_line).where(
+            scalar_segments.c.worker_id == worker_id,
+            scalar_segments.c.resolution == resolution,
+            scalar_segments.c.start_line == start_line,
+        )).scalar()
+        if existing is not None and existing >= end_line:
+            return
+        scalar_seg_repo.upsert(
+            conn, worker_id, resolution, start_line=start_line, end_line=end_line,
+            start_at=points[0].timestamp, end_at=points[-1].timestamp, storage_key=storage_key,
+        )
+        conn.execute(run_workers.update().where(run_workers.c.id == worker_id).values(last_heartbeat=utcnow()))
 
     def _reconcile_assets(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
         seen_artifacts: set[UUID] = set()
