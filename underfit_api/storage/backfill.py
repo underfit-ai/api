@@ -279,14 +279,15 @@ class BackfillService:
                 seen_artifacts.add(artifact_id)
                 self._ingest_artifact(conn, run_id, artifact_id)
             elif m := _MEDIA.match(key):
-                storage_prefix = f"media/{m.group(2)}/{m.group(3)}_{m.group(4)}"
-                media_id = uuid5(run_id, f"{storage_prefix}{m.group(6)}")
-                if media_id not in seen_media:
-                    seen_media.add(media_id)
-                    self._ingest_media(
-                        conn, run_id, run_keys, storage_prefix, m.group(6), m.group(3),
-                        int(m.group(4)), m.group(2),
-                    )
+                storage_key = key[len(f"{run_id}/"):]
+                media_id = uuid5(run_id, storage_key)
+                seen_media.add(media_id)
+                if conn.execute(media.select().where(media.c.id == media_id)).first() is None:
+                    conn.execute(media.insert().values(
+                        id=media_id, run_id=run_id, type=m.group(2), key=m.group(3),
+                        step=int(m.group(4)), index=int(m.group(5)),
+                        storage_key=storage_key, metadata=None, created_at=utcnow(),
+                    ))
         conn.execute(artifacts.delete().where(
             artifacts.c.run_id == run_id, artifacts.c.id.not_in(seen_artifacts),
         ))
@@ -343,32 +344,3 @@ class BackfillService:
             updated_at=now,
         ))
 
-    def _ingest_media(
-        self, conn: Connection, run_id: UUID, run_keys: list[str], storage_prefix: str, ext: str, key_name: str,
-        step: int, media_type: str,
-    ) -> None:
-        media_id = uuid5(run_id, f"{storage_prefix}{ext}")
-        prefix = f"{run_id}/{storage_prefix}_"
-        file_count = sum(
-            1
-            for key in run_keys
-            if key.startswith(prefix) and key.endswith(ext) and key[len(prefix):-len(ext)].isdigit()
-        )
-        if not file_count:
-            return
-        existing = conn.execute(media.select().where(media.c.id == media_id)).first()
-        if existing is None:
-            conn.execute(media.insert().values(
-                id=media_id,
-                run_id=run_id,
-                key=key_name,
-                step=step,
-                type=media_type,
-                storage_prefix=storage_prefix,
-                ext=ext,
-                count=file_count,
-                metadata=None,
-                created_at=utcnow(),
-            ))
-        elif existing.count != file_count:
-            conn.execute(media.update().where(media.c.id == media_id).values(count=file_count))

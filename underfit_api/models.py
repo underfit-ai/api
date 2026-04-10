@@ -146,9 +146,8 @@ class Media(_Base):
     key: str
     step: int
     type: MediaType
-    storage_prefix: str
-    ext: str
-    count: int
+    index: int
+    storage_key: str = Field(exclude=True)
     metadata: dict[str, object] | None
     created_at: UTCDatetime
 

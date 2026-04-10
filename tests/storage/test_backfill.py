@@ -158,37 +158,39 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {"files": ["a.bin", "b.bin"]})
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/a.bin", "a")
     _write_text(storage, f"{run_id}/media/image/samples_7_0.png", "m0")
-    _write_text(storage, f"{run_id}/media/image/samples_7_1.png", "m1")
+    _write_text(storage, f"{run_id}/media/image/samples_7_2.png", "m2")
     _scan(service, storage)
 
     with db.engine.begin() as conn:
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
-        media_row = conn.execute(select(media)).first()
-    assert artifact_row is not None and media_row is not None
+        media_rows = conn.execute(select(media).order_by(media.c.index)).all()
+    assert artifact_row is not None
     assert artifact_row.finalized_at is None
-    assert media_row.count == 2
+    assert [(r.index, r.storage_key) for r in media_rows] == [
+        (0, "media/image/samples_7_0.png"), (2, "media/image/samples_7_2.png"),
+    ]
 
     _write_json(storage, f"{run_id}/run.json", {"project": "NLP", "user": "Sam", "name": "Trial D"})
     _write_json(
         storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {"step": 3, "name": "best", "type": "model"},
     )
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/b.bin", "b")
-    _write_text(storage, f"{run_id}/media/image/samples_7_2.png", "m2")
+    _write_text(storage, f"{run_id}/media/image/samples_7_1.png", "m1")
     _scan(service, storage)
 
     with db.engine.begin() as conn:
         run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
-        media_row = conn.execute(select(media)).first()
+        media_rows = conn.execute(select(media).order_by(media.c.index)).all()
         project_row = (
             conn.execute(select(projects).where(projects.c.id == run_row.project_id)).first() if run_row else None
         )
-    assert run_row is not None and artifact_row is not None and media_row is not None and project_row is not None
+    assert run_row is not None and artifact_row is not None and project_row is not None
     assert run_row.user_id == user.id and project_row.name == "nlp" and run_row.name == "trial d"
     assert artifact_row.project_id == run_row.project_id
     assert (artifact_row.step, artifact_row.name, artifact_row.type) == (3, "best", "model")
     assert artifact_row.finalized_at is not None and artifact_row.stored_size_bytes == 2
-    assert media_row.count == 3
+    assert [r.index for r in media_rows] == [0, 1, 2]
 
 
 def test_backfill_reconciles_deletions() -> None:

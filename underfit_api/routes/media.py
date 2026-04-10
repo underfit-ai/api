@@ -44,40 +44,38 @@ MediaFiles = Annotated[list[UploadFile], File()]
 
 
 @router.post("/ingest/media")
-async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: MediaFiles) -> Media:
+async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: MediaFiles) -> list[Media]:
     if not files:
         raise HTTPException(400, "No files provided")
     if metadata.metadata is not None and len(json.dumps(metadata.metadata)) > MAX_JSON_BYTES:
         raise HTTPException(400, "Metadata too large")
-    ext = mimetypes.guess_extension(files[0].content_type or "") or ".bin"
-    if any((mimetypes.guess_extension(f.content_type or "") or ".bin") != ext for f in files[1:]):
-        raise HTTPException(400, "All media files must use the same content type")
     with db.engine.begin() as conn:
         if not workers_repo.touch(conn, worker):
             raise HTTPException(401, "Unauthorized")
         assert (run_worker := workers_repo.get_by_id(conn, worker)) is not None
         assert (run := runs_repo.get_by_id(conn, run_worker.run_id)) is not None
         key = validate_path(metadata.key)
-        if any(
-            media.type == metadata.type and media.key == key and media.step == metadata.step
-            for media in media_repo.list_by_run(conn, run.id, key=key)
-        ):
+        if media_repo.exists_for_group(conn, run.id, metadata.type, key, metadata.step):
             raise HTTPException(409, "Media already exists for this type/key/step")
-        prefix, _, name = key.rpartition("/")
-        storage_key = run.storage_key
+        run_storage_key = run.storage_key
         run_id = run.id
-    storage_prefix = "/".join(["media", metadata.type, *([prefix] if prefix else []), name])
-    storage_prefix = f"{storage_prefix}_{metadata.step}"
+    storage_keys: list[str] = []
     for i, f in enumerate(files):
+        ext = mimetypes.guess_extension(f.content_type or "") or ".bin"
+        storage_key = f"media/{metadata.type}/{key}_{metadata.step}_{i}{ext}"
         async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
             while chunk := await f.read(262144):
                 yield chunk
-        await storage_mod.storage.write_stream(f"{storage_key}/{storage_prefix}_{i}{ext}", _chunks())
+        await storage_mod.storage.write_stream(f"{run_storage_key}/{storage_key}", _chunks())
+        storage_keys.append(storage_key)
     with db.engine.begin() as conn, as_conflict(conn, "Media already exists for this type/key/step"):
-        return media_repo.create(
-            conn, run_id=run_id, key=metadata.key, step=metadata.step, media_type=metadata.type,
-            storage_prefix=storage_prefix, ext=ext, count=len(files), metadata=metadata.metadata,
-        )
+        return [
+            media_repo.create(
+                conn, run_id=run_id, key=key, step=metadata.step, media_type=metadata.type,
+                index=i, storage_key=sk, metadata=metadata.metadata,
+            )
+            for i, sk in enumerate(storage_keys)
+        ]
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media")
@@ -91,7 +89,7 @@ def list_media(
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media/{media_id}/file")
 def get_media_file(
-    handle: str, project_name: str, run_name: str, media_id: UUID, index: Annotated[int, Query()] = 0,
+    handle: str, project_name: str, run_name: str, media_id: UUID,
     authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
 ) -> Response:
     with db.engine.begin() as conn:
@@ -100,9 +98,7 @@ def get_media_file(
         record = media_repo.get_by_id(conn, media_id)
         if not record or record.run_id != run.id:
             raise HTTPException(404, "Media not found")
-        if index < 0 or index >= record.count:
-            raise HTTPException(400, "Index out of range")
-        key = f"{run.storage_key}/{record.storage_prefix}_{index}{record.ext}"
-    if not key or not storage_mod.storage.exists(key):
+        key = f"{run.storage_key}/{record.storage_key}"
+    if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
     return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")

@@ -22,13 +22,19 @@ def list_by_run(
         query = query.where(media.c.key == key)
     if step is not None:
         query = query.where(media.c.step == step)
-    rows = conn.execute(query.order_by(media.c.created_at.asc())).all()
+    rows = conn.execute(query.order_by(media.c.created_at.asc(), media.c.index.asc())).all()
     return [Media.model_validate(row) for row in rows]
+
+
+def exists_for_group(conn: Connection, run_id: UUID, media_type: str, key: str, step: int) -> bool:
+    return conn.execute(media.select().where(
+        media.c.run_id == run_id, media.c.type == media_type, media.c.key == key, media.c.step == step,
+    ).limit(1)).first() is not None
 
 
 def create(
     conn: Connection, run_id: UUID, key: str, step: int, media_type: str,
-    storage_prefix: str, ext: str, count: int, metadata: dict[str, object] | None,
+    index: int, storage_key: str, metadata: dict[str, object] | None,
 ) -> Media:
     media_id = uuid4()
     conn.execute(media.insert().values(
@@ -37,9 +43,8 @@ def create(
         key=key,
         step=step,
         type=media_type,
-        storage_prefix=storage_prefix,
-        ext=ext,
-        count=count,
+        index=index,
+        storage_key=storage_key,
         metadata=metadata,
         created_at=utcnow(),
     ))

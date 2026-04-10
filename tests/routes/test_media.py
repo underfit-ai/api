@@ -4,12 +4,14 @@ import json
 
 from fastapi.testclient import TestClient
 
-import underfit_api.storage as storage_mod
 from tests.conftest import Headers
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 MEDIA_METADATA = json.dumps({"key": "val/gen/%d", "step": 200, "type": "image"})
-MEDIA_FILES = [("files", ("a.png", b"file-a", "image/png"))]
+MEDIA_FILES = [
+    ("files", ("a.png", b"file-a", "image/png")),
+    ("files", ("b.png", b"file-b", "image/png")),
+]
 
 
 def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) -> None:
@@ -22,30 +24,18 @@ def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) 
 
     created = client.post("/api/v1/ingest/media", headers=worker, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
     assert created.status_code == 200
-    media = created.json()
-    media_id = media["id"]
-    assert media["storagePrefix"] == "media/image/val/gen/%d_200"
-    assert media["ext"] == ".png"
-    assert storage_mod.storage.exists(f"{run['id']}/{media['storagePrefix']}_0{media['ext']}")
+    rows = created.json()
+    assert [r["index"] for r in rows] == [0, 1]
+    assert all(r["key"] == "val/gen/%d" and r["step"] == 200 and r["type"] == "image" for r in rows)
 
     listed = client.get(media_url, headers=owner_headers, params={"key": "val/gen/%d", "step": 200})
-    assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [media_id]
-    downloaded = client.get(f"{media_url}/{media_id}/file", headers=owner_headers)
-    assert downloaded.status_code == 200 and downloaded.content == b"file-a"
+    assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [r["id"] for r in rows]
+    for expected, row in [(b"file-a", rows[0]), (b"file-b", rows[1])]:
+        downloaded = client.get(f"{media_url}/{row['id']}/file", headers=owner_headers)
+        assert downloaded.status_code == 200 and downloaded.content == expected
 
-
-def test_media_ingest_rejects_duplicate_type_key_and_step(client: TestClient, owner_headers: Headers) -> None:
-    client.post(
-        "/api/v1/accounts/owner/projects", headers=owner_headers, json={"name": "underfit", "visibility": "private"},
-    )
-    run = client.post(LAUNCH, headers=owner_headers, json={"runName": "r", "launchId": "1"}).json()
-    worker = {"Authorization": f"Bearer {run['workerToken']}"}
-
-    created = client.post("/api/v1/ingest/media", headers=worker, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
     duplicate = client.post(
         "/api/v1/ingest/media", headers=worker, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES,
     )
-
-    assert created.status_code == 200
     assert duplicate.status_code == 409
     assert duplicate.json()["error"] == "Media already exists for this type/key/step"
