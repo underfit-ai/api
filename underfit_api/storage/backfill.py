@@ -110,13 +110,16 @@ class BackfillService:
                 logger.exception("Backfill process error")
 
     def _process_batch(self, run_dirs: set[str]) -> None:
-        with self._engine.begin() as conn:
-            for run_dir in sorted(run_dirs):
-                try:
-                    run_uuid = UUID(run_dir)
-                except ValueError:
-                    continue
-                self._reconcile_run(conn, run_uuid)
+        for run_dir in sorted(run_dirs):
+            try:
+                run_uuid = UUID(run_dir)
+            except ValueError:
+                continue
+            try:
+                with self._engine.begin() as conn:
+                    self._reconcile_run(conn, run_uuid)
+            except Exception:
+                logger.exception("Backfill reconcile error for run %s", run_uuid)
 
     def _reconcile_run(self, conn: Connection, run_uuid: UUID) -> None:
         if not self._storage.exists(f"{run_uuid}/run.json"):
