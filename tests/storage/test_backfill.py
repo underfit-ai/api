@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 import underfit_api.db as db
 from underfit_api.config import BackfillConfig, FileStorageConfig, config
+from underfit_api.repositories import users as users_repo
 from underfit_api.schema import (
     accounts,
     artifacts,
@@ -147,8 +148,11 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     service, storage = _service()
     run_id = uuid4()
     artifact_id = uuid4()
+    with db.engine.begin() as conn:
+        user = users_repo.create(conn, "sam@example.com", "sam", "Sam")
 
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial C"})
+    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {"name": "base", "metadata": {"tag": "v1"}})
     _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {"files": ["a.bin", "b.bin"]})
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/a.bin", "a")
     _write_text(storage, f"{run_id}/media/image/samples_7_0.png", "m0")
@@ -162,14 +166,25 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     assert artifact_row.finalized_at is None
     assert media_row.count == 2
 
+    _write_json(storage, f"{run_id}/run.json", {"project": "NLP", "user": "sam", "name": "Trial D"})
+    _write_json(
+        storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {"step": 3, "name": "best", "type": "model"},
+    )
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/b.bin", "b")
     _write_text(storage, f"{run_id}/media/image/samples_7_2.png", "m2")
     _scan(service, storage)
 
     with db.engine.begin() as conn:
+        run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
         media_row = conn.execute(select(media)).first()
-    assert artifact_row is not None and media_row is not None
+        project_row = (
+            conn.execute(select(projects).where(projects.c.id == run_row.project_id)).first() if run_row else None
+        )
+    assert run_row is not None and artifact_row is not None and media_row is not None and project_row is not None
+    assert run_row.user_id == user.id and project_row.name == "nlp" and run_row.name == "trial d"
+    assert artifact_row.project_id == run_row.project_id
+    assert (artifact_row.step, artifact_row.name, artifact_row.type) == (3, "best", "model")
     assert artifact_row.finalized_at is not None and artifact_row.stored_size_bytes == 2
     assert media_row.count == 3
 

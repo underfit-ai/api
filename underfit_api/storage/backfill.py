@@ -147,13 +147,19 @@ class BackfillService:
                 updated_at=now,
             ))
         elif (
-            existing.name != run_name
+            existing.project_id != project_id
+            or existing.user_id != account_id
+            or existing.name != run_name
             or existing.storage_key != storage_key
             or existing.terminal_state != metadata.terminal_state
             or existing.config != metadata.config
             or existing.metadata != metadata.metadata
         ):
+            if existing.project_id != project_id:
+                conn.execute(artifacts.delete().where(artifacts.c.run_id == run_uuid))
             conn.execute(runs.update().where(runs.c.id == run_uuid).values(
+                project_id=project_id,
+                user_id=account_id,
                 name=run_name,
                 storage_key=storage_key,
                 terminal_state=metadata.terminal_state,
@@ -323,8 +329,13 @@ class BackfillService:
         finalized = uploaded_paths == declared_paths
         stored_size_bytes = sum(self._storage.size(f"{files_dir}/{path}") for path in uploaded_paths)
         conn.execute(artifacts.update().where(artifacts.c.id == artifact_id).values(
+            project_id=run_row.project_id,
+            step=metadata.get("step"),
+            name=metadata.get("name", str(artifact_id)),
+            type=metadata.get("type", "dataset"),
             finalized_at=now if finalized else None,
             stored_size_bytes=stored_size_bytes if finalized else None,
+            metadata=metadata.get("metadata"),
             updated_at=now,
         ))
 
