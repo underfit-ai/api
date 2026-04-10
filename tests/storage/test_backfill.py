@@ -35,7 +35,7 @@ def _service() -> tuple[BackfillService, FileStorage]:
 
 
 def _scan(service: BackfillService, storage: FileStorage) -> None:
-    service._process_batch(set(storage.list_files("")))  # noqa: SLF001
+    service._process_batch(service._collect_pending())  # noqa: SLF001
 
 
 def _write_json(storage: FileStorage, key: str, data: object) -> None:
@@ -172,3 +172,32 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     assert artifact_row is not None and media_row is not None
     assert artifact_row.finalized_at is not None and artifact_row.stored_size_bytes == 2
     assert media_row.count == 3
+
+
+def test_backfill_reconciles_deletions() -> None:
+    service, storage = _service()
+    run_id = uuid4()
+    artifact_id = uuid4()
+
+    _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial D"})
+    _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\n")
+    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {"files": []})
+    _write_text(storage, f"{run_id}/media/image/samples_0_0.png", "m0")
+    _scan(service, storage)
+
+    storage.delete(f"{run_id}/logs/worker-1/segments/0.log")
+    storage.delete(f"{run_id}/artifacts/{artifact_id}/manifest.json")
+    storage.delete(f"{run_id}/media/image/samples_0_0.png")
+    _scan(service, storage)
+
+    with db.engine.begin() as conn:
+        assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None
+        assert conn.execute(select(run_workers).where(run_workers.c.run_id == run_id)).first() is None
+        assert conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first() is None
+        assert conn.execute(select(media).where(media.c.run_id == run_id)).first() is None
+
+    storage.delete(f"{run_id}/run.json")
+    _scan(service, storage)
+
+    with db.engine.begin() as conn:
+        assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None

@@ -61,7 +61,7 @@ class BackfillService:
         self._tasks.append(asyncio.create_task(self._scan_loop()))
         self._tasks.append(asyncio.create_task(self._process_loop()))
         if self._config.realtime:
-            self._storage.watch(self._pending.add)
+            self._storage.watch(self._enqueue)
 
     async def stop(self) -> None:
         self._storage.stop_watching()
@@ -70,10 +70,20 @@ class BackfillService:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
 
+    def _enqueue(self, key: str) -> None:
+        if "/" in key:
+            self._pending.add(key.split("/", 1)[0])
+
+    def _collect_pending(self) -> set[str]:
+        pending = {key.split("/", 1)[0] for key in self._storage.list_files("") if "/" in key}
+        with self._engine.connect() as conn:
+            pending.update(str(row.id) for row in conn.execute(sa.select(runs.c.id)))
+        return pending
+
     async def _scan_loop(self) -> None:
         while True:
             try:
-                self._pending.update(await asyncio.to_thread(self._storage.list_files, ""))
+                self._pending.update(await asyncio.to_thread(self._collect_pending))
             except Exception:
                 logger.exception("Backfill scan error")
             await asyncio.sleep(self._config.scan_interval_ms / 1000)
@@ -83,28 +93,31 @@ class BackfillService:
             await asyncio.sleep(self._config.debounce_ms / 1000)
             if not self._pending:
                 continue
-            keys = self._pending.copy()
+            run_dirs = self._pending.copy()
             self._pending.clear()
             try:
-                await asyncio.to_thread(self._process_batch, keys)
+                await asyncio.to_thread(self._process_batch, run_dirs)
             except Exception:
                 logger.exception("Backfill process error")
 
-    def _process_batch(self, keys: set[str]) -> None:
-        run_dirs = {key.split("/", 1)[0] for key in keys if "/" in key}
+    def _process_batch(self, run_dirs: set[str]) -> None:
         with self._engine.begin() as conn:
             for run_dir in sorted(run_dirs):
                 try:
                     run_uuid = UUID(run_dir)
                 except ValueError:
                     continue
-                if not self._storage.exists(f"{run_dir}/run.json"):
-                    continue
-                if not (run_id := self._ensure_run(conn, run_uuid)):
-                    continue
-                run_keys = self._storage.list_files(run_dir)
-                self._rebuild_segments(conn, run_id, run_keys)
-                self._ingest_assets(conn, run_id, run_keys)
+                self._reconcile_run(conn, run_uuid)
+
+    def _reconcile_run(self, conn: Connection, run_uuid: UUID) -> None:
+        if not self._storage.exists(f"{run_uuid}/run.json"):
+            conn.execute(runs.delete().where(runs.c.id == run_uuid))
+            return
+        if not (run_id := self._ensure_run(conn, run_uuid)):
+            return
+        run_keys = self._storage.list_files(str(run_uuid))
+        self._reconcile_segments(conn, run_id, run_keys)
+        self._reconcile_assets(conn, run_id, run_keys)
 
     def _ensure_run(self, conn: Connection, run_uuid: UUID) -> UUID | None:
         try:
@@ -189,11 +202,8 @@ class BackfillService:
         ))
         return rwid
 
-    def _rebuild_segments(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
-        worker_ids = [row.id for row in conn.execute(run_workers.select().where(run_workers.c.run_id == run_id)).all()]
-        if worker_ids:
-            conn.execute(sa.delete(log_segments).where(log_segments.c.worker_id.in_(worker_ids)))
-            conn.execute(sa.delete(scalar_segments).where(scalar_segments.c.worker_id.in_(worker_ids)))
+    def _reconcile_segments(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
+        conn.execute(run_workers.delete().where(run_workers.c.run_id == run_id))
         for key in sorted(run_keys):
             if m := _LOG.match(key):
                 rwid = self._ensure_worker(conn, run_id, m.group(2))
@@ -247,38 +257,41 @@ class BackfillService:
             created_at=utcnow(),
         ))
 
-    def _ingest_assets(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
-        seen_artifacts: set[str] = set()
-        seen_media: set[str] = set()
+    def _reconcile_assets(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
+        seen_artifacts: set[UUID] = set()
+        seen_media: set[UUID] = set()
         for key in run_keys:
-            if m := _ARTIFACT.match(key):
-                artifact_id = m.group(2)
-                if artifact_id not in seen_artifacts:
-                    seen_artifacts.add(artifact_id)
-                    self._ingest_artifact(conn, run_id, artifact_id)
+            if (m := _ARTIFACT.match(key)) and m.group(3) == "manifest":
+                try:
+                    artifact_id = UUID(m.group(2))
+                except ValueError:
+                    continue
+                seen_artifacts.add(artifact_id)
+                self._ingest_artifact(conn, run_id, artifact_id)
             elif m := _MEDIA.match(key):
                 storage_prefix = f"media/{m.group(2)}/{m.group(3)}_{m.group(4)}"
-                if storage_prefix not in seen_media:
-                    seen_media.add(storage_prefix)
+                media_id = uuid5(run_id, f"{storage_prefix}{m.group(6)}")
+                if media_id not in seen_media:
+                    seen_media.add(media_id)
                     self._ingest_media(
                         conn, run_id, run_keys, storage_prefix, m.group(6), m.group(3),
                         int(m.group(4)), m.group(2),
                     )
+        conn.execute(artifacts.delete().where(
+            artifacts.c.run_id == run_id, artifacts.c.id.not_in(seen_artifacts),
+        ))
+        conn.execute(media.delete().where(media.c.run_id == run_id, media.c.id.not_in(seen_media)))
 
-    def _ingest_artifact(self, conn: Connection, run_id: UUID, artifact_id_str: str) -> None:
-        try:
-            artifact_id = UUID(artifact_id_str)
-        except ValueError:
-            return
+    def _ingest_artifact(self, conn: Connection, run_id: UUID, artifact_id: UUID) -> None:
         if not (run_row := conn.execute(runs.select().where(runs.c.id == run_id)).first()):
             return
         try:
             manifest = json.loads(
-                self._storage.read(f"{run_row.storage_key}/artifacts/{artifact_id_str}/manifest.json"),
+                self._storage.read(f"{run_row.storage_key}/artifacts/{artifact_id}/manifest.json"),
             )
         except (json.JSONDecodeError, FileNotFoundError):
             return
-        storage_prefix = f"artifacts/{artifact_id_str}"
+        storage_prefix = f"artifacts/{artifact_id}"
         metadata: dict[str, object] = {}
         metadata_key = f"{run_row.storage_key}/{storage_prefix}/artifact.json"
         if self._storage.exists(metadata_key):
@@ -293,7 +306,7 @@ class BackfillService:
                 project_id=run_row.project_id,
                 run_id=run_id,
                 step=metadata.get("step"),
-                name=metadata.get("name", artifact_id_str),
+                name=metadata.get("name", str(artifact_id)),
                 type=metadata.get("type", "dataset"),
                 storage_key=storage_prefix,
                 stored_size_bytes=None,
