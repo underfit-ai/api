@@ -57,14 +57,16 @@ class BackfillService:
         self._storage = storage
         self._engine = engine
         self._config = backfill_config
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._pending: set[str] = set()
         self._tasks: list[asyncio.Task[None]] = []
 
     async def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
         self._tasks.append(asyncio.create_task(self._scan_loop()))
         self._tasks.append(asyncio.create_task(self._process_loop()))
         if self._config.realtime:
-            self._storage.watch(self._enqueue)
+            self._storage.watch(self._watch_enqueue)
 
     async def stop(self) -> None:
         self._storage.stop_watching()
@@ -76,6 +78,10 @@ class BackfillService:
     def _enqueue(self, key: str) -> None:
         if "/" in key:
             self._pending.add(key.split("/", 1)[0])
+
+    def _watch_enqueue(self, key: str) -> None:
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._enqueue, key)
 
     def _collect_pending(self) -> set[str]:
         pending = {key.split("/", 1)[0] for key in self._storage.list_files("") if "/" in key}
@@ -363,4 +369,3 @@ class BackfillService:
             metadata=metadata.get("metadata"),
             updated_at=now,
         ))
-
