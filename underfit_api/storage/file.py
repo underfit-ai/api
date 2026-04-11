@@ -21,11 +21,15 @@ class _StorageHandler(FileSystemEventHandler):
     def on_any_event(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
-        try:
-            key = str(Path(str(event.src_path)).resolve().relative_to(self._base))
-        except ValueError:
+        for path in [getattr(event, "dest_path", None), event.src_path]:
+            if path is None:
+                continue
+            try:
+                key = str(Path(str(path)).resolve().relative_to(self._base))
+            except ValueError:
+                continue
+            self._callback(key)
             return
-        self._callback(key)
 
 
 class FileStorage:

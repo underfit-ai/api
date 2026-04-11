@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
+from watchdog.events import FileMovedEvent
 
 import underfit_api.db as db
 from underfit_api.config import BackfillConfig, FileStorageConfig, config
@@ -27,7 +28,7 @@ from underfit_api.schema import (
     users,
 )
 from underfit_api.storage.backfill import BackfillService
-from underfit_api.storage.file import FileStorage
+from underfit_api.storage.file import FileStorage, _StorageHandler
 
 
 def _service() -> tuple[BackfillService, FileStorage]:
@@ -51,14 +52,18 @@ def _write_text(storage: FileStorage, key: str, data: str) -> None:
 
 def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     storage = FileStorage(FileStorageConfig(base=str(tmp_path)))
-    callbacks: list[Callable[[str], None]] = []
-    monkeypatch.setattr(storage, "watch", callbacks.append)
-    monkeypatch.setattr(storage, "stop_watching", lambda: None)
-    service = BackfillService(
-        storage,
-        db.engine,
-        BackfillConfig(enabled=True, scan_interval_ms=3_600_000, debounce_ms=5, realtime=True),
+    callbacks: list[Callable[[FileMovedEvent], None]] = []
+    monkeypatch.setattr(
+        storage, "watch", lambda callback: callbacks.append(_StorageHandler(tmp_path, callback).on_any_event),
     )
+    monkeypatch.setattr(storage, "stop_watching", lambda: None)
+    config = BackfillConfig(enabled=True, scan_interval_ms=3_600_000, debounce_ms=5, realtime=True)
+    service = BackfillService(storage, db.engine, config)
+    initial_run_id = uuid4()
+    initial_run_dir = Path(storage.base) / str(initial_run_id)
+    (initial_run_dir / "logs" / "worker-1" / "segments").mkdir(parents=True)
+    (initial_run_dir / "run.json").write_text(json.dumps({"project": "RT", "name": "initial-run"}))
+    (initial_run_dir / "logs" / "worker-1" / "segments" / "0.log").write_text("line1\n")
 
     loop = asyncio.new_event_loop()
     try:
@@ -68,11 +73,15 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
         (run_dir / "logs" / "worker-1" / "segments").mkdir(parents=True)
         (run_dir / "run.json").write_text(json.dumps({"project": "RT", "name": "rt-run"}))
         (run_dir / "logs" / "worker-1" / "segments" / "0.log").write_text("line1\nline2\n")
-        callbacks[0](f"{run_id}/logs/worker-1/segments/0.log")
+        callbacks[0](FileMovedEvent(str(tmp_path / ".tmp"), str(run_dir / "run.json")))
         loop.run_until_complete(asyncio.sleep(0.05))
         with db.engine.begin() as conn:
+            initial_run_row = conn.execute(select(runs).where(runs.c.id == initial_run_id)).first()
             run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
-            log_row = conn.execute(select(log_segments)).first()
+            worker_row = conn.execute(select(run_workers).where(run_workers.c.run_id == run_id)).first()
+            assert worker_row is not None
+            log_row = conn.execute(select(log_segments).where(log_segments.c.worker_id == worker_row.id)).first()
+        assert initial_run_row is not None and initial_run_row.name == "initial-run"
         assert run_row is not None and run_row.name == "rt-run"
         assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
     finally:

@@ -28,8 +28,7 @@ from underfit_api.schema import (
     runs,
     scalar_segments,
 )
-from underfit_api.storage.file import FileStorage
-from underfit_api.storage.types import Storage
+from underfit_api.storage.types import Storage, WatchableStorage
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +50,8 @@ class RunMetadata(BaseModel):
 
 class BackfillService:
     def __init__(self, storage: Storage, engine: Engine, backfill_config: BackfillConfig) -> None:
-        if not isinstance(storage, FileStorage):
-            raise RuntimeError("Backfill is only supported with file storage")
         self._storage = storage
+        self._watchable = storage if isinstance(storage, WatchableStorage) else None
         self._engine = engine
         self._config = backfill_config
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -62,13 +60,16 @@ class BackfillService:
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
-        self._tasks.append(asyncio.create_task(self._scan_loop()))
         self._tasks.append(asyncio.create_task(self._process_loop()))
-        if self._config.realtime:
-            self._storage.watch(self._watch_enqueue)
+        if self._watchable is not None and self._config.realtime:
+            self._watchable.watch(self._watch_enqueue)
+            self._pending.update(await asyncio.to_thread(self._collect_pending))
+            return
+        self._tasks.append(asyncio.create_task(self._scan_loop()))
 
     async def stop(self) -> None:
-        self._storage.stop_watching()
+        if self._watchable is not None:
+            self._watchable.stop_watching()
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
