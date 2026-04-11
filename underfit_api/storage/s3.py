@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from typing import Any
@@ -163,13 +163,6 @@ class S3Storage:
             for obj in page.get("Contents", []):
                 files.append(self._relative_key(obj["Key"]))
         return sorted(files)
-
-    def watch(self, callback: Callable[[str], None]) -> None:
-        del callback
-
-    def stop_watching(self) -> None:
-        return
-
 
 def _format_dt(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).replace(tzinfo=None).isoformat() + "Z"

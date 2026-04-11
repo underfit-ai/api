@@ -57,7 +57,7 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
         storage, "watch", lambda callback: callbacks.append(_StorageHandler(tmp_path, callback).on_any_event),
     )
     monkeypatch.setattr(storage, "stop_watching", lambda: None)
-    config = BackfillConfig(enabled=True, scan_interval_ms=3_600_000, debounce_ms=5, realtime=True)
+    config = BackfillConfig(enabled=True, scan_interval_ms=5, debounce_ms=5, realtime=True)
     service = BackfillService(storage, db.engine, config)
     initial_run_id = uuid4()
     initial_run_dir = Path(storage.base) / str(initial_run_id)
@@ -74,15 +74,22 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
         (run_dir / "run.json").write_text(json.dumps({"project": "RT", "name": "rt-run"}))
         (run_dir / "logs" / "worker-1" / "segments" / "0.log").write_text("line1\nline2\n")
         callbacks[0](FileMovedEvent(str(tmp_path / ".tmp"), str(run_dir / "run.json")))
+        missed_run_id = uuid4()
+        missed_run_dir = Path(storage.base) / str(missed_run_id)
+        (missed_run_dir / "logs" / "worker-2" / "segments").mkdir(parents=True)
+        (missed_run_dir / "run.json").write_text(json.dumps({"project": "RT", "name": "missed-run"}))
+        (missed_run_dir / "logs" / "worker-2" / "segments" / "0.log").write_text("line1\n")
         loop.run_until_complete(asyncio.sleep(0.05))
         with db.engine.begin() as conn:
             initial_run_row = conn.execute(select(runs).where(runs.c.id == initial_run_id)).first()
             run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
+            missed_run_row = conn.execute(select(runs).where(runs.c.id == missed_run_id)).first()
             worker_row = conn.execute(select(run_workers).where(run_workers.c.run_id == run_id)).first()
             assert worker_row is not None
             log_row = conn.execute(select(log_segments).where(log_segments.c.worker_id == worker_row.id)).first()
         assert initial_run_row is not None and initial_run_row.name == "initial-run"
         assert run_row is not None and run_row.name == "rt-run"
+        assert missed_run_row is not None and missed_run_row.name == "missed-run"
         assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
     finally:
         loop.run_until_complete(service.stop())
@@ -162,6 +169,10 @@ def test_backfill_stops_scalar_segment_at_invalid_json() -> None:
     assert scalar_row is not None and (scalar_row.start_line, scalar_row.end_line, scalar_row.end_at.isoformat()) == (
         0, 2, "2025-01-01T00:00:01",
     )
+    _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", "{bad-json}\n")
+    _scan(service, storage)
+    with db.engine.begin() as conn:
+        assert conn.execute(select(scalar_segments)).first() is None
 
 
 def test_backfill_rejects_runs_attributed_to_org_handle() -> None:
@@ -252,7 +263,7 @@ def test_backfill_reconciles_deletions() -> None:
         assert conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first() is None
         assert conn.execute(select(media).where(media.c.run_id == run_id)).first() is None
 
-    storage.delete(f"{run_id}/run.json")
+    _write_text(storage, f"{run_id}/run.json", "{bad-json}")
     _scan(service, storage)
 
     with db.engine.begin() as conn:

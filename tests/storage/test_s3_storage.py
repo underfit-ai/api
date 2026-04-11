@@ -9,6 +9,7 @@ from moto import mock_aws
 
 from underfit_api.config import S3StorageConfig
 from underfit_api.storage.s3 import MULTIPART_PART_SIZE, S3Storage
+from underfit_api.storage.types import WatchableStorage
 
 BUCKET = "test-bucket"
 
@@ -59,3 +60,4 @@ def test_s3_storage_metadata_and_listing(storage: S3Storage) -> None:
     assert not storage.exists("dir/a.txt")
     with pytest.raises(FileNotFoundError):
         storage.read("dir/a.txt")
+    assert not isinstance(storage, WatchableStorage)

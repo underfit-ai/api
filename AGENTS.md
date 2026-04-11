@@ -2,6 +2,15 @@
 
 Underfit is an open-source model reporting dashboard for tracking experiments, metrics, and artifacts. It serves a similar role to Weights & Biases or Tensorboard, with a focus on transparent, self-hostable reporting. This repository contains the backend API, written in python + fastapi.
 
+# Hosting modes
+
+Underfit is designed to run in two different modes, and some storage/API choices are intentional because of that split.
+
+- Hosted/API mode: Underfit behaves like a normal experiment tracking service. Clients write data through the API, and the database is the source of truth for run/project/artifact metadata.
+- Local/backfill mode: Underfit behaves more like TensorBoard. The client SDK writes files directly to a logdir, then runs the API with `auth_enabled = false` and `backfill.enabled = true` so the server watches that storage and backfills the database from files.
+- Do not assume these two modes use the same storage contract. Backfill reads an external on-disk format produced for local viewing, and the normal API endpoints are not expected to write every metadata file that backfill consumes.
+- When reviewing or changing storage code, preserve this distinction. A mismatch between API-written storage and backfill-only files is not automatically a bug; first ask which mode owns that path and what the source of truth is supposed to be.
+
 # Contributing
 
 ## How to contribute

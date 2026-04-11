@@ -64,7 +64,7 @@ class BackfillService:
         if self._watchable is not None and self._config.realtime:
             self._watchable.watch(self._watch_enqueue)
             self._pending.update(await asyncio.to_thread(self._collect_pending))
-            return
+            # Keep periodic scans as a backstop in case filesystem events are missed.
         self._tasks.append(asyncio.create_task(self._scan_loop()))
 
     async def stop(self) -> None:
@@ -126,6 +126,7 @@ class BackfillService:
             conn.execute(runs.delete().where(runs.c.id == run_uuid))
             return
         if not (run_id := self._ensure_run(conn, run_uuid)):
+            conn.execute(runs.delete().where(runs.c.id == run_uuid))
             return
         run_keys = self._storage.list_files(str(run_uuid))
         self._reconcile_segments(conn, run_id, run_keys)
@@ -135,6 +136,7 @@ class BackfillService:
         try:
             metadata = RunMetadata.model_validate_json(self._storage.read(f"{run_uuid}/run.json"))
         except (ValidationError, json.JSONDecodeError, FileNotFoundError):
+            logger.warning("Skipping run %s due to invalid run.json", run_uuid)
             return None
         if not metadata.project or not metadata.user:
             return None
@@ -227,12 +229,12 @@ class BackfillService:
             rel = key[len(f"{run_id}/"):]
             if m := _LOG.match(key):
                 rwid = self._ensure_worker(conn, run_id, m.group(2))
-                self._ingest_log_segment(conn, rwid, key, rel, int(m.group(3)))
-                seen_logs.add(rel)
+                if self._ingest_log_segment(conn, rwid, key, rel, int(m.group(3))):
+                    seen_logs.add(rel)
             elif m := _SCALAR.match(key):
                 rwid = self._ensure_worker(conn, run_id, m.group(2))
-                self._ingest_scalar_segment(conn, rwid, key, rel, int(m.group(3)), int(m.group(4)))
-                seen_scalars.add(rel)
+                if self._ingest_scalar_segment(conn, rwid, key, rel, int(m.group(3)), int(m.group(4))):
+                    seen_scalars.add(rel)
         worker_ids = sa.select(run_workers.c.id).where(run_workers.c.run_id == run_id).scalar_subquery()
         conn.execute(log_segments.delete().where(
             log_segments.c.worker_id.in_(worker_ids), log_segments.c.storage_key.not_in(seen_logs),
@@ -248,27 +250,28 @@ class BackfillService:
 
     def _ingest_log_segment(
         self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str, start_line: int,
-    ) -> None:
+    ) -> bool:
         lines = self._storage.read(full_key).decode().splitlines()
         if not lines:
-            return
+            return False
         end_line = start_line + len(lines)
         existing = conn.execute(sa.select(log_segments.c.end_line).where(
             log_segments.c.worker_id == worker_id, log_segments.c.start_line == start_line,
         )).scalar()
         if existing is not None and existing >= end_line:
-            return
+            return True
         now = utcnow()
         log_seg_repo.upsert(
             conn, worker_id, start_line=start_line, end_line=end_line,
             start_at=now, end_at=now, storage_key=storage_key,
         )
         conn.execute(run_workers.update().where(run_workers.c.id == worker_id).values(last_heartbeat=now))
+        return True
 
     def _ingest_scalar_segment(
         self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str,
         resolution: int, start_line: int,
-    ) -> None:
+    ) -> bool:
         points: list[ScalarPoint] = []
         for raw_line in self._storage.read(full_key).decode().splitlines():
             if not raw_line:
@@ -276,9 +279,10 @@ class BackfillService:
             try:
                 points.append(ScalarPoint.model_validate_json(raw_line))
             except ValidationError:
+                logger.warning("Stopping scalar ingest at invalid line in %s", full_key)
                 break
         if not points:
-            return
+            return False
         end_line = start_line + len(points)
         existing = conn.execute(sa.select(scalar_segments.c.end_line).where(
             scalar_segments.c.worker_id == worker_id,
@@ -286,12 +290,13 @@ class BackfillService:
             scalar_segments.c.start_line == start_line,
         )).scalar()
         if existing is not None and existing >= end_line:
-            return
+            return True
         scalar_seg_repo.upsert(
             conn, worker_id, resolution, start_line=start_line, end_line=end_line,
             start_at=points[0].timestamp, end_at=points[-1].timestamp, storage_key=storage_key,
         )
         conn.execute(run_workers.update().where(run_workers.c.id == worker_id).values(last_heartbeat=utcnow()))
+        return True
 
     def _reconcile_assets(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
         seen_artifacts: set[UUID] = set()
@@ -302,8 +307,8 @@ class BackfillService:
                     artifact_id = UUID(m.group(2))
                 except ValueError:
                     continue
-                seen_artifacts.add(artifact_id)
-                self._ingest_artifact(conn, run_id, artifact_id)
+                if self._ingest_artifact(conn, run_id, artifact_id):
+                    seen_artifacts.add(artifact_id)
             elif m := _MEDIA.match(key):
                 storage_key = key[len(f"{run_id}/"):]
                 media_id = uuid5(run_id, storage_key)
@@ -319,15 +324,16 @@ class BackfillService:
         ))
         conn.execute(media.delete().where(media.c.run_id == run_id, media.c.id.not_in(seen_media)))
 
-    def _ingest_artifact(self, conn: Connection, run_id: UUID, artifact_id: UUID) -> None:
+    def _ingest_artifact(self, conn: Connection, run_id: UUID, artifact_id: UUID) -> bool:
         if not (run_row := conn.execute(runs.select().where(runs.c.id == run_id)).first()):
-            return
+            return False
         try:
             manifest = json.loads(
                 self._storage.read(f"{run_row.storage_key}/artifacts/{artifact_id}/manifest.json"),
             )
         except (json.JSONDecodeError, FileNotFoundError):
-            return
+            logger.warning("Skipping artifact %s for run %s due to invalid manifest.json", artifact_id, run_id)
+            return False
         storage_prefix = f"artifacts/{artifact_id}"
         metadata: dict[str, object] = {}
         metadata_key = f"{run_row.storage_key}/{storage_prefix}/artifact.json"
@@ -335,6 +341,7 @@ class BackfillService:
             try:
                 metadata = json.loads(self._storage.read(metadata_key))
             except (json.JSONDecodeError, FileNotFoundError):
+                logger.warning("Ignoring invalid artifact metadata in %s", metadata_key)
                 metadata = {}
         now = utcnow()
         if conn.execute(artifacts.select().where(artifacts.c.id == artifact_id)).first() is None:
@@ -369,3 +376,4 @@ class BackfillService:
             metadata=metadata.get("metadata"),
             updated_at=now,
         ))
+        return True
