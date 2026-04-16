@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
+import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from tests.conftest import Headers
+from underfit_api.repositories import media as media_repo
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 MEDIA_METADATA = json.dumps({"key": "val/gen/%d", "step": 200, "type": "image"})
@@ -82,3 +85,18 @@ def test_media_ingest_cleans_up_failed_upload(
             files=MEDIA_FILES,
         )
     assert storage_mod.storage.list_files(run["id"]) == []
+
+
+def test_media_ingest_conflicts_with_pending_group(client: TestClient, owner_headers: Headers) -> None:
+    project_payload = {"name": "underfit", "visibility": "private"}
+    client.post("/api/v1/accounts/owner/projects", headers=owner_headers, json=project_payload)
+    run = client.post(LAUNCH, headers=owner_headers, json={"runName": "r", "launchId": "1"}).json()
+    with db.engine.begin() as conn:
+        media_repo.create(
+            conn, UUID(run["id"]), "val/gen/%d", 200, "image", 0, "media/image/val/gen/%d_200_0.png", None,
+        )
+    response = client.post(
+        "/api/v1/ingest/media", headers={"Authorization": f"Bearer {run['workerToken']}"},
+        data={"metadata": MEDIA_METADATA}, files=[MEDIA_FILES[0]],
+    )
+    assert response.status_code == 409 and response.json()["error"] == "Media already exists for this type/key/step"

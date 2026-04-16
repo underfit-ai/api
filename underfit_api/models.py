@@ -149,6 +149,7 @@ class Media(_Base):
     type: MediaType
     index: int
     storage_key: str = Field(exclude=True)
+    finalized: bool
     metadata: dict[str, object] | None
     created_at: UTCDatetime
 

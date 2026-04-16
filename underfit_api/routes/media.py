@@ -58,29 +58,32 @@ async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: Me
         assert (run_worker := workers_repo.get_by_id(conn, worker)) is not None
         assert (run := runs_repo.get_by_id(conn, run_worker.run_id)) is not None
         key = validate_path(metadata.key)
-        if media_repo.exists_for_group(conn, run.id, metadata.type, key, metadata.step):
-            raise HTTPException(409, "Media already exists for this type/key/step")
         run_storage_key = run.storage_key
         run_id = run.id
     storage_keys: list[str] = []
     try:
-        for i, f in enumerate(files):
-            ext = mimetypes.guess_extension(f.content_type or "") or ".bin"
-            storage_key = f"media/{metadata.type.value}/{key}_{metadata.step}_{i}{ext}"
-            storage_keys.append(storage_key)
+        with db.engine.begin() as conn, as_conflict(conn, "Media already exists for this type/key/step"):
+            rows = []
+            for i, f in enumerate(files):
+                ext = mimetypes.guess_extension(f.content_type or "") or ".bin"
+                storage_key = f"media/{metadata.type.value}/{key}_{metadata.step}_{i}{ext}"
+                storage_keys.append(storage_key)
+                rows.append(media_repo.create(
+                    conn, run_id=run_id, key=key, step=metadata.step, media_type=metadata.type,
+                    index=i, storage_key=storage_key, metadata=metadata.metadata,
+                ))
+        for i, storage_key in enumerate(storage_keys):
+            f = files[i]
             async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
                 while chunk := await f.read(262144):
                     yield chunk
             await storage_mod.storage.write_stream(f"{run_storage_key}/{storage_key}", _chunks())
-        with db.engine.begin() as conn, as_conflict(conn, "Media already exists for this type/key/step"):
-            return [
-                media_repo.create(
-                    conn, run_id=run_id, key=key, step=metadata.step, media_type=metadata.type,
-                    index=i, storage_key=sk, metadata=metadata.metadata,
-                )
-                for i, sk in enumerate(storage_keys)
-            ]
+        with db.engine.begin() as conn:
+            media_repo.finalize_group(conn, run_id, metadata.type, key, metadata.step)
+        return [row.model_copy(update={"finalized": True}) for row in rows]
     except Exception:
+        with suppress(Exception), db.engine.begin() as conn:
+            media_repo.delete_group(conn, run_id, metadata.type, key, metadata.step)
         for storage_key in storage_keys:
             with suppress(Exception):
                 storage_mod.storage.delete(f"{run_storage_key}/{storage_key}")

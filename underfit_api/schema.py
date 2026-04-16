@@ -235,6 +235,7 @@ media = sa.Table(
     sa.Column("type", sa.Text, nullable=False),
     sa.Column("index", sa.Integer, nullable=False),
     sa.Column("storage_key", sa.Text, nullable=False),
+    sa.Column("finalized", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("metadata", sa.JSON),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("run_id", "storage_key"),
