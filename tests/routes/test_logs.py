@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+import underfit_api.db as db
+import underfit_api.storage as storage_mod
 from tests.conftest import Headers
+from underfit_api.buffer import log_buffer
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 
@@ -54,3 +57,19 @@ def test_log_ingest_validation(client: TestClient, owner_headers: Headers) -> No
     assert client.post("/api/v1/ingest/logs", headers=headers, json=newline_payload).status_code == 400
     assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=payload).status_code == 200
     assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=payload).status_code == 409
+
+
+def test_read_logs_from_persisted_segments(client: TestClient, owner_headers: Headers) -> None:
+    headers, logs_url = _setup_logs(client, owner_headers)
+    lines = [
+        {"timestamp": f"2025-01-01T00:00:0{i}+00:00", "content": content} for i, content in enumerate(["a", "b", "c"])
+    ]
+    assert client.post(
+        "/api/v1/ingest/logs", headers=headers, json={"start_line": 0, "lines": lines},
+    ).status_code == 200
+    with db.engine.begin() as conn:
+        log_buffer.flush_all(conn, storage_mod.storage)
+    page = client.get(f"{logs_url}/0", headers=owner_headers, params={"cursor": 1, "count": 1})
+    assert page.status_code == 200
+    assert page.json()["entries"][0]["content"] == "b"
+    assert (page.json()["nextCursor"], page.json()["hasMore"]) == (2, True)

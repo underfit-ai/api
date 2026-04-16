@@ -7,14 +7,16 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
+import underfit_api.buffer as buffer_mod
 import underfit_api.db as db
 from underfit_api.buffer import BadStartLineError, LogBuffer, LogLine, ScalarBuffer, ScalarPoint
 from underfit_api.config import FileStorageConfig, config
+from underfit_api.helpers import utcnow
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
-from underfit_api.schema import log_segments, scalar_segments
+from underfit_api.schema import log_segments, run_workers, scalar_segments
 from underfit_api.storage.file import FileStorage
 
 
@@ -81,7 +83,7 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
     assert storage.read(f"{_run_storage_key(rwid)}/{segments[1].storage_key}").decode() == "second\n"
 
 
-def test_log_buffer_persists_in_place_then_rotates_on_flush(tmp_path: Path) -> None:
+def test_log_buffer_persists_due_then_flushes_inactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     rwid = _create_worker("worker-1")
     buffer = LogBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
@@ -90,18 +92,21 @@ def test_log_buffer_persists_in_place_then_rotates_on_flush(tmp_path: Path) -> N
 
     with db.engine.begin() as conn:
         assert buffer.append(conn, rwid, 0, [LogLine(timestamp=t0, content="a")]) is None
-        buffer.persist(conn, storage, rwid)
-        assert buffer.append(conn, rwid, 1, [LogLine(timestamp=t0, content="b")]) is None
-        buffer.persist(conn, storage, rwid)
+        monkeypatch.setattr(buffer_mod, "utcnow", lambda: utcnow() + timedelta(days=1))
+        buffer.persist_due(conn, storage)
         rows = conn.execute(rows_query).all()
-        assert len(rows) == 1 and rows[0].end_line == 2
-        assert storage.read(f"{_run_storage_key(rwid)}/{rows[0].storage_key}").decode() == "a\nb\n"
+        assert len(rows) == 1 and rows[0].end_line == 1
+        assert buffer.buffer_start_line(rwid) == 0
 
-        buffer.flush(conn, storage, rwid)
+        assert buffer.append(conn, rwid, 1, [LogLine(timestamp=t0, content="b")]) is None
+        conn.execute(run_workers.update().where(run_workers.c.id == rwid).values(
+            last_heartbeat=t0 - timedelta(seconds=config.buffer.worker_timeout_s + 1),
+        ))
+        buffer.flush_inactive(conn, storage)
+
         assert buffer.buffer_start_line(rwid) is None
-        assert buffer.append(conn, rwid, 2, [LogLine(timestamp=t0, content="c")]) is None
-        buffer.flush(conn, storage, rwid)
-        assert [(r.start_line, r.end_line) for r in conn.execute(rows_query).all()] == [(0, 2), (2, 3)]
+        assert [(r.start_line, r.end_line) for r in conn.execute(rows_query).all()] == [(0, 2)]
+        assert storage.read(f"{_run_storage_key(rwid)}/{rows[0].storage_key}").decode() == "a\nb\n"
 
 
 def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:

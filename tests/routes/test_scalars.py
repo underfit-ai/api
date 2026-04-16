@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+import underfit_api.db as db
+import underfit_api.storage as storage_mod
 from tests.conftest import Headers
+from underfit_api.buffer import scalar_buffer
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 
@@ -54,3 +57,20 @@ def test_scalar_ingest_and_query_validation(client: TestClient, owner_headers: H
     assert invalid_query.status_code == 400
     missing_resolution = client.get(scalars_url, headers=owner_headers, params={"resolution": 10})
     assert missing_resolution.status_code == 404
+
+
+def test_read_scalars_from_persisted_segments(client: TestClient, owner_headers: Headers) -> None:
+    headers, scalars_url = _setup_scalars(client, owner_headers)
+    points = [
+        {"step": i, "values": {"loss": round(1.0 - i * 0.01, 4)}, "timestamp": f"2025-01-01T00:00:{i:02d}+00:00"}
+        for i in range(20)
+    ]
+    assert client.post(
+        "/api/v1/ingest/scalars", headers=headers, json={"start_line": 0, "scalars": points},
+    ).status_code == 200
+    with db.engine.begin() as conn:
+        scalar_buffer.flush_all(conn, storage_mod.storage)
+    assert len(client.get(scalars_url, headers=owner_headers).json()) == 20
+    reduced = client.get(scalars_url, headers=owner_headers, params={"maxPoints": 5}).json()
+    assert 0 < len(reduced) < 20
+    assert reduced[-1]["step"] == 19
