@@ -116,7 +116,11 @@ api = FastAPI()
 
 @api.middleware("http")
 async def block_api_writes_during_backfill(request: Request, call_next: RequestResponseEndpoint) -> Response:
-    if config.storage.backfill.enabled and request.method in WRITE_METHODS:
+    if (
+        config.storage.backfill.enabled
+        and request.method in WRITE_METHODS
+        and not request.url.path.endswith("/ui-state")
+    ):
         return JSONResponse(status_code=409, content={"error": BACKFILL_WRITE_ERROR})
     return await call_next(request)
 

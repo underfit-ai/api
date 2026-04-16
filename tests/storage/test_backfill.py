@@ -287,3 +287,20 @@ def test_backfill_reconciles_deletions(backfill_service: tuple[BackfillService, 
 
     with db.engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None
+
+
+def test_backfill_reads_ui_sidecars(backfill_service: tuple[BackfillService, Storage]) -> None:
+    service, storage = backfill_service
+    run_id = uuid4()
+
+    _write_json(storage, f"{run_id}/run.json", {"project": "vision", "name": "run-a"})
+    _write_json(storage, f"{run_id}/ui.json", {"uiState": {"layout": "grid"}, "isPinned": True, "isBaseline": True})
+    _write_json(storage, ".projects/local/vision/ui.json", {"uiState": {"charts": "all"}})
+    _scan(service)
+
+    with db.engine.begin() as conn:
+        run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
+        project_row = conn.execute(select(projects).where(projects.c.name == "vision")).first()
+    assert run_row is not None and run_row.ui_state == {"layout": "grid"} and run_row.is_pinned is True
+    assert project_row is not None
+    assert project_row.ui_state == {"charts": "all"} and project_row.baseline_run_id == run_id

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic.alias_generators import to_camel
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
@@ -13,7 +15,7 @@ from underfit_api.config import config
 from underfit_api.dependencies import Conn, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, send_email
 from underfit_api.models import OkResponse, Project, ProjectVisibility
-from underfit_api.permissions import require_account_admin
+from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
 from underfit_api.repositories import projects as projects_repo
@@ -42,6 +44,11 @@ class UpdateProjectBody(BaseModel):
 
 class RenameProjectBody(BaseModel):
     name: str = Field(pattern=NAME_PATTERN)
+
+
+class UpdateProjectUIStateBody(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    ui_state: dict[str, object]
 
 
 class InitiateTransferBody(BaseModel):
@@ -89,7 +96,9 @@ def get_project(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> 
 def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn: Conn, user: RequireUser) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
-    if not (updated := projects_repo.update(conn, project.id, body.description, body.visibility, body.metadata)):
+    if not (updated := projects_repo.update(
+        conn, project.id, description=body.description, visibility=body.visibility, metadata=body.metadata,
+    )):
         raise HTTPException(404, "Project not found")
     return updated
 
@@ -105,6 +114,22 @@ def delete_project(handle: str, project_name: str, conn: Conn, user: RequireUser
         storage_mod.delete_prefix(storage_key)
     storage_mod.delete_prefix(project.storage_key)
     return OkResponse()
+
+
+@router.put("/accounts/{handle}/projects/{project_name}/ui-state")
+def update_project_ui_state(
+    handle: str, project_name: str, body: UpdateProjectUIStateBody, conn: Conn, user: RequireUser,
+) -> Project:
+    project = resolve_project(conn, handle, project_name, user)
+    require_project_contributor(conn, project.id, user.id)
+    updated = projects_repo.update(conn, project.id, ui_state=body.ui_state)
+    assert updated is not None
+    if config.storage.backfill.enabled:
+        storage_mod.storage.write(
+            f".projects/{updated.owner}/{updated.name}/ui.json",
+            json.dumps({"uiState": updated.ui_state}).encode(),
+        )
+    return updated
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/rename")

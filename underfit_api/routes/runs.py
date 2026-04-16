@@ -9,11 +9,13 @@ from pydantic.alias_generators import to_camel
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.auth import create_worker_token
+from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict
 from underfit_api.models import OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
@@ -45,6 +47,13 @@ class UpdateTerminalStateBody(BaseModel):
 
 class UpdateSummaryBody(BaseModel):
     summary: dict[str, float]
+
+
+class UpdateRunUIStateBody(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    ui_state: dict[str, object] | None = None
+    is_pinned: bool | None = None
+    is_baseline: bool | None = None
 
 
 def _validate_json(value: dict[str, object] | None, label: str) -> None:
@@ -104,7 +113,7 @@ def update_run(
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
     _validate_json(body.metadata, "Metadata")
-    if not (updated := runs_repo.update(conn, run.id, body.metadata)):
+    if not (updated := runs_repo.update(conn, run.id, metadata=body.metadata)):
         raise HTTPException(404, "Run not found")
     return updated
 
@@ -121,11 +130,28 @@ def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, user: 
     return OkResponse()
 
 
+@router.put("/accounts/{handle}/projects/{project_name}/runs/{run_name}/ui-state")
+def update_run_ui_state(
+    handle: str, project_name: str, run_name: str, body: UpdateRunUIStateBody, conn: Conn, user: RequireUser,
+) -> Run:
+    run = resolve_run(conn, handle, project_name, run_name, user)
+    require_project_contributor(conn, run.project_id, user.id)
+    _validate_json(body.ui_state, "UI state")
+    if body.is_baseline is not None:
+        projects_repo.set_baseline_run(conn, run.project_id, run.id if body.is_baseline else None)
+    updated = runs_repo.update(conn, run.id, ui_state=body.ui_state, is_pinned=body.is_pinned)
+    assert updated is not None
+    if config.storage.backfill.enabled:
+        payload = {"uiState": updated.ui_state, "isPinned": updated.is_pinned, "isBaseline": updated.is_baseline}
+        storage_mod.storage.write(f"{updated.storage_key}/ui.json", json.dumps(payload).encode())
+    return updated
+
+
 @router.put("/runs/terminal-state")
 def update_terminal_state(body: UpdateTerminalStateBody, conn: Conn, worker_id: CurrentWorker) -> Run:
     if not (worker := workers_repo.get_by_id(conn, worker_id)):
         raise HTTPException(401, "Unauthorized")
-    if not (run := runs_repo.update_terminal_state(conn, worker.run_id, body.terminal_state.value)):
+    if not (run := runs_repo.update(conn, worker.run_id, terminal_state=body.terminal_state.value)):
         raise HTTPException(404, "Run not found")
     return run
 
@@ -134,6 +160,6 @@ def update_terminal_state(body: UpdateTerminalStateBody, conn: Conn, worker_id: 
 def update_summary(body: UpdateSummaryBody, conn: Conn, worker_id: CurrentWorker) -> Run:
     if not (worker := workers_repo.get_by_id(conn, worker_id)):
         raise HTTPException(401, "Unauthorized")
-    if not (run := runs_repo.update_summary(conn, worker.run_id, body.summary)):
+    if not (run := runs_repo.update(conn, worker.run_id, summary=body.summary)):
         raise HTTPException(404, "Run not found")
     return run

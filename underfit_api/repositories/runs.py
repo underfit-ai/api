@@ -106,23 +106,19 @@ def create(
     return result
 
 
-def update(conn: Connection, pk: UUID, metadata: dict[str, object] | None) -> Run | None:
-    values: dict[str, object] = {"updated_at": utcnow()}
-    if metadata is not None:
-        values["metadata"] = metadata
+def update(
+    conn: Connection, pk: UUID, *,
+    metadata: dict[str, object] | None = None, terminal_state: str | None = None, is_pinned: bool | None = None,
+    summary: dict[str, float] | None = None, ui_state: dict[str, object] | None = None,
+) -> Run | None:
+    values = {
+        "updated_at": utcnow(), "metadata": metadata, "terminal_state": terminal_state,
+        "summary": summary, "ui_state": ui_state, "is_pinned": is_pinned,
+    }
+    values = {k: v for k, v in values.items() if v is not None}
     conn.execute(runs.update().where(runs.c.id == pk).values(**values))
-    return get_by_id(conn, pk)
-
-
-def update_terminal_state(conn: Connection, pk: UUID, terminal_state: str) -> Run | None:
-    conn.execute(runs.update().where(runs.c.id == pk).values(terminal_state=terminal_state, updated_at=utcnow()))
     return get_by_id(conn, pk)
 
 
 def delete(conn: Connection, pk: UUID) -> None:
     conn.execute(runs.delete().where(runs.c.id == pk))
-
-
-def update_summary(conn: Connection, pk: UUID, summary: dict[str, float]) -> Run | None:
-    conn.execute(runs.update().where(runs.c.id == pk).values(summary=summary, updated_at=utcnow()))
-    return get_by_id(conn, pk)

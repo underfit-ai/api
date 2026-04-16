@@ -101,18 +101,25 @@ def create(
 
 
 def update(
-    conn: Connection, project_id: UUID, description: str | None, visibility: str | None,
-    metadata: dict[str, object] | None,
+    conn: Connection, project_id: UUID, *,
+    description: str | None = None, visibility: str | None = None,
+    metadata: dict[str, object] | None = None, ui_state: dict[str, object] | None = None,
 ) -> Project | None:
-    values: dict[str, object] = {"updated_at": utcnow()}
-    if description is not None:
-        values["description"] = description
-    if visibility is not None:
-        values["visibility"] = visibility
-    if metadata is not None:
-        values["metadata"] = metadata
+    values = {
+        'updated_at': utcnow(), 'description': description, 'visibility': visibility,
+        'metadata': metadata, 'ui_state': ui_state,
+    }
+    values = {k: v for k, v in values.items() if v is not None}
     conn.execute(projects.update().where(projects.c.id == project_id).values(**values))
     return get_by_id(conn, project_id)
+
+
+def set_baseline_run(conn: Connection, project_id: UUID, run_id: UUID | None) -> None:
+    conn.execute(projects.update().where(projects.c.id == project_id).values(
+        baseline_project_id=project_id if run_id is not None else None,
+        baseline_run_id=run_id,
+        updated_at=utcnow(),
+    ))
 
 
 def rename(conn: Connection, project_id: UUID, new_name: str) -> Project | None:

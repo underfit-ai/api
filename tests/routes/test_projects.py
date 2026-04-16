@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import cast
 
 import pytest
@@ -9,6 +10,7 @@ from httpx import Response
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from tests.conftest import CreateOrg, CreateOrgMember, CreateProject, CreateUser, Headers
+from underfit_api.config import config
 from underfit_api.repositories import projects as projects_repo
 
 BASE = "/api/v1/accounts/owner/projects"
@@ -47,6 +49,25 @@ def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
     cleared = client.put(f"{BASE}/underfit", headers=owner_headers, json={"metadata": {}})
     assert cleared.status_code == 200
     assert cleared.json()["metadata"] == {}
+
+
+def test_update_project_ui_state(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+    create_project(handle="owner", name="underfit")
+    ui_url = f"{BASE}/underfit/ui-state"
+    resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"charts": "all"}})
+    assert resp.json()["uiState"] == {"charts": "all"}
+
+    config.storage.backfill.enabled = True
+    try:
+        resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"charts": "loss"}})
+        assert resp.status_code == 200
+        assert client.put(f"{BASE}/underfit", headers=owner_headers, json={"description": "x"}).status_code == 409
+    finally:
+        config.storage.backfill.enabled = False
+
+    assert json.loads(storage_mod.storage.read(".projects/owner/underfit/ui.json")) == {
+        "uiState": {"charts": "loss"},
+    }
 
 
 def test_project_visibility_and_listing(

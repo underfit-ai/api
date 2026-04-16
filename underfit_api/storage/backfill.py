@@ -4,11 +4,12 @@ import asyncio
 import json
 import logging
 import re
-from typing import Literal
+from typing import Literal, TypeVar
 from uuid import UUID, uuid4, uuid5
 
 import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic.alias_generators import to_camel
 from sqlalchemy import Connection, Engine
 
 from underfit_api.buffer import ScalarPoint
@@ -29,6 +30,7 @@ _LOG = re.compile(r"^([^/]+)/logs/([^/]+)/segments/(\d+)\.log$")
 _SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 _ARTIFACT = re.compile(r"^([^/]+)/artifacts/([^/]+)/(manifest|artifact)\.json$")
 _MEDIA = re.compile(r"^([^/]+)/media/(image|video|audio|html)/(.+)_(-?\d+)_(\d+)(\.[^/]+)$")
+_T = TypeVar("_T", bound=BaseModel)
 
 
 class RunMetadata(BaseModel):
@@ -40,6 +42,18 @@ class RunMetadata(BaseModel):
     config: dict[str, object] | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
     summary: dict[str, float] | None = None
+
+
+class RunUISidecar(BaseModel):
+    model_config = ConfigDict(extra="ignore", alias_generator=to_camel, populate_by_name=True)
+    ui_state: dict[str, object] = Field(default_factory=dict)
+    is_pinned: bool = False
+    is_baseline: bool = False
+
+
+class ProjectUISidecar(BaseModel):
+    model_config = ConfigDict(extra="ignore", alias_generator=to_camel, populate_by_name=True)
+    ui_state: dict[str, object] = Field(default_factory=dict)
 
 
 class BackfillService:
@@ -122,12 +136,13 @@ class BackfillService:
         # Keep the last good DB state if the file exists but is temporarily unreadable.
         if not (ensured := self._ensure_run(conn, run_uuid)):
             return
-        run_id, metadata = ensured
+        run_id, project_id, metadata = ensured
         run_keys = self._storage.list_files(str(run_uuid))
         self._reconcile_segments(conn, run_id, run_keys, metadata.summary)
         self._reconcile_assets(conn, run_id, run_keys)
+        self._reconcile_project_ui(conn, project_id)
 
-    def _ensure_run(self, conn: Connection, run_uuid: UUID) -> tuple[UUID, RunMetadata] | None:
+    def _ensure_run(self, conn: Connection, run_uuid: UUID) -> tuple[UUID, UUID, RunMetadata] | None:
         try:
             metadata = RunMetadata.model_validate_json(self._storage.read(f"{run_uuid}/run.json"))
         except (ValidationError, json.JSONDecodeError, FileNotFoundError):
@@ -140,6 +155,7 @@ class BackfillService:
         if not (user_id := self._resolve_user(conn, metadata.user)):
             return None
         project_id = self._resolve_project(conn, user_id, metadata.project)
+        ui = self._load_sidecar(f"{run_uuid}/ui.json", RunUISidecar)
         if not (existing := conn.execute(runs.select().where(runs.c.id == run_uuid)).first()):
             now = utcnow()
             conn.execute(runs.insert().values(
@@ -152,8 +168,8 @@ class BackfillService:
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 metadata=metadata.metadata,
-                ui_state={},
-                is_pinned=False,
+                ui_state=ui.ui_state,
+                is_pinned=ui.is_pinned,
                 summary=metadata.summary or {},
                 created_at=now,
                 updated_at=now,
@@ -166,6 +182,8 @@ class BackfillService:
             or existing.terminal_state != metadata.terminal_state
             or existing.config != metadata.config
             or existing.metadata != metadata.metadata
+            or existing.ui_state != ui.ui_state
+            or existing.is_pinned != ui.is_pinned
         ):
             if existing.project_id != project_id:
                 conn.execute(artifacts.delete().where(artifacts.c.run_id == run_uuid))
@@ -177,9 +195,38 @@ class BackfillService:
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 metadata=metadata.metadata,
+                ui_state=ui.ui_state,
+                is_pinned=ui.is_pinned,
                 updated_at=utcnow(),
             ))
-        return run_uuid, metadata
+        current_baseline = conn.execute(
+            sa.select(projects.c.baseline_run_id).where(projects.c.id == project_id),
+        ).scalar()
+        if ui.is_baseline and current_baseline != run_uuid:
+            projects_repo.set_baseline_run(conn, project_id, run_uuid)
+        elif not ui.is_baseline and current_baseline == run_uuid:
+            projects_repo.set_baseline_run(conn, project_id, None)
+        return run_uuid, project_id, metadata
+
+    def _load_sidecar(self, key: str, cls: type[_T]) -> _T:
+        if not self._storage.exists(key):
+            return cls()
+        try:
+            return cls.model_validate_json(self._storage.read(key))
+        except (ValidationError, json.JSONDecodeError, FileNotFoundError):
+            logger.warning("Ignoring invalid sidecar at %s", key)
+            return cls()
+
+    def _reconcile_project_ui(self, conn: Connection, project_id: UUID) -> None:
+        row = conn.execute(projects.select().where(projects.c.id == project_id)).first()
+        account = accounts_repo.get_by_id(conn, row.account_id) if row else None
+        if not row or not account:
+            return
+        ui = self._load_sidecar(f".projects/{account.handle}/{row.name}/ui.json", ProjectUISidecar)
+        if row.ui_state != ui.ui_state:
+            conn.execute(projects.update().where(projects.c.id == project_id).values(
+                ui_state=ui.ui_state, updated_at=utcnow(),
+            ))
 
     def _resolve_user(self, conn: Connection, handle: str) -> UUID | None:
         if alias := accounts_repo.get_alias_by_handle(conn, handle):
@@ -255,11 +302,11 @@ class BackfillService:
             ~sa.exists().where(scalar_segments.c.worker_id == run_workers.c.id),
         ))
         if explicit_summary is not None:
-            runs_repo.update_summary(conn, run_id, explicit_summary)
+            runs_repo.update(conn, run_id, summary=explicit_summary)
         elif last_point is not None:
-            runs_repo.update_summary(conn, run_id, last_point.values)
+            runs_repo.update(conn, run_id, summary=last_point.values)
         else:
-            runs_repo.update_summary(conn, run_id, {})
+            runs_repo.update(conn, run_id, summary={})
 
     def _ingest_log_segment(
         self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str, start_line: int,
