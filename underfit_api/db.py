@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import Connection, Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import URL
 
 from underfit_api.config import MysqlDatabaseConfig, PostgresqlDatabaseConfig, SqliteDatabaseConfig, config
@@ -47,16 +46,13 @@ def build_engine() -> Engine:
     return create_engine(database_url())
 
 
-engine = build_engine()
-
-
-def ensure_local_cache_schema() -> None:
-    global engine  # noqa: PLW0603
+def ensure_local_cache_schema() -> Engine:
     if not isinstance(config.database, SqliteDatabaseConfig):
         raise RuntimeError("Local backfill mode requires a sqlite database")
+    engine = build_engine()
     with engine.connect() as conn:
         if conn.exec_driver_sql("PRAGMA user_version").scalar_one() == LOCAL_CACHE_SCHEMA_VERSION:
-            return
+            return engine
     engine.dispose()
     if config.database.path != ":memory:":
         Path(config.database.path).unlink(missing_ok=True)
@@ -64,8 +60,4 @@ def ensure_local_cache_schema() -> None:
     metadata.create_all(engine)
     with engine.begin() as conn:
         conn.exec_driver_sql(f"PRAGMA user_version = {LOCAL_CACHE_SCHEMA_VERSION}")
-
-
-def get_conn() -> Iterator[Connection]:
-    with engine.begin() as conn:
-        yield conn
+    return engine

@@ -6,9 +6,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-import underfit_api.storage as storage_mod
 from underfit_api.buffer import BadStartLineError, LogLine, log_buffer
-from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
+from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -24,7 +23,7 @@ class WriteLogsBody(BaseModel):
 
 
 @router.post("/ingest/logs")
-def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
+def write_logs(body: WriteLogsBody, conn: Conn, ctx: Ctx, worker: CurrentWorker) -> BufferedResponse:
     if not workers_repo.touch(conn, worker):
         raise HTTPException(401, "Unauthorized")
     if body.start_line < 0:
@@ -37,13 +36,13 @@ def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> Buffer
         log_buffer.append(conn, worker, body.start_line, body.lines)
     except BadStartLineError as e:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
-    log_buffer.flush_if_needed(conn, storage_mod.storage, worker)
+    log_buffer.flush_if_needed(conn, ctx.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.lines))
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs/{worker_label}")
 def read_logs(
-    handle: str, project_name: str, run_name: str, worker_label: str, conn: Conn, user: MaybeUser,
+    handle: str, project_name: str, run_name: str, worker_label: str, conn: Conn, ctx: Ctx, user: MaybeUser,
     cursor: Annotated[int, Query()] = 0,
     count: Annotated[int, Query()] = 10000,
 ) -> LogEntriesResponse:
@@ -56,7 +55,7 @@ def read_logs(
     if buf_start is not None:
         segments = [s for s in segments if s.start_line < buf_start]
     for seg in segments:
-        data = storage_mod.storage.read(f"{run.storage_key}/{seg.storage_key}")
+        data = ctx.storage.read(f"{run.storage_key}/{seg.storage_key}")
         all_lines = data.decode().splitlines()
         seg_start = max(cursor, seg.start_line)
         seg_end = min(cursor + count, seg.end_line)

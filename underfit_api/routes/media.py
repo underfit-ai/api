@@ -10,9 +10,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Json
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
-from underfit_api.dependencies import Auth, Conn, CurrentWorker, MaybeUser
+from underfit_api.dependencies import Auth, Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.helpers import as_conflict, validate_json_size, validate_path
 from underfit_api.models import Media, MediaType
 from underfit_api.repositories import media as media_repo
@@ -41,13 +39,15 @@ def _content_type_is_valid(media_type: str, content_type: str) -> bool:
 
 
 @router.post("/ingest/media")
-async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: MediaFiles) -> list[Media]:
+async def create_media(
+    worker: CurrentWorker, ctx: Ctx, metadata: MediaMetadata, files: MediaFiles,
+) -> list[Media]:
     if not files:
         raise HTTPException(400, "No files provided")
     if any(f.content_type and not _content_type_is_valid(metadata.type.value, f.content_type) for f in files):
         raise HTTPException(400, "Files must all match the declared media type")
     validate_json_size(metadata.metadata, "Metadata")
-    with db.engine.begin() as conn:
+    with ctx.engine.begin() as conn:
         if not workers_repo.touch(conn, worker):
             raise HTTPException(401, "Unauthorized")
         assert (run_worker := workers_repo.get_by_id(conn, worker)) is not None
@@ -56,7 +56,7 @@ async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: Me
         run_id = run_worker.run_id
     storage_keys: list[str] = []
     try:
-        with db.engine.begin() as conn, as_conflict(conn, "Media already exists for this type/key/step"):
+        with ctx.engine.begin() as conn, as_conflict(conn, "Media already exists for this type/key/step"):
             rows = []
             for i, f in enumerate(files):
                 ext = mimetypes.guess_extension(f.content_type or "") or ".bin"
@@ -71,16 +71,16 @@ async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: Me
             async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
                 while chunk := await f.read(262144):
                     yield chunk
-            await storage_mod.storage.write_stream(f"{run_storage_key}/{storage_key}", _chunks())
-        with db.engine.begin() as conn:
+            await ctx.storage.write_stream(f"{run_storage_key}/{storage_key}", _chunks())
+        with ctx.engine.begin() as conn:
             media_repo.finalize_group(conn, run_id, metadata.type, key, metadata.step)
         return [row.model_copy(update={"finalized": True}) for row in rows]
     except Exception:
-        with suppress(Exception), db.engine.begin() as conn:
+        with suppress(Exception), ctx.engine.begin() as conn:
             media_repo.delete_group(conn, run_id, metadata.type, key, metadata.step)
         for storage_key in storage_keys:
             with suppress(Exception):
-                storage_mod.storage.delete(f"{run_storage_key}/{storage_key}")
+                ctx.storage.delete(f"{run_storage_key}/{storage_key}")
         raise
 
 
@@ -94,14 +94,16 @@ def list_media(
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media/{media_id}/file")
-def get_media_file(handle: str, project_name: str, run_name: str, media_id: UUID, auth: Auth) -> Response:
-    with db.engine.begin() as conn:
+def get_media_file(
+    handle: str, project_name: str, run_name: str, media_id: UUID, ctx: Ctx, auth: Auth,
+) -> Response:
+    with ctx.engine.begin() as conn:
         user = auth.maybe_user(conn)
         run = resolve_run(conn, handle, project_name, run_name, user)
         record = media_repo.get_by_id(conn, media_id)
         if not record or record.run_id != run.id:
             raise HTTPException(404, "Media not found")
         key = f"{run.storage_key}/{record.storage_key}"
-    if not storage_mod.storage.exists(key):
+    if not ctx.storage.exists(key):
         raise HTTPException(404, "File not found")
-    return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")
+    return StreamingResponse(ctx.storage.read_stream(key), media_type="application/octet-stream")

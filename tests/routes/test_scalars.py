@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
 from tests.conftest import Headers
 from underfit_api.buffer import scalar_buffer
+from underfit_api.storage.types import Storage
 
 
 def test_write_and_read_scalars(client: TestClient, owner_headers: Headers, worker_headers: Headers) -> None:
@@ -55,7 +55,9 @@ def test_scalar_ingest_validation(client: TestClient, owner_headers: Headers, wo
     assert missing_resolution.status_code == 404
 
 
-def test_read_scalars_from_storage(client: TestClient, owner_headers: Headers, worker_headers: Headers) -> None:
+def test_read_scalars_from_storage(
+    client: TestClient, owner_headers: Headers, worker_headers: Headers, engine: Engine, storage: Storage,
+) -> None:
     scalars_url = "/api/v1/accounts/owner/projects/underfit/runs/r/scalars"
     points = [
         {"step": i, "values": {"loss": round(1.0 - i * 0.01, 4)}, "timestamp": f"2025-01-01T00:00:{i:02d}+00:00"}
@@ -64,8 +66,8 @@ def test_read_scalars_from_storage(client: TestClient, owner_headers: Headers, w
     assert client.post(
         "/api/v1/ingest/scalars", headers=worker_headers, json={"start_line": 0, "scalars": points},
     ).status_code == 200
-    with db.engine.begin() as conn:
-        scalar_buffer.flush_all(conn, storage_mod.storage)
+    with engine.begin() as conn:
+        scalar_buffer.flush_all(conn, storage)
     assert client.get(scalars_url, headers=owner_headers).json()["pointCount"] == 20
     reduced = client.get(scalars_url, headers=owner_headers, params={"resolution": 10}).json()
     assert reduced["resolution"] == 10

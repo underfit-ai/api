@@ -1,23 +1,44 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import Cookie, Depends, Header, HTTPException
-from sqlalchemy import Connection
+from fastapi import Cookie, Depends, Header, HTTPException, Request
+from sqlalchemy import Connection, Engine
 
 from underfit_api.auth import hash_token, verify_signed_token
 from underfit_api.config import config
-from underfit_api.db import get_conn
 from underfit_api.models import User
 from underfit_api.repositories import api_keys as api_keys_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
+from underfit_api.storage.types import Storage
 
-Conn = Annotated[Connection, Depends(get_conn)]
 AuthorizationHeader = Annotated[Optional[str], Header()]
 SessionTokenCookie = Annotated[Optional[str], Cookie()]
+
+
+@dataclass(frozen=True)
+class AppContext:
+    engine: Engine
+    storage: Storage
+
+
+def get_ctx(request: Request) -> AppContext:
+    return request.app.state.ctx
+
+
+Ctx = Annotated[AppContext, Depends(get_ctx)]
+
+
+def get_conn(ctx: Ctx) -> Iterator[Connection]:
+    with ctx.engine.begin() as conn:
+        yield conn
+
+
+Conn = Annotated[Connection, Depends(get_conn)]
 
 
 def _authenticate(conn: Connection, authorization: str | None, session_token: str | None) -> User | None:

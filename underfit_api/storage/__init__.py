@@ -18,7 +18,7 @@ def build_storage() -> Storage:
     raise ValueError(f"Unsupported storage type: {config.storage.type}")
 
 
-def delete_prefix(prefix: str) -> None:
+def delete_prefix(storage: Storage, prefix: str) -> None:
     # NOTE: Deletion is DB-authoritative, partially-deleted artifacts aren't acceptible so we always
     # delete from the DB first and make storage cleanup best-effort. We can always garbage-collect
     # orphaned files if necessary.
@@ -34,6 +34,4 @@ def delete_prefix(prefix: str) -> None:
             logger.exception("Failed to delete storage key: %s", key)
 
 
-storage = build_storage()
-
-__all__ = ["DirEntry", "FileStat", "Storage", "build_storage", "delete_prefix", "storage"]
+__all__ = ["DirEntry", "FileStat", "Storage", "build_storage", "delete_prefix"]

@@ -6,11 +6,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
 from underfit_api.auth import create_worker_token
 from underfit_api.config import config
-from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser, RequireUser
+from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, validate_json_size
 from underfit_api.models import OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
@@ -19,6 +17,7 @@ from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_project, resolve_run
+from underfit_api.storage import delete_prefix
 
 router = APIRouter()
 
@@ -108,19 +107,22 @@ def update_run(
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
-def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, user: RequireUser) -> OkResponse:
+def delete_run(
+    handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: RequireUser,
+) -> OkResponse:
     run = resolve_run(conn, handle, project_name, run_name, user)
     if run.user != user.handle:
         require_account_admin(conn, run.project_owner_id, run.project_owner_type, user.id)
-    with db.engine.begin() as write_conn:
+    with ctx.engine.begin() as write_conn:
         runs_repo.delete(write_conn, run.id)
-    storage_mod.delete_prefix(run.storage_key)
+    delete_prefix(ctx.storage, run.storage_key)
     return OkResponse()
 
 
 @router.put("/accounts/{handle}/projects/{project_name}/runs/{run_name}/ui-state")
 def update_run_ui_state(
-    handle: str, project_name: str, run_name: str, body: UpdateRunUIStateBody, conn: Conn, user: RequireUser,
+    handle: str, project_name: str, run_name: str, body: UpdateRunUIStateBody,
+    conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Run:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
@@ -130,7 +132,7 @@ def update_run_ui_state(
     updated = runs_repo.update(conn, run.id, ui_state=body.ui_state, is_pinned=body.is_pinned)
     if config.storage.backfill.enabled:
         payload = {"uiState": updated.ui_state, "isPinned": updated.is_pinned, "isBaseline": updated.is_baseline}
-        storage_mod.storage.write(f"{updated.storage_key}/ui.json", json.dumps(payload).encode())
+        ctx.storage.write(f"{updated.storage_key}/ui.json", json.dumps(payload).encode())
     return updated
 
 

@@ -8,9 +8,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-import underfit_api.storage as storage_mod
 from underfit_api.buffer import BadStartLineError, BadStepError, ScalarPoint, get_scalar_resolutions, scalar_buffer
-from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
+from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, Scalar, ScalarSeriesResponse, Worker
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
@@ -40,7 +39,7 @@ def _select_resolution(counts: dict[int, int], target_points: int) -> int:
 
 
 @router.post("/ingest/scalars")
-def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
+def write_scalars(body: WriteScalarsBody, conn: Conn, ctx: Ctx, worker: CurrentWorker) -> BufferedResponse:
     if not workers_repo.touch(conn, worker):
         raise HTTPException(401, "Unauthorized")
     if body.start_line < 0:
@@ -53,13 +52,13 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> 
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
     except BadStepError as e:
         raise HTTPException(409, detail={"error": "Step must be strictly increasing", "lastStep": e.expected}) from e
-    scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker)
+    scalar_buffer.flush_if_needed(conn, ctx.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.scalars))
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
 def read_scalars(
-    handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser,
+    handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: MaybeUser,
     resolution: Annotated[int | None, Query(gt=0)] = None,
     target_points: Annotated[int | None, Query(alias="targetPoints", gt=0)] = None,
 ) -> ScalarSeriesResponse:
@@ -81,7 +80,7 @@ def read_scalars(
         if buf_start is not None:
             segments = [s for s in segments if s.start_line < buf_start]
         for seg in segments:
-            data = storage_mod.storage.read(f"{run.storage_key}/{seg.storage_key}")
+            data = ctx.storage.read(f"{run.storage_key}/{seg.storage_key}")
             for line in data.decode().splitlines():
                 if line:
                     parsed = json.loads(line)

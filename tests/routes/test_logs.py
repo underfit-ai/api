@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
 from tests.conftest import Headers
 from underfit_api.buffer import log_buffer
+from underfit_api.storage.types import Storage
 
 INGEST = "/api/v1/ingest/logs"
 
@@ -43,14 +43,16 @@ def test_log_ingest_validation(client: TestClient, owner_headers: Headers, worke
     assert client.post(INGEST, headers=worker_headers, json=payload).status_code == 409
 
 
-def test_read_logs_from_storage(client: TestClient, owner_headers: Headers, worker_headers: Headers) -> None:
+def test_read_logs_from_storage(
+    client: TestClient, owner_headers: Headers, worker_headers: Headers, engine: Engine, storage: Storage,
+) -> None:
     logs_url = "/api/v1/accounts/owner/projects/underfit/runs/r/logs/0"
     lines = [
         {"timestamp": f"2025-01-01T00:00:0{i}+00:00", "content": content} for i, content in enumerate(["a", "b", "c"])
     ]
     assert client.post(INGEST, headers=worker_headers, json={"start_line": 0, "lines": lines}).status_code == 200
-    with db.engine.begin() as conn:
-        log_buffer.flush_all(conn, storage_mod.storage)
+    with engine.begin() as conn:
+        log_buffer.flush_all(conn, storage)
     page = client.get(logs_url, headers=owner_headers, params={"cursor": 1, "count": 1})
     assert page.status_code == 200
     assert page.json()["entries"][0]["content"] == "b"

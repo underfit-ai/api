@@ -9,9 +9,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
-from underfit_api.dependencies import Auth, Conn, MaybeUser, RequireUser
+from underfit_api.dependencies import Auth, Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import validate_json_size, validate_path
 from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
@@ -19,6 +17,7 @@ from underfit_api.repositories import artifacts as artifacts_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.routes.resolvers import resolve_artifact, resolve_project, resolve_run
+from underfit_api.storage.types import Storage
 
 router = APIRouter()
 
@@ -55,9 +54,10 @@ class ZipEntry(BaseModel):
 
 
 class _ZipStorageFile:
-    def __init__(self, key: str) -> None:
+    def __init__(self, storage: Storage, key: str) -> None:
+        self._storage = storage
         self._key = key
-        self._size = storage_mod.storage.size(key)
+        self._size = storage.size(key)
         self._pos = 0
 
     def seek(self, offset: int, whence: int = 0) -> int:
@@ -73,7 +73,7 @@ class _ZipStorageFile:
         count = remaining if n < 0 else min(n, remaining)
         if count <= 0:
             return b""
-        data = storage_mod.storage.read(self._key, self._pos, count)
+        data = self._storage.read(self._key, self._pos, count)
         self._pos += len(data)
         return data
 
@@ -81,13 +81,13 @@ class _ZipStorageFile:
         return True
 
 
-def _open_zip(artifact_id: UUID, zip_path: str, conn: Conn, user: MaybeUser) -> ZipFile:
+def _open_zip(artifact_id: UUID, zip_path: str, conn: Conn, storage: Storage, user: MaybeUser) -> ZipFile:
     artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
     key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(zip_path)}"
-    if not storage_mod.storage.exists(key):
+    if not storage.exists(key):
         raise HTTPException(404, "File not found")
     try:
-        return ZipFile(_ZipStorageFile(key))
+        return ZipFile(_ZipStorageFile(storage, key))
     except BadZipFile as e:
         raise HTTPException(400, "Not a zip file") from e
 
@@ -146,8 +146,8 @@ def get_artifact(artifact_id: UUID, conn: Conn, user: MaybeUser) -> Artifact:
 
 
 @router.put("/artifacts/{artifact_id}/files/{file_path:path}")
-async def upload_file(artifact_id: UUID, file_path: str, request: Request, auth: Auth) -> Artifact:
-    with db.engine.begin() as conn:
+async def upload_file(artifact_id: UUID, file_path: str, request: Request, ctx: Ctx, auth: Auth) -> Artifact:
+    with ctx.engine.begin() as conn:
         user = auth.require_user(conn)
         artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         require_project_contributor(conn, artifact.project_id, user.id)
@@ -155,22 +155,22 @@ async def upload_file(artifact_id: UUID, file_path: str, request: Request, auth:
             raise HTTPException(409, "Artifact is finalized")
         key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
     try:
-        await storage_mod.storage.write_stream(key, request.stream())
+        await ctx.storage.write_stream(key, request.stream())
     except Exception:
         with suppress(Exception):
-            storage_mod.storage.delete(key)
+            ctx.storage.delete(key)
         raise
     finally:
-        with suppress(Exception), db.engine.begin() as conn:
+        with suppress(Exception), ctx.engine.begin() as conn:
             artifacts_repo.finish_upload(conn, artifact.id)
     return artifact
 
 
 @router.head("/artifacts/{artifact_id}/files/{file_path:path}")
-def head_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) -> Response:
+def head_file(artifact_id: UUID, file_path: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> Response:
     artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
     try:
-        stat = storage_mod.storage.stat(f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}")
+        stat = ctx.storage.stat(f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}")
     except FileNotFoundError as e:
         raise HTTPException(404, "File not found") from e
     headers = {"Content-Length": str(stat.size)}
@@ -182,49 +182,51 @@ def head_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) ->
 
 
 @router.get("/artifacts/{artifact_id}/files/{file_path:path}")
-def download_file(artifact_id: UUID, file_path: str, auth: Auth) -> Response:
-    with db.engine.begin() as conn:
+def download_file(artifact_id: UUID, file_path: str, ctx: Ctx, auth: Auth) -> Response:
+    with ctx.engine.begin() as conn:
         user = auth.maybe_user(conn)
         artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
-    if not storage_mod.storage.exists(key):
+    if not ctx.storage.exists(key):
         raise HTTPException(404, "File not found")
-    return StreamingResponse(storage_mod.storage.read_stream(key), media_type="application/octet-stream")
+    return StreamingResponse(ctx.storage.read_stream(key), media_type="application/octet-stream")
 
 
 @router.delete("/artifacts/{artifact_id}/files/{file_path:path}")
-def delete_file(artifact_id: UUID, file_path: str, conn: Conn, user: RequireUser) -> Artifact:
+def delete_file(artifact_id: UUID, file_path: str, conn: Conn, ctx: Ctx, user: RequireUser) -> Artifact:
     artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
     require_project_contributor(conn, artifact.project_id, user.id)
     if artifact.finalized_at is not None:
         raise HTTPException(409, "Artifact is finalized")
     try:
-        storage_mod.storage.delete(f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}")
+        ctx.storage.delete(f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}")
     except FileNotFoundError as e:
         raise HTTPException(404, "File not found") from e
     return artifact
 
 
 @router.get("/artifacts/{artifact_id}/zip/entries/{zip_path:path}", response_model=list[ZipEntry])
-def list_zip_entries(artifact_id: UUID, zip_path: str, conn: Conn, user: MaybeUser) -> list[ZipEntry]:
+def list_zip_entries(artifact_id: UUID, zip_path: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> list[ZipEntry]:
     return [
         ZipEntry(path=info.filename, size=info.file_size, compressed_size=info.compress_size)
-        for info in _open_zip(artifact_id, zip_path, conn, user).infolist() if not info.is_dir()
+        for info in _open_zip(artifact_id, zip_path, conn, ctx.storage, user).infolist() if not info.is_dir()
     ]
 
 
 @router.get("/artifacts/{artifact_id}/zip/entry/{zip_path:path}")
-def read_zip_entry(artifact_id: UUID, zip_path: str, entry: str, conn: Conn, user: MaybeUser) -> Response:
+def read_zip_entry(
+    artifact_id: UUID, zip_path: str, entry: str, conn: Conn, ctx: Ctx, user: MaybeUser,
+) -> Response:
     try:
-        content = _open_zip(artifact_id, zip_path, conn, user).read(entry)
+        content = _open_zip(artifact_id, zip_path, conn, ctx.storage, user).read(entry)
         return Response(content=content, media_type="application/octet-stream")
     except KeyError as e:
         raise HTTPException(404, "Entry not found") from e
 
 
 @router.post("/artifacts/{artifact_id}/finalize")
-def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, auth: Auth) -> OkResponse:
-    with db.engine.begin() as conn:
+def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, ctx: Ctx, auth: Auth) -> OkResponse:
+    with ctx.engine.begin() as conn:
         user = auth.require_user(conn)
         artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         require_project_contributor(conn, artifact.project_id, user.id)
@@ -238,18 +240,18 @@ def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, auth: Auth)
         refs = list({ref.url: ref for ref in body.manifest.references}.values())
         declared_paths = set(files)
         files_prefix = f"{artifact_prefix}/files"
-        uploaded_paths = {path[len(files_prefix) + 1:] for path in storage_mod.storage.list_files(files_prefix)}
+        uploaded_paths = {path[len(files_prefix) + 1:] for path in ctx.storage.list_files(files_prefix)}
         missing = sorted(declared_paths - uploaded_paths)
         extra = sorted(uploaded_paths - declared_paths)
         if missing or extra:
             raise HTTPException(409, {"missing": missing, "extra": extra})
-        stored_size_bytes = sum(storage_mod.storage.size(f"{files_prefix}/{path}") for path in uploaded_paths)
+        stored_size_bytes = sum(ctx.storage.size(f"{files_prefix}/{path}") for path in uploaded_paths)
         manifest = Manifest(files=files, references=refs)
-        storage_mod.storage.write(f"{artifact_prefix}/manifest.json", manifest.model_dump_json().encode())
-        with db.engine.begin() as write_conn:
+        ctx.storage.write(f"{artifact_prefix}/manifest.json", manifest.model_dump_json().encode())
+        with ctx.engine.begin() as write_conn:
             artifacts_repo.finalize(write_conn, artifact.id, stored_size_bytes)
     except Exception:
-        with suppress(Exception), db.engine.begin() as write_conn:
+        with suppress(Exception), ctx.engine.begin() as write_conn:
             artifacts_repo.cancel_finalize(write_conn, artifact.id)
         raise
     return OkResponse()

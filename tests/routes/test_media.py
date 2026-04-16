@@ -5,8 +5,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-import underfit_api.storage as storage_mod
 from tests.conftest import Headers
+from underfit_api.storage.types import Storage
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 INGEST = "/api/v1/ingest/media"
@@ -51,14 +51,15 @@ def test_media_ingest_rejects_mixed_types(client: TestClient, worker_headers: He
 
 
 def test_media_ingest_cleans_up_failed_upload(
-    client: TestClient, owner_headers: Headers, worker_headers: Headers, monkeypatch: pytest.MonkeyPatch,
+    client: TestClient, owner_headers: Headers, worker_headers: Headers,
+    storage: Storage, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fail_write_stream(key: str, stream: object) -> int:
-        storage_mod.storage.write(key, b"partial")
+        storage.write(key, b"partial")
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(storage_mod.storage, "write_stream", fail_write_stream)
+    monkeypatch.setattr(storage, "write_stream", fail_write_stream)
     run = client.get("/api/v1/accounts/owner/projects/underfit/runs/r", headers=owner_headers).json()
     with pytest.raises(RuntimeError, match="boom"):
         client.post(INGEST, headers=worker_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
-    assert storage_mod.storage.list_files(run["id"]) == []
+    assert storage.list_files(run["id"]) == []

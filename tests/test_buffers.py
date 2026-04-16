@@ -5,10 +5,9 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import Engine, select
 
 import underfit_api.buffer as buffer_mod
-import underfit_api.db as db
 from underfit_api.buffer import BadStartLineError, LogBuffer, LogLine, ScalarBuffer, ScalarPoint
 from underfit_api.config import FileStorageConfig, config
 from underfit_api.helpers import utcnow
@@ -20,8 +19,8 @@ from underfit_api.schema import log_segments, run_workers, scalar_segments
 from underfit_api.storage.file import FileStorage
 
 
-def _create_worker(worker_label: str = "0") -> UUID:
-    with db.engine.begin() as conn:
+def _create_worker(engine: Engine, worker_label: str = "0") -> UUID:
+    with engine.begin() as conn:
         user = users_repo.create(conn, email="owner@example.com", handle="owner", name="Owner")
         project = projects_repo.create(conn, user.id, "underfit", None, "private", {})
         run = runs_repo.create(conn, project.id, user.id, "test-launch-id", "test-run", None, {})
@@ -29,8 +28,8 @@ def _create_worker(worker_label: str = "0") -> UUID:
         return worker.id
 
 
-def _run_storage_key(worker_id: UUID) -> str:
-    with db.engine.begin() as conn:
+def _run_storage_key(engine: Engine, worker_id: UUID) -> str:
+    with engine.begin() as conn:
         worker = workers_repo.get_by_id(conn, worker_id)
         assert worker is not None
         run = runs_repo.get_by_id(conn, worker.run_id)
@@ -38,12 +37,12 @@ def _run_storage_key(worker_id: UUID) -> str:
         return run.storage_key
 
 
-def test_log_buffer_slices_by_cursor() -> None:
-    rwid = _create_worker("worker-1")
+def test_log_buffer_slices_by_cursor(engine: Engine) -> None:
+    rwid = _create_worker(engine, "worker-1")
     buffer = LogBuffer()
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         buffer.append(conn, rwid, 0, [
             LogLine(timestamp=t0, content="a"),
             LogLine(timestamp=t0 + timedelta(seconds=1), content="b"),
@@ -56,13 +55,13 @@ def test_log_buffer_slices_by_cursor() -> None:
         assert exc_info.value.expected == 2
 
 
-def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -> None:
-    rwid = _create_worker("worker-1")
+def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(engine: Engine, tmp_path: Path) -> None:
+    rwid = _create_worker(engine, "worker-1")
     buffer = LogBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         assert buffer.append(conn, rwid, 0, [LogLine(timestamp=t0, content="first")]) is None
         buffer.flush(conn, storage, rwid)
         assert buffer.append(conn, rwid, 1, [LogLine(timestamp=t0, content="second")]) is None
@@ -75,18 +74,20 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
         ).all()
 
     assert [(s.start_line, s.end_line) for s in segments] == [(0, 1), (1, 2)]
-    assert storage.read(f"{_run_storage_key(rwid)}/{segments[0].storage_key}").decode() == "first\n"
-    assert storage.read(f"{_run_storage_key(rwid)}/{segments[1].storage_key}").decode() == "second\n"
+    assert storage.read(f"{_run_storage_key(engine, rwid)}/{segments[0].storage_key}").decode() == "first\n"
+    assert storage.read(f"{_run_storage_key(engine, rwid)}/{segments[1].storage_key}").decode() == "second\n"
 
 
-def test_log_buffer_persists_due_then_flushes_inactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    rwid = _create_worker("worker-1")
+def test_log_buffer_persists_due_then_flushes_inactive(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rwid = _create_worker(engine, "worker-1")
     buffer = LogBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
     rows_query = select(log_segments).where(log_segments.c.worker_id == rwid).order_by(log_segments.c.start_line)
 
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         assert buffer.append(conn, rwid, 0, [LogLine(timestamp=t0, content="a")]) is None
         monkeypatch.setattr(buffer_mod, "utcnow", lambda: utcnow() + timedelta(days=1))
         buffer.persist_due(conn, storage)
@@ -102,35 +103,35 @@ def test_log_buffer_persists_due_then_flushes_inactive(tmp_path: Path, monkeypat
 
         assert buffer.buffer_start_line(rwid) is None
         assert [(r.start_line, r.end_line) for r in conn.execute(rows_query).all()] == [(0, 2)]
-        assert storage.read(f"{_run_storage_key(rwid)}/{rows[0].storage_key}").decode() == "a\nb\n"
+        assert storage.read(f"{_run_storage_key(engine, rwid)}/{rows[0].storage_key}").decode() == "a\nb\n"
 
 
-def test_log_buffer_flush_if_needed_uses_byte_threshold(tmp_path: Path) -> None:
-    rwid = _create_worker("worker-1")
+def test_log_buffer_flush_if_needed_uses_byte_threshold(engine: Engine, tmp_path: Path) -> None:
+    rwid = _create_worker(engine, "worker-1")
     buffer = LogBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     original = config.buffer.max_segment_bytes
     config.buffer.max_segment_bytes = 5
 
     try:
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             assert buffer.append(conn, rwid, 0, [
                 LogLine(timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc), content="abcd"),
             ]) is None
             buffer.flush_if_needed(conn, storage, rwid)
             segments = conn.execute(select(log_segments).where(log_segments.c.worker_id == rwid)).all()
         assert len(segments) == 1
-        assert storage.read(f"{_run_storage_key(rwid)}/{segments[0].storage_key}").decode() == "abcd\n"
+        assert storage.read(f"{_run_storage_key(engine, rwid)}/{segments[0].storage_key}").decode() == "abcd\n"
     finally:
         config.buffer.max_segment_bytes = original
 
 
-def test_scalar_buffer_builds_resolution_tiers() -> None:
-    rwid = _create_worker()
+def test_scalar_buffer_builds_resolution_tiers(engine: Engine) -> None:
+    rwid = _create_worker(engine)
     buffer = ScalarBuffer()
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         points = [
             ScalarPoint(step=i, values={"loss": float(i + 1)}, timestamp=t0 + timedelta(seconds=i))
             for i in range(10)
@@ -144,8 +145,8 @@ def test_scalar_buffer_builds_resolution_tiers() -> None:
         assert buffer.resolution_line_count(conn, rwid, 10) == 1
 
 
-def test_scalar_buffer_persists_all_resolutions_in_place(tmp_path: Path) -> None:
-    rwid = _create_worker()
+def test_scalar_buffer_persists_all_resolutions_in_place(engine: Engine, tmp_path: Path) -> None:
+    rwid = _create_worker(engine)
     buffer = ScalarBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     original = config.buffer.scalar_resolutions
@@ -154,7 +155,7 @@ def test_scalar_buffer_persists_all_resolutions_in_place(tmp_path: Path) -> None
     points = [ScalarPoint(step=i, values={"loss": float(i)}, timestamp=t0) for i in range(4)]
     rows_query = select(scalar_segments).where(scalar_segments.c.worker_id == rwid)
     try:
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             assert buffer.append(conn, rwid, 0, points[:2]) is None
             buffer.persist(conn, storage, rwid)
             r2_id = next(r.id for r in conn.execute(rows_query).all() if r.resolution == 2)
@@ -166,8 +167,10 @@ def test_scalar_buffer_persists_all_resolutions_in_place(tmp_path: Path) -> None
         config.buffer.scalar_resolutions = original
 
 
-def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(tmp_path: Path) -> None:
-    rwid = _create_worker()
+def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
+    engine: Engine, tmp_path: Path,
+) -> None:
+    rwid = _create_worker(engine)
     buffer = ScalarBuffer()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     original = config.buffer.max_segment_bytes, config.buffer.scalar_resolutions
@@ -175,7 +178,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
     config.buffer.scalar_resolutions = [2]
 
     try:
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             assert buffer.append(conn, rwid, 0, [
                 ScalarPoint(
                     step=0,

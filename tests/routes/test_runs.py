@@ -7,21 +7,24 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
+import underfit_api.routes.runs as runs_route
 from tests.conftest import AddCollaborator, CreateOrg, CreateOrgMember, CreateProject, Headers
 from underfit_api.auth import verify_signed_token
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.schema import projects, run_workers, runs
+from underfit_api.storage.types import Storage
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 RUNS = "/api/v1/accounts/owner/projects/underfit/runs"
 
 
-def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+def test_launch_lifecycle(
+    client: TestClient, owner_headers: Headers, create_project: CreateProject, engine: Engine,
+) -> None:
     create_project(handle="owner", name="underfit")
 
     run = client.post(LAUNCH, headers=owner_headers, json={
@@ -53,7 +56,7 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert cleared.status_code == 200
     assert cleared.json()["metadata"] == {}
 
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         conn.execute(run_workers.update().values(last_heartbeat=utcnow() - timedelta(seconds=16)))
     assert client.get(f"{RUNS}/{run['name']}", headers=owner_headers).json()["isActive"] is False
 
@@ -79,10 +82,12 @@ def test_launch_join_and_retry(client: TestClient, owner_headers: Headers, creat
     assert {w["workerLabel"] for w in workers} == {"0", "1"}
 
 
-def test_launch_rejects_stale_run(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+def test_launch_rejects_stale_run(
+    client: TestClient, owner_headers: Headers, create_project: CreateProject, engine: Engine,
+) -> None:
     create_project(handle="owner", name="underfit")
     client.post(LAUNCH, headers=owner_headers, json={"runName": "my-run", "launchId": "abc-123", "workerLabel": "0"})
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         conn.execute(run_workers.update().values(last_heartbeat=utcnow() - timedelta(seconds=16)))
     body = {"runName": "new", "launchId": "abc-123", "workerLabel": "1"}
     resp = client.post(LAUNCH, headers=owner_headers, json=body)
@@ -127,12 +132,14 @@ def test_list_user_runs_visibility(
     assert [run["name"] for run in public_runs] == ["public"]
 
 
-def test_list_project_runs_ordering(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+def test_list_project_runs_ordering(
+    client: TestClient, owner_headers: Headers, create_project: CreateProject, engine: Engine,
+) -> None:
     project = create_project(handle="owner", name="underfit")
     client.post(LAUNCH, headers=owner_headers, json={"runName": "newest", "launchId": "1"})
     pinned = client.post(LAUNCH, headers=owner_headers, json={"runName": "pinned", "launchId": "2"}).json()
     baseline = client.post(LAUNCH, headers=owner_headers, json={"runName": "baseline", "launchId": "3"}).json()
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         conn.execute(runs.update().where(runs.c.id == UUID(cast(str, pinned["id"]))).values(is_pinned=True))
         conn.execute(projects.update().where(projects.c.id == project.id).values(
             baseline_project_id=project.id,
@@ -143,7 +150,9 @@ def test_list_project_runs_ordering(client: TestClient, owner_headers: Headers, 
     assert runs_list[0]["isBaseline"] is True and runs_list[1]["isPinned"] is True
 
 
-def test_update_run_ui_state(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+def test_update_run_ui_state(
+    client: TestClient, owner_headers: Headers, create_project: CreateProject, storage: Storage,
+) -> None:
     create_project(handle="owner", name="underfit")
     run = client.post(LAUNCH, headers=owner_headers, json={"runName": "r", "launchId": "1"}).json()
     ui_url = f"{RUNS}/{run['name']}/ui-state"
@@ -167,7 +176,7 @@ def test_update_run_ui_state(client: TestClient, owner_headers: Headers, create_
     finally:
         config.storage.backfill.enabled = False
 
-    assert json.loads(storage_mod.storage.read(f"{run['id']}/ui.json")) == {
+    assert json.loads(storage.read(f"{run['id']}/ui.json")) == {
         "uiState": {"layout": "list"}, "isPinned": True, "isBaseline": True,
     }
 
@@ -175,22 +184,22 @@ def test_update_run_ui_state(client: TestClient, owner_headers: Headers, create_
 def test_delete_run(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
     add_collaborator: AddCollaborator, create_org: CreateOrg, create_org_member: CreateOrgMember,
-    monkeypatch: pytest.MonkeyPatch,
+    engine: Engine, storage: Storage, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     create_project(handle="owner", name="underfit")
     add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
     run = client.post(LAUNCH, headers=outsider_headers, json={"runName": "mine", "launchId": "mine"}).json()
-    storage_mod.storage.write(f"{run['id']}/logs/1.txt", b"log")
-    delete_prefix = storage_mod.delete_prefix
+    storage.write(f"{run['id']}/logs/1.txt", b"log")
+    delete_prefix = runs_route.delete_prefix
 
-    def _delete_prefix(prefix: str) -> None:
-        with db.engine.begin() as conn:
+    def _delete_prefix(s: Storage, prefix: str) -> None:
+        with engine.begin() as conn:
             assert runs_repo.get_by_id(conn, UUID(cast(str, run["id"]))) is None
-        delete_prefix(prefix)
+        delete_prefix(s, prefix)
 
-    monkeypatch.setattr(storage_mod, "delete_prefix", _delete_prefix)
+    monkeypatch.setattr(runs_route, "delete_prefix", _delete_prefix)
     assert client.delete(f"{RUNS}/{run['name']}", headers=outsider_headers).status_code == 200
-    assert not storage_mod.storage.exists(f"{run['id']}/logs/1.txt")
+    assert not storage.exists(f"{run['id']}/logs/1.txt")
 
     org = create_org(owner_headers)
     admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
@@ -198,7 +207,7 @@ def test_delete_run(
     project_base = "/api/v1/accounts/core/projects/secret"
     payload = {"runName": "org-run", "launchId": "org-run"}
     org_run = client.post(f"{project_base}/runs/launch", headers=owner_headers, json=payload).json()
-    storage_mod.storage.write(f"{org_run['id']}/media/0", b"media")
+    storage.write(f"{org_run['id']}/media/0", b"media")
     assert client.delete(f"{project_base}/runs/org-run", headers=outsider_headers).status_code == 403
     assert client.delete(f"{project_base}/runs/org-run", headers=admin_headers).status_code == 200
-    assert not storage_mod.storage.exists(f"{org_run['id']}/media/0")
+    assert not storage.exists(f"{org_run['id']}/media/0")

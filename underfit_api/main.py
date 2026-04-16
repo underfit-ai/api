@@ -14,11 +14,11 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
 from underfit_api.auth import get_app_secret
 from underfit_api.buffer import log_buffer, scalar_buffer
 from underfit_api.config import config
+from underfit_api.db import build_engine, ensure_local_cache_schema
+from underfit_api.dependencies import AppContext
 from underfit_api.models import HealthResponse
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import users as users_repo
@@ -39,6 +39,7 @@ from underfit_api.routes.run_workers import router as workers_router
 from underfit_api.routes.runs import router as runs_router
 from underfit_api.routes.scalars import router as scalars_router
 from underfit_api.routes.users import router as users_router
+from underfit_api.storage import build_storage
 from underfit_api.storage.backfill import BackfillService
 
 logger = logging.getLogger(__name__)
@@ -46,21 +47,21 @@ BACKFILL_WRITE_ERROR = "API write endpoints are disabled while backfill is enabl
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
-def _flush_once() -> None:
-    with db.engine.begin() as conn:
-        log_buffer.persist_due(conn, storage_mod.storage)
-        scalar_buffer.persist_due(conn, storage_mod.storage)
-        log_buffer.flush_inactive(conn, storage_mod.storage)
-        scalar_buffer.flush_inactive(conn, storage_mod.storage)
+def _flush_once(ctx: AppContext) -> None:
+    with ctx.engine.begin() as conn:
+        log_buffer.persist_due(conn, ctx.storage)
+        scalar_buffer.persist_due(conn, ctx.storage)
+        log_buffer.flush_inactive(conn, ctx.storage)
+        scalar_buffer.flush_inactive(conn, ctx.storage)
 
 
-async def _flush_loop() -> None:
+async def _flush_loop(ctx: AppContext) -> None:
     interval = config.buffer.flush_interval_ms / 1000
     try:
         while True:
             await asyncio.sleep(interval)
             try:
-                await asyncio.to_thread(_flush_once)
+                await asyncio.to_thread(_flush_once, ctx)
             except Exception:
                 logger.exception("Buffer flush error")
     except asyncio.CancelledError:
@@ -68,33 +69,35 @@ async def _flush_loop() -> None:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if config.storage.backfill.enabled and config.auth_enabled:
         raise RuntimeError("Backfill mode requires auth_enabled = false")
-    if config.storage.backfill.enabled:
-        db.ensure_local_cache_schema()
+    if not (ctx := getattr(app.state, "ctx", None)):
+        engine = ensure_local_cache_schema() if config.storage.backfill.enabled else build_engine()
+        ctx = AppContext(engine=engine, storage=build_storage())
+    app.state.ctx = api.state.ctx = ctx
     backfill: BackfillService | None = None
     if config.auth_enabled:
         get_app_secret()
     else:
-        with db.engine.begin() as conn:
+        with ctx.engine.begin() as conn:
             if not users_repo.get_by_email(conn, "local@underfit.local"):
                 user = users_repo.create(conn, "local@underfit.local", "local", "Local User")
                 accounts_repo.create_alias(conn, user.id, "local")
     if config.storage.backfill.enabled:
-        backfill = BackfillService(storage_mod.storage, db.engine, config.storage.backfill)
+        backfill = BackfillService(ctx.storage, ctx.engine, config.storage.backfill)
         await backfill.start()
-    flush_task = asyncio.create_task(_flush_loop())
+    flush_task = asyncio.create_task(_flush_loop(ctx))
     yield
     flush_task.cancel()
     with suppress(asyncio.CancelledError):
         await flush_task
     if backfill is not None:
         await backfill.stop()
-    with db.engine.begin() as conn:
-        log_buffer.flush_all(conn, storage_mod.storage)
-        scalar_buffer.flush_all(conn, storage_mod.storage)
-    db.engine.dispose()
+    with ctx.engine.begin() as conn:
+        log_buffer.flush_all(conn, ctx.storage)
+        scalar_buffer.flush_all(conn, ctx.storage)
+    ctx.engine.dispose()
 
 
 app = FastAPI(lifespan=lifespan)

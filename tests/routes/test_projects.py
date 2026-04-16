@@ -6,12 +6,13 @@ from typing import cast
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
+from sqlalchemy import Engine
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
+import underfit_api.routes.projects as projects_route
 from tests.conftest import CreateOrg, CreateOrgMember, CreateProject, CreateUser, Headers
 from underfit_api.config import config
 from underfit_api.repositories import projects as projects_repo
+from underfit_api.storage.types import Storage
 
 BASE = "/api/v1/accounts/owner/projects"
 
@@ -51,7 +52,9 @@ def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
     assert cleared.json()["metadata"] == {}
 
 
-def test_update_project_ui_state(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+def test_update_project_ui_state(
+    client: TestClient, owner_headers: Headers, create_project: CreateProject, storage: Storage,
+) -> None:
     create_project(handle="owner", name="underfit")
     ui_url = f"{BASE}/underfit/ui-state"
     resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"charts": "all"}})
@@ -65,7 +68,7 @@ def test_update_project_ui_state(client: TestClient, owner_headers: Headers, cre
     finally:
         config.storage.backfill.enabled = False
 
-    assert json.loads(storage_mod.storage.read(".projects/owner/underfit/ui.json")) == {
+    assert json.loads(storage.read(".projects/owner/underfit/ui.json")) == {
         "uiState": {"charts": "loss"},
     }
 
@@ -180,26 +183,27 @@ def test_rename_project_conflicts(client: TestClient, owner_headers: Headers, cr
 
 def test_delete_project(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
-    create_org: CreateOrg, create_org_member: CreateOrgMember, monkeypatch: pytest.MonkeyPatch,
+    create_org: CreateOrg, create_org_member: CreateOrgMember,
+    engine: Engine, storage: Storage, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = create_project(handle="owner", name="underfit")
     run = client.post("/api/v1/accounts/owner/projects/underfit/runs/launch", headers=owner_headers, json={
         "runName": "my-run", "launchId": "delete-project",
     }).json()
-    storage_mod.storage.write(f"{project.id}/artifacts/project.txt", b"project")
-    storage_mod.storage.write(f"{run['id']}/files/run.txt", b"run")
-    delete_prefix = storage_mod.delete_prefix
+    storage.write(f"{project.id}/artifacts/project.txt", b"project")
+    storage.write(f"{run['id']}/files/run.txt", b"run")
+    delete_prefix = projects_route.delete_prefix
 
-    def _delete_prefix(prefix: str) -> None:
-        with db.engine.begin() as conn:
+    def _delete_prefix(s: Storage, prefix: str) -> None:
+        with engine.begin() as conn:
             assert projects_repo.get_by_id(conn, project.id) is None
-        delete_prefix(prefix)
+        delete_prefix(s, prefix)
 
-    monkeypatch.setattr(storage_mod, "delete_prefix", _delete_prefix)
+    monkeypatch.setattr(projects_route, "delete_prefix", _delete_prefix)
     assert client.delete(f"{BASE}/underfit", headers=outsider_headers).status_code == 403
     assert client.delete(f"{BASE}/underfit", headers=owner_headers).status_code == 200
-    assert not storage_mod.storage.exists(f"{project.id}/artifacts/project.txt")
-    assert not storage_mod.storage.exists(f"{run['id']}/files/run.txt")
+    assert not storage.exists(f"{project.id}/artifacts/project.txt")
+    assert not storage.exists(f"{run['id']}/files/run.txt")
 
     org = create_org(owner_headers)
     admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")

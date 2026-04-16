@@ -8,9 +8,8 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
+from sqlalchemy import Engine
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
 from underfit_api.auth import create_worker_token
 from underfit_api.config import (
     FileStorageConfig,
@@ -19,6 +18,8 @@ from underfit_api.config import (
     SqliteDatabaseConfig,
     config,
 )
+from underfit_api.db import build_engine
+from underfit_api.dependencies import AppContext
 from underfit_api.main import app
 from underfit_api.models import Project, ProjectCollaborator, Run, User
 from underfit_api.repositories import accounts as accounts_repo
@@ -30,6 +31,7 @@ from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import metadata
+from underfit_api.storage import Storage, build_storage
 
 os.environ.setdefault("UNDERFIT_APP_SECRET", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
@@ -105,17 +107,26 @@ def _database_config(
 
 @pytest.fixture(autouse=True)
 def _reset_state(request: pytest.FixtureRequest, tmp_path: Path, db_backend: str) -> Iterator[None]:
-    db.engine.dispose()
     config.database = _database_config(request, db_backend, tmp_path)
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
     config.auth_enabled = True
     config.email = None
-    db.engine = db.build_engine()
-    storage_mod.storage = storage_mod.build_storage()
-    metadata.drop_all(db.engine)
-    metadata.create_all(db.engine)
+    ctx = AppContext(engine=build_engine(), storage=build_storage())
+    app.state.ctx = ctx
+    metadata.drop_all(ctx.engine)
+    metadata.create_all(ctx.engine)
     yield
-    db.engine.dispose()
+    ctx.engine.dispose()
+
+
+@pytest.fixture
+def engine() -> Engine:
+    return app.state.ctx.engine
+
+
+@pytest.fixture
+def storage() -> Storage:
+    return app.state.ctx.storage
 
 
 @pytest.fixture
@@ -134,9 +145,9 @@ def register_user(client: TestClient) -> RegisterUser:
 
 
 @pytest.fixture
-def create_user() -> CreateUser:
+def create_user(engine: Engine) -> CreateUser:
     def _create_user(email: str, handle: str, name: str = "Test User") -> User:
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             user = users_repo.create(conn, email, handle, name)
             accounts_repo.create_alias(conn, user.id, handle)
             return user
@@ -145,9 +156,9 @@ def create_user() -> CreateUser:
 
 
 @pytest.fixture
-def session_for_user() -> SessionForUser:
+def session_for_user(engine: Engine) -> SessionForUser:
     def _session_for_user(user: User) -> dict[str, str]:
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             session = sessions_repo.create(conn, user.id)
         return {"Cookie": f"session_token={session.token}"}
 
@@ -175,10 +186,12 @@ def create_org(client: TestClient) -> CreateOrg:
 
 
 @pytest.fixture
-def create_org_member(create_user: CreateUser, session_for_user: SessionForUser) -> CreateOrgMember:
+def create_org_member(
+    engine: Engine, create_user: CreateUser, session_for_user: SessionForUser,
+) -> CreateOrgMember:
     def _create(org_id: str, email: str, handle: str, name: str, *, role: str = "MEMBER") -> Headers:
         user = create_user(email=email, handle=handle, name=name)
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             organization_members_repo.add_member(conn, UUID(org_id), user.id, role)
         return session_for_user(user)
 
@@ -186,9 +199,9 @@ def create_org_member(create_user: CreateUser, session_for_user: SessionForUser)
 
 
 @pytest.fixture
-def create_project() -> CreateProject:
+def create_project(engine: Engine) -> CreateProject:
     def _create(handle: str, name: str, description: str = "tracking", visibility: str = "private") -> Project:
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             if accounts_repo.get_by_handle(conn, handle) is None:
                 user = users_repo.create(conn, f"{handle}@example.com", handle, handle)
                 accounts_repo.create_alias(conn, user.id, handle)
@@ -201,10 +214,10 @@ def create_project() -> CreateProject:
 
 
 @pytest.fixture
-def create_run(create_project: CreateProject) -> CreateRun:
+def create_run(engine: Engine, create_project: CreateProject) -> CreateRun:
     def _create(handle: str, project_name: str, name: str = "test-run", launch_id: str = "test-launch-id") -> Run:
         project = create_project(handle=handle, name=project_name)
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             assert (user := users_repo.get_by_handle(conn, handle)) is not None
             run = runs_repo.create(conn, project.id, user.id, launch_id, name, None, {})
             run_workers_repo.create(conn, run.id, worker_label="0")
@@ -214,17 +227,17 @@ def create_run(create_project: CreateProject) -> CreateRun:
 
 
 @pytest.fixture
-def worker_headers(create_run: CreateRun) -> Headers:
+def worker_headers(engine: Engine, create_run: CreateRun) -> Headers:
     run = create_run(handle="owner", project_name="underfit", name="r", launch_id="1")
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         assert (worker := run_workers_repo.get(conn, run.id, "0")) is not None
     return {"Authorization": f"Bearer {create_worker_token(worker.id)}"}
 
 
 @pytest.fixture
-def add_collaborator() -> AddCollaborator:
+def add_collaborator(engine: Engine) -> AddCollaborator:
     def _add(handle: str, project_name: str, user_handle: str) -> ProjectCollaborator:
-        with db.engine.begin() as conn:
+        with engine.begin() as conn:
             assert (account := accounts_repo.get_by_handle(conn, handle)) is not None
             assert (project := projects_repo.get_by_account_and_name(conn, account.id, project_name)) is not None
             assert (user := users_repo.get_by_handle(conn, user_handle)) is not None

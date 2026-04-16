@@ -8,11 +8,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
 from underfit_api.auth import verify_signed_token
 from underfit_api.config import config
-from underfit_api.dependencies import Conn, MaybeUser, RequireUser
+from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
 from underfit_api.models import OkResponse, Project, ProjectVisibility
 from underfit_api.permissions import require_account_admin, require_project_contributor
@@ -21,6 +19,7 @@ from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
+from underfit_api.storage import delete_prefix
 
 router = APIRouter()
 
@@ -101,27 +100,27 @@ def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}")
-def delete_project(handle: str, project_name: str, conn: Conn, user: RequireUser) -> OkResponse:
+def delete_project(handle: str, project_name: str, conn: Conn, ctx: Ctx, user: RequireUser) -> OkResponse:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     run_storage_keys = [run.storage_key for run in runs_repo.list_by_project(conn, project.id)]
-    with db.engine.begin() as write_conn:
+    with ctx.engine.begin() as write_conn:
         projects_repo.delete(write_conn, project.id)
     for storage_key in run_storage_keys:
-        storage_mod.delete_prefix(storage_key)
-    storage_mod.delete_prefix(project.storage_key)
+        delete_prefix(ctx.storage, storage_key)
+    delete_prefix(ctx.storage, project.storage_key)
     return OkResponse()
 
 
 @router.put("/accounts/{handle}/projects/{project_name}/ui-state")
 def update_project_ui_state(
-    handle: str, project_name: str, body: UpdateProjectUIStateBody, conn: Conn, user: RequireUser,
+    handle: str, project_name: str, body: UpdateProjectUIStateBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Project:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project.id, user.id)
     updated = projects_repo.update(conn, project.id, ui_state=body.ui_state)
     if config.storage.backfill.enabled:
-        storage_mod.storage.write(
+        ctx.storage.write(
             f".projects/{updated.owner}/{updated.name}/ui.json",
             json.dumps({"uiState": updated.ui_state}).encode(),
         )

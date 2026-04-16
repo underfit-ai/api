@@ -7,12 +7,12 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine
 
-import underfit_api.db as db
-import underfit_api.storage as storage_mod
 from tests.conftest import AddCollaborator, CreateRun, Headers
 from underfit_api.helpers import validate_path
 from underfit_api.schema import artifacts
+from underfit_api.storage.types import Storage
 
 PROJECT_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/artifacts"
 RUN_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/runs/test-run/artifacts"
@@ -89,11 +89,11 @@ def test_artifact_finalize(client: TestClient, owner_headers: Headers, create_ru
 
 
 def test_artifact_finalize_blocks_inflight_uploads(
-    client: TestClient, owner_headers: Headers, create_run: CreateRun,
+    client: TestClient, owner_headers: Headers, create_run: CreateRun, engine: Engine,
 ) -> None:
     create_run(handle="owner", project_name="underfit", name="test-run")
     artifact = client.post(RUN_ARTIFACTS, headers=owner_headers, json={"name": "checkpoint", "type": "model"}).json()
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         conn.execute(artifacts.update().where(artifacts.c.id == UUID(artifact["id"])).values(active_uploads=1))
     assert client.post(
         f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json={"manifest": {"files": []}},
@@ -101,23 +101,24 @@ def test_artifact_finalize_blocks_inflight_uploads(
 
 
 def test_artifact_failures_allow_retry(
-    client: TestClient, owner_headers: Headers, create_run: CreateRun, monkeypatch: pytest.MonkeyPatch,
+    client: TestClient, owner_headers: Headers, create_run: CreateRun,
+    storage: Storage, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     create_run(handle="owner", project_name="underfit", name="test-run")
     artifact = client.post(RUN_ARTIFACTS, headers=owner_headers, json={"name": "checkpoint", "type": "model"}).json()
     file_url = f"/api/v1/artifacts/{artifact['id']}/files/weights.bin"
 
     async def fail_write_stream(key: str, stream: object) -> int:
-        storage_mod.storage.write(key, b"partial")
+        storage.write(key, b"partial")
         raise RuntimeError("boom")
 
     with monkeypatch.context() as m:
-        m.setattr(storage_mod.storage, "write_stream", fail_write_stream)
+        m.setattr(storage, "write_stream", fail_write_stream)
         with pytest.raises(RuntimeError, match="boom"):
             client.put(file_url, headers=owner_headers, content=b"x")
     assert client.head(file_url, headers=owner_headers).status_code == 404
     assert client.put(file_url, headers=owner_headers, content=b"x").status_code == 200
-    write = storage_mod.storage.write
+    write = storage.write
 
     def fail_manifest_write(key: str, content: bytes) -> None:
         if key.endswith("/manifest.json"):
@@ -126,7 +127,7 @@ def test_artifact_failures_allow_retry(
 
     finalize_body = {"manifest": {"files": ["weights.bin"]}}
     with monkeypatch.context() as m:
-        m.setattr(storage_mod.storage, "write", fail_manifest_write)
+        m.setattr(storage, "write", fail_manifest_write)
         with pytest.raises(RuntimeError, match="boom"):
             client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=finalize_body)
     finalized = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=finalize_body)
