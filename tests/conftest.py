@@ -108,7 +108,6 @@ def _reset_state(request: pytest.FixtureRequest, tmp_path: Path, db_backend: str
     config.database = _database_config(request, db_backend, tmp_path)
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
     config.auth_enabled = True
-    config.backfill.enabled = False
     config.email = None
     db.engine = db.build_engine()
     storage_mod.storage = storage_mod.build_storage()

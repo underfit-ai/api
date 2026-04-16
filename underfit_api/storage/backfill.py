@@ -19,15 +19,7 @@ from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.repositories import users as users_repo
-from underfit_api.schema import (
-    artifacts,
-    log_segments,
-    media,
-    projects,
-    run_workers,
-    runs,
-    scalar_segments,
-)
+from underfit_api.schema import artifacts, log_segments, media, projects, run_workers, runs, scalar_segments
 from underfit_api.storage.types import Storage, WatchableStorage
 
 logger = logging.getLogger(__name__)
@@ -61,7 +53,7 @@ class BackfillService:
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._tasks.append(asyncio.create_task(self._process_loop()))
-        if self._watchable is not None and self._config.realtime:
+        if self._watchable is not None:
             self._watchable.watch(self._watch_enqueue)
             self._pending.update(await asyncio.to_thread(self._collect_pending))
             # Keep periodic scans as a backstop in case filesystem events are missed.
@@ -84,7 +76,7 @@ class BackfillService:
             self._loop.call_soon_threadsafe(self._enqueue, key)
 
     def _collect_pending(self) -> set[str]:
-        pending = {key.split("/", 1)[0] for key in self._storage.list_files("") if "/" in key}
+        pending = {entry.name for entry in self._storage.list_dir("") if entry.is_directory}
         with self._engine.connect() as conn:
             pending.update(str(row.id) for row in conn.execute(sa.select(runs.c.id)))
         return pending
@@ -95,7 +87,7 @@ class BackfillService:
                 self._pending.update(await asyncio.to_thread(self._collect_pending))
             except Exception:
                 logger.exception("Backfill scan error")
-            await asyncio.sleep(self._config.scan_interval_ms / 1000)
+            await asyncio.sleep(self._config.scan_interval_s)
 
     async def _process_loop(self) -> None:
         while True:
@@ -125,8 +117,8 @@ class BackfillService:
         if not self._storage.exists(f"{run_uuid}/run.json"):
             conn.execute(runs.delete().where(runs.c.id == run_uuid))
             return
+        # Keep the last good DB state if the file exists but is temporarily unreadable.
         if not (run_id := self._ensure_run(conn, run_uuid)):
-            conn.execute(runs.delete().where(runs.c.id == run_uuid))
             return
         run_keys = self._storage.list_files(str(run_uuid))
         self._reconcile_segments(conn, run_id, run_keys)
@@ -198,6 +190,8 @@ class BackfillService:
 
     def _resolve_project(self, conn: Connection, account_id: UUID, name: str) -> UUID:
         name = name.lower()
+        if alias := projects_repo.get_alias_by_account_and_name(conn, account_id, name):
+            return alias.project_id
         if row := conn.execute(projects.select().where(
             projects.c.account_id == account_id, projects.c.name == name,
         )).first():
@@ -258,7 +252,7 @@ class BackfillService:
         existing = conn.execute(sa.select(log_segments.c.end_line).where(
             log_segments.c.worker_id == worker_id, log_segments.c.start_line == start_line,
         )).scalar()
-        if existing is not None and existing >= end_line:
+        if existing == end_line:
             return True
         now = utcnow()
         log_seg_repo.upsert(
@@ -289,7 +283,7 @@ class BackfillService:
             scalar_segments.c.resolution == resolution,
             scalar_segments.c.start_line == start_line,
         )).scalar()
-        if existing is not None and existing >= end_line:
+        if existing == end_line:
             return True
         scalar_seg_repo.upsert(
             conn, worker_id, resolution, start_line=start_line, end_line=end_line,
@@ -333,7 +327,7 @@ class BackfillService:
             )
         except (json.JSONDecodeError, FileNotFoundError):
             logger.warning("Skipping artifact %s for run %s due to invalid manifest.json", artifact_id, run_id)
-            return False
+            return conn.execute(artifacts.select().where(artifacts.c.id == artifact_id)).first() is not None
         storage_prefix = f"artifacts/{artifact_id}"
         metadata: dict[str, object] = {}
         metadata_key = f"{run_row.storage_key}/{storage_prefix}/artifact.json"
@@ -359,10 +353,7 @@ class BackfillService:
                 metadata=metadata.get("metadata"),
             ))
         files_dir = f"{run_row.storage_key}/{storage_prefix}/files"
-        uploaded_paths = {
-            path[len(files_dir) + 1:]
-            for path in self._storage.list_files(files_dir)
-        } if self._storage.exists(files_dir) else set()
+        uploaded_paths = {path[len(files_dir) + 1:] for path in self._storage.list_files(files_dir)}
         declared_paths = {file for file in manifest.get("files", []) if isinstance(file, str) and file}
         finalized = uploaded_paths == declared_paths
         stored_size_bytes = sum(self._storage.size(f"{files_dir}/{path}") for path in uploaded_paths)

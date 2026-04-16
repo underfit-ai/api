@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from uuid import uuid4
 
+import boto3
 import pytest
+from moto import mock_aws
 from sqlalchemy import select
 from watchdog.events import FileMovedEvent
 
 import underfit_api.db as db
-from underfit_api.config import BackfillConfig, FileStorageConfig, config
+from underfit_api.config import BackfillConfig, FileStorageConfig, S3StorageConfig
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
@@ -29,24 +31,32 @@ from underfit_api.schema import (
 )
 from underfit_api.storage.backfill import BackfillService
 from underfit_api.storage.file import FileStorage, _StorageHandler
+from underfit_api.storage.s3 import S3Storage
+from underfit_api.storage.types import Storage
 
 
-def _service() -> tuple[BackfillService, FileStorage]:
-    assert isinstance(config.storage, FileStorageConfig)
-    storage = FileStorage(config.storage)
-    service = BackfillService(storage, db.engine, BackfillConfig(enabled=True, scan_interval_ms=10, debounce_ms=1))
-    return service, storage
+@pytest.fixture(params=["file", "s3"], ids=["file", "s3"])
+def backfill_service(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[tuple[BackfillService, Storage]]:
+    config = BackfillConfig(enabled=True, scan_interval_s=1, debounce_ms=1)
+    if request.param == "file":
+        storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
+        yield BackfillService(storage, db.engine, config), storage
+    else:
+        with mock_aws():
+            boto3.client("s3", region_name="us-east-1").create_bucket(Bucket="test-bucket")
+            storage = S3Storage(S3StorageConfig(bucket="test-bucket", prefix="pfx", region="us-east-1"))
+            yield BackfillService(storage, db.engine, config), storage
 
 
-def _scan(service: BackfillService, storage: FileStorage) -> None:
+def _scan(service: BackfillService) -> None:
     service._process_batch(service._collect_pending())  # noqa: SLF001
 
 
-def _write_json(storage: FileStorage, key: str, data: object) -> None:
+def _write_json(storage: Storage, key: str, data: object) -> None:
     storage.write(key, json.dumps(data).encode())
 
 
-def _write_text(storage: FileStorage, key: str, data: str) -> None:
+def _write_text(storage: Storage, key: str, data: str) -> None:
     storage.write(key, data.encode())
 
 
@@ -57,7 +67,7 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
         storage, "watch", lambda callback: callbacks.append(_StorageHandler(tmp_path, callback).on_any_event),
     )
     monkeypatch.setattr(storage, "stop_watching", lambda: None)
-    config = BackfillConfig(enabled=True, scan_interval_ms=5, debounce_ms=5, realtime=True)
+    config = BackfillConfig(enabled=True, scan_interval_s=1, debounce_ms=5)
     service = BackfillService(storage, db.engine, config)
     initial_run_id = uuid4()
     initial_run_dir = Path(storage.base) / str(initial_run_id)
@@ -79,7 +89,7 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
         (missed_run_dir / "logs" / "worker-2" / "segments").mkdir(parents=True)
         (missed_run_dir / "run.json").write_text(json.dumps({"project": "RT", "name": "missed-run"}))
         (missed_run_dir / "logs" / "worker-2" / "segments" / "0.log").write_text("line1\n")
-        loop.run_until_complete(asyncio.sleep(0.05))
+        loop.run_until_complete(asyncio.sleep(1.1))
         with db.engine.begin() as conn:
             initial_run_row = conn.execute(select(runs).where(runs.c.id == initial_run_id)).first()
             run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
@@ -96,8 +106,8 @@ def test_realtime_backfill_ingests_file_changes(tmp_path: Path, monkeypatch: pyt
         loop.close()
 
 
-def test_backfill_ingests_segment_files() -> None:
-    service, storage = _service()
+def test_backfill_ingests_segment_files(backfill_service: tuple[BackfillService, Storage]) -> None:
+    service, storage = backfill_service
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {
         "project": "Vision",
@@ -110,7 +120,7 @@ def test_backfill_ingests_segment_files() -> None:
         '{"step":1,"values":{"loss":0.8},"timestamp":"2025-01-01T00:00:00Z"}\n'
         '{"step":2,"values":{"loss":0.6},"timestamp":"2025-01-01T00:00:01Z"}\n'
     ))
-    _scan(service, storage)
+    _scan(service)
 
     with db.engine.begin() as conn:
         assert len(conn.execute(select(accounts)).all()) == 1
@@ -143,7 +153,7 @@ def test_backfill_ingests_segment_files() -> None:
     assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (1, 0, 2)
     assert scalar_row.end_at.isoformat() == "2025-01-01T00:00:01"
 
-    _scan(service, storage)
+    _scan(service)
     with db.engine.begin() as conn:
         rescanned_log_worker = conn.execute(select(run_workers).where(run_workers.c.id == log_worker_row.id)).first()
         rescanned_log = conn.execute(select(log_segments).where(log_segments.c.id == log_row.id)).first()
@@ -153,8 +163,8 @@ def test_backfill_ingests_segment_files() -> None:
     assert len(log_segment_count) == 1
 
 
-def test_backfill_stops_scalar_segment_at_invalid_json() -> None:
-    service, storage = _service()
+def test_backfill_stops_scalar_segment_at_invalid_json(backfill_service: tuple[BackfillService, Storage]) -> None:
+    service, storage = backfill_service
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial B", "terminal_state": "finished"})
     _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", (
@@ -162,7 +172,7 @@ def test_backfill_stops_scalar_segment_at_invalid_json() -> None:
         '{"step":1,"values":{"loss":0.8},"timestamp":"2025-01-01T00:00:01Z"}\n'
         "{bad-json}\n"
     ))
-    _scan(service, storage)
+    _scan(service)
 
     with db.engine.begin() as conn:
         scalar_row = conn.execute(select(scalar_segments)).first()
@@ -170,20 +180,20 @@ def test_backfill_stops_scalar_segment_at_invalid_json() -> None:
         0, 2, "2025-01-01T00:00:01",
     )
     _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", "{bad-json}\n")
-    _scan(service, storage)
+    _scan(service)
     with db.engine.begin() as conn:
         assert conn.execute(select(scalar_segments)).first() is None
 
 
-def test_backfill_rejects_runs_attributed_to_org_handle() -> None:
-    service, storage = _service()
+def test_backfill_rejects_runs_attributed_to_org_handle(backfill_service: tuple[BackfillService, Storage]) -> None:
+    service, storage = backfill_service
     run_id = uuid4()
     with db.engine.begin() as conn:
         organizations_repo.create(conn, "core", "Core")
 
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "user": "core", "name": "Trial Org"})
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\n")
-    _scan(service, storage)
+    _scan(service)
 
     with db.engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None
@@ -192,8 +202,8 @@ def test_backfill_rejects_runs_attributed_to_org_handle() -> None:
         assert conn.execute(select(projects)).first() is None
 
 
-def test_backfill_updates_artifact_and_media_records() -> None:
-    service, storage = _service()
+def test_backfill_updates_artifact_and_media_records(backfill_service: tuple[BackfillService, Storage]) -> None:
+    service, storage = backfill_service
     run_id = uuid4()
     artifact_id = uuid4()
     with db.engine.begin() as conn:
@@ -207,7 +217,7 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     _write_text(storage, f"{run_id}/media/image/samples_7_0.png", "m0")
     _write_text(storage, f"{run_id}/media/image/samples_7_2.png", "m2")
     _write_text(storage, f"{run_id}/media/bad-type/samples_7_1.png", "m1")
-    _scan(service, storage)
+    _scan(service)
 
     with db.engine.begin() as conn:
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
@@ -224,7 +234,7 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     )
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/b.bin", "b")
     _write_text(storage, f"{run_id}/media/image/samples_7_1.png", "m1")
-    _scan(service, storage)
+    _scan(service)
 
     with db.engine.begin() as conn:
         run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
@@ -241,8 +251,8 @@ def test_backfill_updates_artifact_and_media_records() -> None:
     assert [r.index for r in media_rows] == [0, 1, 2]
 
 
-def test_backfill_reconciles_deletions() -> None:
-    service, storage = _service()
+def test_backfill_reconciles_deletions(backfill_service: tuple[BackfillService, Storage]) -> None:
+    service, storage = backfill_service
     run_id = uuid4()
     artifact_id = uuid4()
 
@@ -250,12 +260,12 @@ def test_backfill_reconciles_deletions() -> None:
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\n")
     _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {"files": []})
     _write_text(storage, f"{run_id}/media/image/samples_0_0.png", "m0")
-    _scan(service, storage)
+    _scan(service)
 
     storage.delete(f"{run_id}/logs/worker-1/segments/0.log")
     storage.delete(f"{run_id}/artifacts/{artifact_id}/manifest.json")
     storage.delete(f"{run_id}/media/image/samples_0_0.png")
-    _scan(service, storage)
+    _scan(service)
 
     with db.engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None
@@ -264,7 +274,7 @@ def test_backfill_reconciles_deletions() -> None:
         assert conn.execute(select(media).where(media.c.run_id == run_id)).first() is None
 
     _write_text(storage, f"{run_id}/run.json", "{bad-json}")
-    _scan(service, storage)
+    _scan(service)
 
     with db.engine.begin() as conn:
-        assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None
+        assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None

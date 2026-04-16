@@ -26,7 +26,7 @@ def test_unknown_route_returns_json_404(client: TestClient) -> None:
 
 
 def test_backfill_blocks_api_write_methods_but_not_get(client: TestClient) -> None:
-    config.backfill.enabled = True
+    config.storage.backfill.enabled = True
 
     health = client.get("/api/v1/health")
     register = client.post("/api/v1/auth/register", json={

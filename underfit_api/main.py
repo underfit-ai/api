@@ -79,8 +79,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             if not users_repo.get_by_email(conn, "local@underfit.local"):
                 user = users_repo.create(conn, "local@underfit.local", "local", "Local User")
                 accounts_repo.create_alias(conn, user.id, "local")
-    if config.backfill.enabled:
-        backfill = BackfillService(storage_mod.storage, db.engine, config.backfill)
+    if config.storage.backfill.enabled:
+        backfill = BackfillService(storage_mod.storage, db.engine, config.storage.backfill)
         await backfill.start()
     flush_task = asyncio.create_task(_flush_loop())
     yield
@@ -114,7 +114,7 @@ api = FastAPI()
 
 @api.middleware("http")
 async def block_api_writes_during_backfill(request: Request, call_next: RequestResponseEndpoint) -> Response:
-    if config.backfill.enabled and request.method in WRITE_METHODS:
+    if config.storage.backfill.enabled and request.method in WRITE_METHODS:
         return JSONResponse(status_code=409, content={"error": BACKFILL_WRITE_ERROR})
     return await call_next(request)
 
