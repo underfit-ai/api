@@ -19,16 +19,13 @@ LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 RUNS = "/api/v1/accounts/owner/projects/underfit/runs"
 
 
-def _launch(client: TestClient, headers: Headers, **overrides: object) -> dict[str, object]:
-    body: dict[str, object] = {"runName": "my-run", "launchId": "abc-123", "workerLabel": "0"}
-    body.update(overrides)
-    return client.post(LAUNCH, headers=headers, json=body).json()
-
-
 def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(handle="owner", name="underfit")
 
-    run = _launch(client, owner_headers, config={"lr": 0.001}, metadata={"summary": {"loss": 0.5}})
+    run = client.post(LAUNCH, headers=owner_headers, json={
+        "runName": "my-run", "launchId": "abc-123", "workerLabel": "0",
+        "config": {"lr": 0.001}, "metadata": {"summary": {"loss": 0.5}},
+    }).json()
     assert run["isActive"] is True
     assert run["terminalState"] is None
     assert run["config"] == {"lr": 0.001}
@@ -61,10 +58,7 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert len(client.get(RUNS, headers=owner_headers).json()) == 1
 
 
-def test_update_summary_overwrites(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
-    create_project(handle="owner", name="underfit")
-    run = _launch(client, owner_headers)
-    worker_headers: Headers = {"Authorization": f"Bearer {run['workerToken']}"}
+def test_update_summary_overwrites(client: TestClient, worker_headers: Headers) -> None:
     first = client.put("/api/v1/runs/summary", headers=worker_headers, json={"summary": {"loss": 0.5, "acc": 0.9}})
     assert first.status_code == 200 and first.json()["summary"] == {"loss": 0.5, "acc": 0.9}
     second = client.put("/api/v1/runs/summary", headers=worker_headers, json={"summary": {"loss": 0.2}})
@@ -74,11 +68,11 @@ def test_update_summary_overwrites(client: TestClient, owner_headers: Headers, c
 
 def test_launch_join_and_retry(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(handle="owner", name="underfit")
-    first = _launch(client, owner_headers)
-    retry = _launch(client, owner_headers)
-    first_token = verify_signed_token(str(first["workerToken"]))
-    retry_token = verify_signed_token(str(retry["workerToken"]))
-    assert first_token is not None and retry_token is not None
+    payload = {"runName": "my-run", "launchId": "abc-123", "workerLabel": "0"}
+    first = client.post(LAUNCH, headers=owner_headers, json=payload).json()
+    retry = client.post(LAUNCH, headers=owner_headers, json=payload).json()
+    assert (first_token := verify_signed_token(str(first["workerToken"])))
+    assert (retry_token := verify_signed_token(str(retry["workerToken"])))
     assert first_token["worker_id"] == retry_token["worker_id"]
 
     payload = {"runName": "ignored", "launchId": "abc-123", "workerLabel": "1"}
@@ -93,7 +87,7 @@ def test_launch_join_and_retry(client: TestClient, owner_headers: Headers, creat
 
 def test_launch_rejects_stale_run(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(handle="owner", name="underfit")
-    _launch(client, owner_headers)
+    client.post(LAUNCH, headers=owner_headers, json={"runName": "my-run", "launchId": "abc-123", "workerLabel": "0"})
     with db.engine.begin() as conn:
         conn.execute(run_workers.update().values(last_heartbeat=utcnow() - timedelta(seconds=16)))
     body = {"runName": "new", "launchId": "abc-123", "workerLabel": "1"}
@@ -116,7 +110,7 @@ def test_launch_validation(
 
 def test_launch_duplicate_name(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(handle="owner", name="underfit")
-    _launch(client, owner_headers, runName="baseline", launchId="id-1")
+    client.post(LAUNCH, headers=owner_headers, json={"runName": "baseline", "launchId": "id-1", "workerLabel": "0"})
     resp = client.post(LAUNCH, headers=owner_headers, json={"runName": "baseline", "launchId": "id-2"})
     assert resp.status_code == 409
 

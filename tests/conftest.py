@@ -11,6 +11,7 @@ from httpx import Response
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
+from underfit_api.auth import create_worker_token
 from underfit_api.config import (
     FileStorageConfig,
     MysqlDatabaseConfig,
@@ -188,6 +189,9 @@ def create_org_member(create_user: CreateUser, session_for_user: SessionForUser)
 def create_project() -> CreateProject:
     def _create(handle: str, name: str, description: str = "tracking", visibility: str = "private") -> Project:
         with db.engine.begin() as conn:
+            if accounts_repo.get_by_handle(conn, handle) is None:
+                user = users_repo.create(conn, f"{handle}@example.com", handle, handle)
+                accounts_repo.create_alias(conn, user.id, handle)
             assert (account := accounts_repo.get_by_handle(conn, handle)) is not None
             project = projects_repo.create(conn, account.id, name.lower(), description, visibility, {})
             projects_repo.create_alias(conn, project.id, account.id, name.lower())
@@ -198,17 +202,23 @@ def create_project() -> CreateProject:
 
 @pytest.fixture
 def create_run(create_project: CreateProject) -> CreateRun:
-    def _create(
-        handle: str, project_name: str, user_handle: str, name: str = "test-run", launch_id: str = "test-launch-id",
-    ) -> Run:
+    def _create(handle: str, project_name: str, name: str = "test-run", launch_id: str = "test-launch-id") -> Run:
         project = create_project(handle=handle, name=project_name)
         with db.engine.begin() as conn:
-            assert (user := users_repo.get_by_handle(conn, user_handle)) is not None
+            assert (user := users_repo.get_by_handle(conn, handle)) is not None
             assert (run := runs_repo.create(conn, project.id, user.id, launch_id, name, None, {})) is not None
             run_workers_repo.create(conn, run.id, worker_label="0")
             return run
 
     return _create
+
+
+@pytest.fixture
+def worker_headers(create_run: CreateRun) -> Headers:
+    run = create_run(handle="owner", project_name="underfit", name="r", launch_id="1")
+    with db.engine.begin() as conn:
+        assert (worker := run_workers_repo.get(conn, run.id, "0")) is not None
+    return {"Authorization": f"Bearer {create_worker_token(worker.id)}"}
 
 
 @pytest.fixture

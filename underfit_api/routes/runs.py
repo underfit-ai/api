@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,8 +8,7 @@ from pydantic.alias_generators import to_camel
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
-from underfit_api.auth import create_signed_token
-from underfit_api.config import config
+from underfit_api.auth import create_worker_token
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict
 from underfit_api.models import OkResponse, Run, RunTerminalState
@@ -56,10 +54,7 @@ def _validate_json(value: dict[str, object] | None, label: str) -> None:
 
 def _launch_response(conn: Conn, run: Run, worker_id: object) -> Run:
     refreshed = runs_repo.get_by_id(conn, run.id) or run
-    worker_token = str(worker_id) if not config.auth_enabled else create_signed_token(
-        {"worker_id": str(worker_id)}, timedelta(days=3650),
-    )
-    return refreshed.model_copy(update={"worker_token": worker_token})
+    return refreshed.model_copy(update={"worker_token": create_worker_token(worker_id)})
 
 
 @router.get("/users/{handle}/runs")

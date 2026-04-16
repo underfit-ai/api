@@ -11,7 +11,7 @@ from underfit_api.schema import runs
 def test_list_and_download_run_files(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_run: CreateRun,
 ) -> None:
-    run = create_run(handle="owner", project_name="underfit", user_handle="owner")
+    run = create_run(handle="owner", project_name="underfit")
     files_url = f"/api/v1/accounts/owner/projects/underfit/runs/{run.name}/files"
     download_url = f"{files_url}/download"
 
