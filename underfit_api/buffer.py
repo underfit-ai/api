@@ -13,7 +13,7 @@ from sqlalchemy import Connection
 
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
-from underfit_api.models import UTCDatetime
+from underfit_api.models import Scalar, UTCDatetime
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
@@ -38,12 +38,6 @@ def get_scalar_resolutions() -> list[int]:
 class LogLine(BaseModel):
     timestamp: UTCDatetime
     content: str
-
-
-class ScalarPoint(BaseModel):
-    step: int
-    values: dict[str, float]
-    timestamp: UTCDatetime
 
 
 class BadStartLineError(Exception):
@@ -207,7 +201,7 @@ class LogBuffer(_BaseBuffer[UUID, LogLine]):
             return buf.lines[start:end]
 
 
-class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
+class ScalarBuffer(_BaseBuffer[tuple[UUID, int], Scalar]):
     def __init__(self) -> None:
         super().__init__()
         self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
@@ -235,7 +229,7 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
             buf = self._buffers.get((worker_id, resolution))
             return buf.end_line if buf and buf.lines else scalar_seg_repo.get_end_line(conn, worker_id, resolution)
 
-    def append(self, conn: Connection, worker_id: UUID, start_line: int, scalars: list[ScalarPoint]) -> None:
+    def append(self, conn: Connection, worker_id: UUID, start_line: int, scalars: list[Scalar]) -> None:
         with self._worker_lock(worker_id):
             expected = self.get_end_line(conn, worker_id, 1)
             if start_line != expected:
@@ -254,7 +248,7 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
             if scalars:
                 self._last_steps[worker_id] = scalars[-1].step
 
-    def _feed_accumulators(self, conn: Connection, worker_id: UUID, scalar: ScalarPoint) -> None:
+    def _feed_accumulators(self, conn: Connection, worker_id: UUID, scalar: Scalar) -> None:
         for resolution in get_scalar_resolutions()[1:]:
             k = (worker_id, resolution)
             acc = self._accumulators.setdefault(k, _Accumulator())
@@ -270,7 +264,7 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
 
     def _emit_accumulator(self, conn: Connection, worker_id: UUID, resolution: int, acc: _Accumulator) -> None:
         averaged = {k: acc.sums[k] / acc.counts[k] for k in acc.sums}
-        point = ScalarPoint(step=acc.last_step, values=averaged, timestamp=acc.last_timestamp or utcnow())
+        point = Scalar(step=acc.last_step, values=averaged, timestamp=acc.last_timestamp or utcnow())
         start_line = scalar_seg_repo.get_end_line(conn, worker_id, resolution)
         with self._dict_lock:
             buf = self._buffers.setdefault((worker_id, resolution), _LineBuffer(start_line=start_line))
@@ -332,7 +326,7 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
             if buf and buf.byte_count >= config.buffer.max_segment_bytes:
                 self.flush(conn, storage, worker_id, emit_partial=False)
 
-    def read_buffered(self, worker_id: UUID, resolution: int) -> list[ScalarPoint]:
+    def read_buffered(self, worker_id: UUID, resolution: int) -> list[Scalar]:
         with self._worker_lock(worker_id):
             buf = self._buffers.get((worker_id, resolution))
             return list(buf.lines) if buf and buf.lines else []

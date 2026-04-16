@@ -8,9 +8,10 @@ import pytest
 from sqlalchemy import Engine, select
 
 import underfit_api.buffer as buffer_mod
-from underfit_api.buffer import BadStartLineError, LogBuffer, LogLine, ScalarBuffer, ScalarPoint
+from underfit_api.buffer import BadStartLineError, LogBuffer, LogLine, ScalarBuffer
 from underfit_api.config import FileStorageConfig, config
 from underfit_api.helpers import utcnow
+from underfit_api.models import Scalar
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
@@ -129,7 +130,7 @@ def test_scalar_buffer_builds_resolution_tiers(engine: Engine) -> None:
 
     with engine.begin() as conn:
         points = [
-            ScalarPoint(step=i, values={"loss": float(i + 1)}, timestamp=t0 + timedelta(seconds=i))
+            Scalar(step=i, values={"loss": float(i + 1)}, timestamp=t0 + timedelta(seconds=i))
             for i in range(10)
         ]
         assert buffer.append(conn, rwid, 0, points) is None
@@ -147,7 +148,7 @@ def test_scalar_buffer_persists_all_resolutions_in_place(engine: Engine, tmp_pat
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     config.buffer.scalar_resolutions = [2]
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    points = [ScalarPoint(step=i, values={"loss": float(i)}, timestamp=t0) for i in range(4)]
+    points = [Scalar(step=i, values={"loss": float(i)}, timestamp=t0) for i in range(4)]
     rows_query = select(scalar_segments).where(scalar_segments.c.worker_id == rwid)
     with engine.begin() as conn:
         assert buffer.append(conn, rwid, 0, points[:2]) is None
@@ -170,7 +171,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
 
     with engine.begin() as conn:
         assert buffer.append(conn, rwid, 0, [
-            ScalarPoint(
+            Scalar(
                 step=0,
                 values={"loss": 1.0},
                 timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
@@ -197,7 +198,7 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
         assert 2 in by_res_after
         buffer = ScalarBuffer()
         assert buffer.append(conn, rwid, 1, [
-            ScalarPoint(step=1, values={"loss": 2.0}, timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc)),
+            Scalar(step=1, values={"loss": 2.0}, timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc)),
         ]) is None
         buffer.flush(conn, storage, rwid)
         assert conn.execute(select(scalar_segments).where(

@@ -16,6 +16,7 @@ accounts = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     sa.Column("handle", sa.String(HANDLE_LENGTH), nullable=False, unique=True),
     sa.Column("type", sa.Text, nullable=False),
+    sa.CheckConstraint("type IN ('USER', 'ORGANIZATION')"),
 )
 
 account_aliases = sa.Table(

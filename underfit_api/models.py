@@ -93,8 +93,8 @@ class Project(_Base):
     name: str
     storage_key: str = Field(exclude=True)
     description: str | None
-    metadata: dict[str, object] = Field(default_factory=dict)
-    ui_state: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object]
+    ui_state: dict[str, object]
     baseline_run_id: UUID | None = None
     visibility: ProjectVisibility
     pending_transfer_to: UUID | None
@@ -116,11 +116,11 @@ class Run(_Base):
     terminal_state: RunTerminalState | None = None
     is_active: bool
     config: dict[str, object] | None
-    metadata: dict[str, object] = Field(default_factory=dict)
-    ui_state: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object]
+    ui_state: dict[str, object]
     is_pinned: bool = False
     is_baseline: bool = False
-    summary: dict[str, float] = Field(default_factory=dict)
+    summary: dict[str, float]
     worker_token: str | None = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
@@ -164,7 +164,7 @@ class Media(_Base):
 
 
 class Scalar(_Base):
-    step: int | None
+    step: int
     values: dict[str, float]
     timestamp: UTCDatetime
 

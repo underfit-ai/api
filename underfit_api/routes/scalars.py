@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from underfit_api.buffer import BadStartLineError, BadStepError, ScalarBuffer, ScalarPoint, get_scalar_resolutions
+from underfit_api.buffer import BadStartLineError, BadStepError, ScalarBuffer, get_scalar_resolutions
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, Scalar, ScalarSeriesResponse, Worker
 from underfit_api.repositories import run_workers as workers_repo
@@ -21,7 +21,7 @@ router = APIRouter()
 class WriteScalarsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     start_line: int
-    scalars: list[ScalarPoint]
+    scalars: list[Scalar]
 
 
 def _total_line_count(conn: Conn, buffer: ScalarBuffer, workers: list[Worker], resolution: int) -> int:
@@ -88,7 +88,7 @@ def read_scalars(
                 if line:
                     parsed = json.loads(line)
                     scalars.append(Scalar(
-                        step=parsed.get("step"),
+                        step=parsed["step"],
                         values=parsed["values"],
                         timestamp=datetime.fromisoformat(parsed["timestamp"].replace("Z", "+00:00")),
                     ))

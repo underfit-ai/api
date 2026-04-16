@@ -8,8 +8,8 @@ import sqlalchemy as sa
 from pydantic import ValidationError
 from sqlalchemy import Connection
 
-from underfit_api.buffer import ScalarPoint
 from underfit_api.helpers import utcnow
+from underfit_api.models import Scalar
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
@@ -29,7 +29,7 @@ def reconcile_segments(
 ) -> None:
     seen_logs: set[str] = set()
     seen_scalars: set[str] = set()
-    last_point: ScalarPoint | None = None
+    last_point: Scalar | None = None
     for key in sorted(run_keys):
         rel = key[len(f"{run_id}/"):]
         if m := _LOG.match(key):
@@ -96,16 +96,16 @@ def _ingest_log_segment(
 def _ingest_scalar_segment(
     conn: Connection, storage: Storage, worker_id: UUID, full_key: str, storage_key: str,
     resolution: int, start_line: int, sizes: dict[str, int],
-) -> tuple[bool, list[ScalarPoint]]:
+) -> tuple[bool, list[Scalar]]:
     size = storage.size(full_key)
     if sizes.get(full_key) == size:
         return True, []
-    points: list[ScalarPoint] = []
+    points: list[Scalar] = []
     for raw_line in storage.read(full_key).decode().splitlines():
         if not raw_line:
             continue
         try:
-            points.append(ScalarPoint.model_validate_json(raw_line))
+            points.append(Scalar.model_validate_json(raw_line))
         except ValidationError:
             logger.warning("Stopping scalar ingest at invalid line in %s", full_key)
             break

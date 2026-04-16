@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from uuid import UUID
 
@@ -23,7 +24,7 @@ class BackfillService:
         self._engine = engine
         self._config = backfill_config
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._pending: set[str] = set()
+        self._pending: set[UUID] = set()
         self._tasks: list[asyncio.Task[None]] = []
         self._segment_sizes: dict[str, int] = {}
 
@@ -45,17 +46,25 @@ class BackfillService:
         self._tasks.clear()
 
     def _enqueue(self, key: str) -> None:
-        if "/" in key:
-            self._pending.add(key.split("/", 1)[0])
+        if "/" not in key:
+            return
+        with contextlib.suppress(ValueError):
+            self._pending.add(UUID(key.split("/", 1)[0]))
 
     def _watch_enqueue(self, key: str) -> None:
         if self._loop is not None:
             self._loop.call_soon_threadsafe(self._enqueue, key)
 
-    def _collect_pending(self) -> set[str]:
-        pending = {entry.name for entry in self._storage.list_dir("") if entry.is_directory}
+    def _collect_pending(self) -> set[UUID]:
+        pending: set[UUID] = set()
+        for entry in self._storage.list_dir(""):
+            if entry.is_directory:
+                try:
+                    pending.add(UUID(entry.name))
+                except ValueError:
+                    continue
         with self._engine.connect() as conn:
-            pending.update(str(row.id) for row in conn.execute(sa.select(runs.c.id)))
+            pending.update(row.id for row in conn.execute(sa.select(runs.c.id)))
         return pending
 
     async def _scan_loop(self) -> None:
@@ -71,19 +80,15 @@ class BackfillService:
             await asyncio.sleep(self._config.debounce_ms / 1000)
             if not self._pending:
                 continue
-            run_dirs = self._pending.copy()
+            run_ids = self._pending.copy()
             self._pending.clear()
             try:
-                await asyncio.to_thread(self._process_batch, run_dirs)
+                await asyncio.to_thread(self._process_batch, run_ids)
             except Exception:
                 logger.exception("Backfill process error")
 
-    def _process_batch(self, run_dirs: set[str]) -> None:
-        for run_dir in sorted(run_dirs):
-            try:
-                run_uuid = UUID(run_dir)
-            except ValueError:
-                continue
+    def _process_batch(self, run_ids: set[UUID]) -> None:
+        for run_uuid in sorted(run_ids):
             try:
                 with self._engine.begin() as conn:
                     self._reconcile_run(conn, run_uuid)
