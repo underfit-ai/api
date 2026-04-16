@@ -92,6 +92,8 @@ class Project(_Base):
     storage_key: str = Field(exclude=True)
     description: str | None
     metadata: dict[str, object] = Field(default_factory=dict)
+    ui_state: dict[str, object] = Field(default_factory=dict)
+    baseline_run_id: UUID | None = None
     visibility: ProjectVisibility
     pending_transfer_to: UUID | None
     created_at: UTCDatetime
@@ -111,6 +113,9 @@ class Run(_Base):
     is_active: bool
     config: dict[str, object] | None
     metadata: dict[str, object] = Field(default_factory=dict)
+    ui_state: dict[str, object] = Field(default_factory=dict)
+    is_pinned: bool = False
+    is_baseline: bool = False
     summary: dict[str, float] = Field(default_factory=dict)
     worker_token: str | None = None
     created_at: UTCDatetime

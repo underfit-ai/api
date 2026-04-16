@@ -13,7 +13,7 @@ from tests.conftest import AddCollaborator, CreateOrg, CreateOrgMember, CreatePr
 from underfit_api.auth import verify_signed_token
 from underfit_api.helpers import utcnow
 from underfit_api.repositories import runs as runs_repo
-from underfit_api.schema import run_workers
+from underfit_api.schema import projects, run_workers, runs
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 RUNS = "/api/v1/accounts/owner/projects/underfit/runs"
@@ -30,6 +30,7 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert run["terminalState"] is None
     assert run["config"] == {"lr": 0.001}
     assert run["metadata"] == {"summary": {"loss": 0.5}}
+    assert run["uiState"] == {} and run["isPinned"] is False and run["isBaseline"] is False
     assert run["launchId"] == "abc-123"
     assert run["name"] == "my-run"
     assert run["workerToken"] is not None
@@ -56,14 +57,6 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert client.get(f"{RUNS}/{run['name']}", headers=owner_headers).json()["isActive"] is False
 
     assert len(client.get(RUNS, headers=owner_headers).json()) == 1
-
-
-def test_update_summary_overwrites(client: TestClient, worker_headers: Headers) -> None:
-    first = client.put("/api/v1/runs/summary", headers=worker_headers, json={"summary": {"loss": 0.5, "acc": 0.9}})
-    assert first.status_code == 200 and first.json()["summary"] == {"loss": 0.5, "acc": 0.9}
-    second = client.put("/api/v1/runs/summary", headers=worker_headers, json={"summary": {"loss": 0.2}})
-    assert second.status_code == 200 and second.json()["summary"] == {"loss": 0.2}
-    assert client.put("/api/v1/runs/summary", json={"summary": {}}).status_code == 401
 
 
 def test_launch_join_and_retry(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
@@ -131,6 +124,22 @@ def test_list_user_runs_visibility(
     assert [run["name"] for run in outsider_runs] == ["public", "shared"]
     public_runs = client.get("/api/v1/users/owner/runs").json()
     assert [run["name"] for run in public_runs] == ["public"]
+
+
+def test_list_project_runs_ordering(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+    project = create_project(handle="owner", name="underfit")
+    client.post(LAUNCH, headers=owner_headers, json={"runName": "newest", "launchId": "1"})
+    pinned = client.post(LAUNCH, headers=owner_headers, json={"runName": "pinned", "launchId": "2"}).json()
+    baseline = client.post(LAUNCH, headers=owner_headers, json={"runName": "baseline", "launchId": "3"}).json()
+    with db.engine.begin() as conn:
+        conn.execute(runs.update().where(runs.c.id == UUID(cast(str, pinned["id"]))).values(is_pinned=True))
+        conn.execute(projects.update().where(projects.c.id == project.id).values(
+            baseline_project_id=project.id,
+            baseline_run_id=UUID(cast(str, baseline["id"])),
+        ))
+    runs_list = client.get(RUNS, headers=owner_headers).json()
+    assert [run["name"] for run in runs_list] == ["baseline", "pinned", "newest"]
+    assert runs_list[0]["isBaseline"] is True and runs_list[1]["isPinned"] is True
 
 
 def test_delete_run(

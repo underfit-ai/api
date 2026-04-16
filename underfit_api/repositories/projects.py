@@ -17,6 +17,8 @@ _columns = [
     projects.c.storage_key,
     projects.c.description,
     projects.c.metadata,
+    projects.c.ui_state,
+    projects.c.baseline_run_id,
     projects.c.visibility,
     projects.c.pending_transfer_to,
     projects.c.created_at,
@@ -91,7 +93,7 @@ def create(
     now = utcnow()
     conn.execute(projects.insert().values(
         id=project_id, account_id=account_id, name=name, storage_key=str(project_id), description=description,
-        metadata=metadata, visibility=visibility, created_at=now, updated_at=now,
+        metadata=metadata, ui_state={}, visibility=visibility, created_at=now, updated_at=now,
     ))
     result = get_by_id(conn, project_id)
     assert result is not None

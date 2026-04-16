@@ -152,6 +152,8 @@ class BackfillService:
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 metadata=metadata.metadata,
+                ui_state={},
+                is_pinned=False,
                 summary=metadata.summary or {},
                 created_at=now,
                 updated_at=now,
@@ -204,7 +206,7 @@ class BackfillService:
         now = utcnow()
         conn.execute(projects.insert().values(
             id=project_id, account_id=account_id, name=name, storage_key=str(project_id),
-            metadata={}, visibility="private", created_at=now, updated_at=now,
+            metadata={}, ui_state={}, visibility="private", created_at=now, updated_at=now,
         ))
         projects_repo.create_alias(conn, project_id, account_id, name)
         return project_id

@@ -25,6 +25,7 @@ def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
     assert created.status_code == 200
     assert created.json()["name"] == "underfit"
     assert created.json()["metadata"] == {"charts": {"default": "loss"}}
+    assert created.json()["uiState"] == {} and created.json()["baselineRunId"] is None
 
     fetched = client.get(f"{BASE}/UNDERFIT", headers=owner_headers)
     assert fetched.status_code == 200 and fetched.json()["description"] == "Tracking"

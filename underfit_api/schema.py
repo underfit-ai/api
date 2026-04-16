@@ -110,11 +110,22 @@ projects = sa.Table(
     sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("description", sa.Text),
     sa.Column("metadata", sa.JSON, nullable=False),
+    sa.Column("ui_state", sa.JSON, nullable=False),
+    sa.Column("baseline_project_id", sa.Uuid),
+    sa.Column("baseline_run_id", sa.Uuid),
     sa.Column("visibility", sa.Text, nullable=False),
     sa.Column("pending_transfer_to", sa.Uuid, sa.ForeignKey("accounts.id"), nullable=True),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
+    sa.ForeignKeyConstraint(
+        ["baseline_project_id", "baseline_run_id"], ["runs.project_id", "runs.id"], ondelete="SET NULL",
+    ),
     sa.UniqueConstraint("account_id", "name"),
+    sa.CheckConstraint(
+        "(baseline_project_id IS NULL AND baseline_run_id IS NULL) "
+        "OR (baseline_project_id IS NOT NULL AND baseline_run_id IS NOT NULL)",
+    ),
+    sa.CheckConstraint("baseline_project_id IS NULL OR baseline_project_id = id"),
     sa.CheckConstraint("visibility IN ('private', 'public')"),
 )
 
@@ -152,6 +163,8 @@ runs = sa.Table(
     sa.Column("terminal_state", sa.Text),
     sa.Column("config", sa.JSON),
     sa.Column("metadata", sa.JSON, nullable=False),
+    sa.Column("ui_state", sa.JSON, nullable=False),
+    sa.Column("is_pinned", sa.Boolean, nullable=False),
     sa.Column("summary", sa.JSON, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),

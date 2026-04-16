@@ -22,6 +22,7 @@ def _query() -> sa.Select[tuple[object, ...]]:
         run_workers.c.run_id == runs.c.id,
         run_workers.c.last_heartbeat >= cutoff,
     )).label("is_active")
+    is_baseline = sa.case((runs.c.id == projects.c.baseline_run_id, True), else_=False).label("is_baseline")
     return sa.select(
         runs.c.id,
         runs.c.project_id,
@@ -35,6 +36,9 @@ def _query() -> sa.Select[tuple[object, ...]]:
         is_active,
         runs.c.config,
         runs.c.metadata,
+        runs.c.ui_state,
+        runs.c.is_pinned,
+        is_baseline,
         runs.c.summary,
         runs.c.created_at,
         runs.c.updated_at,
@@ -65,7 +69,10 @@ def has_active_worker(conn: Connection, pk: UUID) -> bool:
 
 
 def list_by_project(conn: Connection, project_id: UUID) -> list[Run]:
-    rows = conn.execute(_query().where(runs.c.project_id == project_id).order_by(runs.c.created_at.desc())).all()
+    is_baseline = sa.case((runs.c.id == projects.c.baseline_run_id, 1), else_=0)
+    rows = conn.execute(_query().where(runs.c.project_id == project_id).order_by(
+        is_baseline.desc(), runs.c.is_pinned.desc(), runs.c.created_at.desc(),
+    )).all()
     return [Run.model_validate(row) for row in rows]
 
 
@@ -92,7 +99,7 @@ def create(
     conn.execute(runs.insert().values(
         id=pk, project_id=project_id, user_id=user_id,
         launch_id=launch_id, name=name.lower(), storage_key=str(pk),
-        config=config, metadata=metadata, summary={}, created_at=now, updated_at=now,
+        config=config, metadata=metadata, ui_state={}, is_pinned=False, summary={}, created_at=now, updated_at=now,
     ))
     result = get_by_id(conn, pk)
     assert result is not None
