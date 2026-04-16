@@ -13,6 +13,8 @@ _join = projects.join(accounts, projects.c.account_id == accounts.c.id)
 _columns = [
     projects.c.id,
     accounts.c.handle.label("owner"),
+    accounts.c.id.label("account_id"),
+    accounts.c.type.label("account_type"),
     projects.c.name,
     projects.c.storage_key,
     projects.c.description,

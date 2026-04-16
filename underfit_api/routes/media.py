@@ -17,7 +17,6 @@ from underfit_api.helpers import as_conflict, validate_json_size, validate_path
 from underfit_api.models import Media, MediaType
 from underfit_api.repositories import media as media_repo
 from underfit_api.repositories import run_workers as workers_repo
-from underfit_api.repositories import runs as runs_repo
 from underfit_api.routes.resolvers import resolve_run
 
 router = APIRouter()
@@ -52,10 +51,9 @@ async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: Me
         if not workers_repo.touch(conn, worker):
             raise HTTPException(401, "Unauthorized")
         assert (run_worker := workers_repo.get_by_id(conn, worker)) is not None
-        assert (run := runs_repo.get_by_id(conn, run_worker.run_id)) is not None
         key = validate_path(metadata.key)
-        run_storage_key = run.storage_key
-        run_id = run.id
+        run_storage_key = run_worker.run_storage_key
+        run_id = run_worker.run_id
     storage_keys: list[str] = []
     try:
         with db.engine.begin() as conn, as_conflict(conn, "Media already exists for this type/key/step"):

@@ -88,6 +88,8 @@ class UserMembership(Organization):
 class Project(_Base):
     id: UUID
     owner: str
+    account_id: UUID = Field(exclude=True)
+    account_type: str = Field(exclude=True)
     name: str
     storage_key: str = Field(exclude=True)
     description: str | None
@@ -106,6 +108,8 @@ class Run(_Base):
     user: str
     project_name: str
     project_owner: str
+    project_owner_id: UUID = Field(exclude=True)
+    project_owner_type: str = Field(exclude=True)
     launch_id: str
     name: str
     storage_key: str = Field(exclude=True)
@@ -125,6 +129,7 @@ class Run(_Base):
 class Worker(_Base):
     id: UUID
     run_id: UUID
+    run_storage_key: str = Field(exclude=True)
     worker_label: str
     worker_token: str | None = None
     last_heartbeat: UTCDatetime

@@ -16,7 +16,6 @@ from underfit_api.helpers import utcnow
 from underfit_api.models import UTCDatetime
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
-from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.storage import Storage
 
@@ -167,11 +166,9 @@ class LogBuffer(_BaseBuffer[UUID, LogLine]):
             buf = self._buffers.get(worker_id)
             if not buf or not buf.lines:
                 return
-            run = runs_repo.get_by_id(conn, worker.run_id)
-            assert run is not None
             content = "".join(f"{line.content}\n" for line in buf.lines)
             storage_key = _log_storage_key(worker.worker_label, buf.start_line)
-            storage.write(f"{run.storage_key}/{storage_key}", content.encode())
+            storage.write(f"{worker.run_storage_key}/{storage_key}", content.encode())
             log_seg_repo.upsert(
                 conn, worker_id,
                 start_line=buf.start_line, end_line=buf.end_line,
@@ -299,11 +296,9 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
             return
         if not (worker := workers_repo.get_by_id(conn, worker_id)):
             raise RuntimeError("Worker not found")
-        run = runs_repo.get_by_id(conn, worker.run_id)
-        assert run is not None
         content = "".join(line.model_dump_json() + "\n" for line in buf.lines)
         storage_key = _scalar_storage_key(worker.worker_label, resolution, buf.start_line)
-        storage.write(f"{run.storage_key}/{storage_key}", content.encode())
+        storage.write(f"{worker.run_storage_key}/{storage_key}", content.encode())
         scalar_seg_repo.upsert(
             conn, worker_id, resolution,
             start_line=buf.start_line, end_line=buf.end_line, end_step=buf.lines[-1].step,

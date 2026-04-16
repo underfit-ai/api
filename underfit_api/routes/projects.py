@@ -16,7 +16,6 @@ from underfit_api.dependencies import Conn, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
 from underfit_api.models import OkResponse, Project, ProjectVisibility
 from underfit_api.permissions import require_account_admin, require_project_contributor
-from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
@@ -195,11 +194,9 @@ def accept_transfer(body: AcceptTransferBody, conn: Conn, user: RequireUser) -> 
         raise HTTPException(400, "Transfer has been cancelled")
 
     new_name = (body.new_name or project.name).lower()
-    old_account = accounts_repo.get_by_handle(conn, project.owner)
-    assert old_account is not None
     with as_conflict(conn, "Project already exists"):
-        if not projects_repo.get_alias_by_account_and_name(conn, old_account.id, project.name):
-            projects_repo.create_alias(conn, project.id, old_account.id, project.name)
+        if not projects_repo.get_alias_by_account_and_name(conn, project.account_id, project.name):
+            projects_repo.create_alias(conn, project.id, project.account_id, project.name)
         projects_repo.create_alias(conn, project.id, payload.to_account_id, new_name)
         if project_collaborators_repo.get(conn, project.id, user.id):
             project_collaborators_repo.remove(conn, project.id, user.id)

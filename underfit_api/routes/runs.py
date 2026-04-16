@@ -14,7 +14,6 @@ from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser, RequireUse
 from underfit_api.helpers import as_conflict, validate_json_size
 from underfit_api.models import OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
-from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
@@ -114,8 +113,7 @@ def update_run(
 def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, user: RequireUser) -> OkResponse:
     run = resolve_run(conn, handle, project_name, run_name, user)
     if run.user != user.handle:
-        assert (owner_account := accounts_repo.get_by_handle(conn, run.project_owner)) is not None
-        require_account_admin(conn, owner_account.id, owner_account.type, user.id)
+        require_account_admin(conn, run.project_owner_id, run.project_owner_type, user.id)
     with db.engine.begin() as write_conn:
         runs_repo.delete(write_conn, run.id)
     storage_mod.delete_prefix(run.storage_key)

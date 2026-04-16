@@ -27,6 +27,8 @@ def _query() -> sa.Select[tuple[object, ...]]:
         runs.c.id,
         runs.c.project_id,
         accounts.c.handle.label("project_owner"),
+        accounts.c.id.label("project_owner_id"),
+        accounts.c.type.label("project_owner_type"),
         projects.c.name.label("project_name"),
         _user_handle.label("user"),
         runs.c.launch_id,
