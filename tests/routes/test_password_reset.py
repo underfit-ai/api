@@ -39,6 +39,9 @@ def test_forgot_password_sends_email(client: TestClient, register_user: Register
 
 def test_forgot_password_validation(client: TestClient) -> None:
     config.email = EmailConfig()
+    config.frontend_url = None
+    assert client.post("/api/v1/auth/forgot-password", json={"email": "sam@example.com"}).status_code == 400
+    config.frontend_url = "http://localhost:3000"
     with patch("underfit_api.routes.auth.send_email") as mock_send:
         assert client.post("/api/v1/auth/forgot-password", json={"email": "nobody@example.com"}).status_code == 200
     mock_send.assert_not_called()

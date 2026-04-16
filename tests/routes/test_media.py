@@ -14,7 +14,7 @@ MEDIA_FILES = [
 ]
 
 
-def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) -> None:
+def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers, outsider_headers: Headers) -> None:
     client.post(
         "/api/v1/accounts/owner/projects", headers=owner_headers, json={"name": "underfit", "visibility": "private"},
     )
@@ -30,9 +30,16 @@ def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) 
 
     listed = client.get(media_url, headers=owner_headers, params={"key": "val/gen/%d", "step": 200})
     assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [r["id"] for r in rows]
+    wrong_run = client.post(LAUNCH, headers=owner_headers, json={"runName": "other", "launchId": "2"}).json()
     for expected, row in [(b"file-a", rows[0]), (b"file-b", rows[1])]:
         downloaded = client.get(f"{media_url}/{row['id']}/file", headers=owner_headers)
         assert downloaded.status_code == 200 and downloaded.content == expected
+        assert client.get(f"{media_url}/{row['id']}/file").status_code == 401
+        assert client.get(f"{media_url}/{row['id']}/file", headers=outsider_headers).status_code == 403
+        assert client.get(
+            f"/api/v1/accounts/owner/projects/underfit/runs/{wrong_run['name']}/media/{row['id']}/file",
+            headers=owner_headers,
+        ).status_code == 404
 
     duplicate = client.post(
         "/api/v1/ingest/media", headers=worker, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES,

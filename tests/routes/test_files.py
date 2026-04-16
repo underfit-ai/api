@@ -8,7 +8,9 @@ from tests.conftest import CreateRun, Headers
 from underfit_api.schema import runs
 
 
-def test_list_and_download_run_files(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
+def test_list_and_download_run_files(
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_run: CreateRun,
+) -> None:
     run = create_run(handle="owner", project_name="underfit", user_handle="owner")
     files_url = f"/api/v1/accounts/owner/projects/underfit/runs/{run.name}/files"
     download_url = f"{files_url}/download"
@@ -21,6 +23,10 @@ def test_list_and_download_run_files(client: TestClient, owner_headers: Headers,
     list_root = client.get(files_url, headers=owner_headers)
     assert list_root.status_code == 200
     assert [entry["name"] for entry in list_root.json()] == ["checkpoints", "metrics.json"]
+    assert client.get(files_url).status_code == 401
+    assert client.get(
+        download_url, headers=outsider_headers, params={"path": "checkpoints/model.bin"},
+    ).status_code == 403
 
     list_subdir = client.get(files_url, headers=owner_headers, params={"path": "checkpoints"})
     assert list_subdir.status_code == 200
