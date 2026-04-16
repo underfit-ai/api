@@ -30,12 +30,18 @@ def test_write_and_read_scalars_with_auto_resolution(client: TestClient, owner_h
 
     full = client.get(scalars_url, headers=owner_headers)
     assert full.status_code == 200
-    assert len(full.json()) == 20
+    assert full.json()["resolution"] == 1
+    assert full.json()["pointCount"] == 20
+    assert len(full.json()["points"]) == 20
 
-    reduced = client.get(scalars_url, headers=owner_headers, params={"maxPoints": 5})
+    reduced = client.get(scalars_url, headers=owner_headers, params={"targetPoints": 5})
     assert reduced.status_code == 200
-    assert len(reduced.json()) == 2
-    assert len(client.get(scalars_url, headers=owner_headers, params={"maxPoints": 1}).json()) == 2
+    assert reduced.json()["resolution"] == 10
+    assert reduced.json()["pointCount"] == 2
+    assert len(reduced.json()["points"]) == 2
+    reduced_again = client.get(scalars_url, headers=owner_headers, params={"targetPoints": 1}).json()
+    assert reduced_again["resolution"] == 10
+    assert len(reduced_again["points"]) == 2
 
 
 def test_scalar_ingest_and_query_validation(client: TestClient, owner_headers: Headers) -> None:
@@ -53,7 +59,7 @@ def test_scalar_ingest_and_query_validation(client: TestClient, owner_headers: H
     }
     assert client.post("/api/v1/ingest/scalars", headers=headers, json=duplicate).status_code == 409
 
-    invalid_query = client.get(scalars_url, headers=owner_headers, params={"resolution": 1, "maxPoints": 10})
+    invalid_query = client.get(scalars_url, headers=owner_headers, params={"resolution": 1, "targetPoints": 10})
     assert invalid_query.status_code == 400
     missing_resolution = client.get(scalars_url, headers=owner_headers, params={"resolution": 10})
     assert missing_resolution.status_code == 404
@@ -70,7 +76,8 @@ def test_read_scalars_from_persisted_segments(client: TestClient, owner_headers:
     ).status_code == 200
     with db.engine.begin() as conn:
         scalar_buffer.flush_all(conn, storage_mod.storage)
-    assert len(client.get(scalars_url, headers=owner_headers).json()) == 20
-    reduced = client.get(scalars_url, headers=owner_headers, params={"maxPoints": 5}).json()
-    assert 0 < len(reduced) < 20
-    assert reduced[-1]["step"] == 19
+    assert client.get(scalars_url, headers=owner_headers).json()["pointCount"] == 20
+    reduced = client.get(scalars_url, headers=owner_headers, params={"targetPoints": 5}).json()
+    assert reduced["resolution"] == 10
+    assert 0 < reduced["pointCount"] < 20
+    assert reduced["points"][-1]["step"] == 19

@@ -159,6 +159,12 @@ class Scalar(_Base):
     timestamp: UTCDatetime
 
 
+class ScalarSeriesResponse(_Base):
+    resolution: int
+    point_count: int
+    points: list[Scalar]
+
+
 class AuthResponse(_Base):
     user: User
     session: Session

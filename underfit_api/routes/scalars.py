@@ -11,7 +11,7 @@ from pydantic.alias_generators import to_camel
 import underfit_api.storage as storage_mod
 from underfit_api.buffer import BadStartLineError, BadStepError, ScalarPoint, get_scalar_resolutions, scalar_buffer
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
-from underfit_api.models import BufferedResponse, Scalar, Worker
+from underfit_api.models import BufferedResponse, Scalar, ScalarSeriesResponse, Worker
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -29,13 +29,13 @@ def _total_line_count(conn: Conn, workers: list[Worker], resolution: int) -> int
     return sum(scalar_buffer.resolution_line_count(conn, w.id, resolution) for w in workers)
 
 
-def _select_resolution(conn: Conn, workers: list[Worker], max_points: int) -> int:
-    for resolution in reversed(get_scalar_resolutions()):
-        if 0 < _total_line_count(conn, workers, resolution) <= max_points:
+def _select_resolution(counts: dict[int, int], target_points: int) -> int:
+    for resolution in get_scalar_resolutions():
+        if 0 < counts[resolution] <= target_points:
             return resolution
     for resolution in reversed(get_scalar_resolutions()):
-        if _total_line_count(conn, workers, resolution) > 0:
-            return resolution  # Intentionally prefer full data at the coarsest available resolution.
+        if counts[resolution] > 0:
+            return resolution
     return 1
 
 
@@ -60,17 +60,18 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
 def read_scalars(
     handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser,
-    resolution: Annotated[int | None, Query()] = None,
-    max_points: Annotated[int | None, Query(alias="maxPoints")] = None,
-) -> list[Scalar]:
+    resolution: Annotated[int | None, Query(gt=0)] = None,
+    target_points: Annotated[int | None, Query(alias="targetPoints", gt=0)] = None,
+) -> ScalarSeriesResponse:
     run = resolve_run(conn, handle, project_name, run_name, user)
-    if resolution is not None and max_points is not None:
-        raise HTTPException(400, "Cannot specify both resolution and maxPoints")
+    if resolution is not None and target_points is not None:
+        raise HTTPException(400, "Cannot specify both resolution and targetPoints")
     workers = workers_repo.list_by_run(conn, run.id)
+    counts = {resolution: _total_line_count(conn, workers, resolution) for resolution in get_scalar_resolutions()}
     selected_resolution = resolution if resolution is not None else 1
-    if max_points is not None:
-        selected_resolution = _select_resolution(conn, workers, max_points)
-    if _total_line_count(conn, workers, selected_resolution) == 0:
+    if target_points is not None:
+        selected_resolution = _select_resolution(counts, target_points)
+    if counts.get(selected_resolution, 0) == 0:
         raise HTTPException(404, "Resolution not found")
 
     scalars: list[Scalar] = []
@@ -91,4 +92,4 @@ def read_scalars(
                     ))
         for point in scalar_buffer.read_buffered(worker.id, selected_resolution):
             scalars.append(Scalar(step=point.step, values=point.values, timestamp=point.timestamp))
-    return scalars
+    return ScalarSeriesResponse(resolution=selected_resolution, point_count=len(scalars), points=scalars)
