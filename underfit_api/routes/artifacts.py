@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from contextlib import suppress
 from uuid import UUID, uuid4
 from zipfile import BadZipFile, ZipFile
@@ -13,7 +12,7 @@ from pydantic.alias_generators import to_camel
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Auth, Conn, MaybeUser, RequireUser
-from underfit_api.helpers import MAX_JSON_BYTES, validate_path
+from underfit_api.helpers import validate_json_size, validate_path
 from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import artifacts as artifacts_repo
@@ -96,8 +95,7 @@ def _open_zip(artifact_id: UUID, zip_path: str, conn: Conn, user: MaybeUser) -> 
 def _create_artifact(conn: Conn, project_id: UUID, body: CreateArtifactBody, run_id: UUID | None = None) -> Artifact:
     if body.step is not None and run_id is None:
         raise HTTPException(400, "step requires run")
-    if body.metadata is not None and len(json.dumps(body.metadata)) > MAX_JSON_BYTES:
-        raise HTTPException(400, "Metadata too large")
+    validate_json_size(body.metadata, "Metadata")
     artifact_id = uuid4()
     return artifacts_repo.create(
         conn, artifact_id, project_id, run_id, body.step, body.name, body.type,

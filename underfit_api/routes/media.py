@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import suppress
@@ -14,7 +13,7 @@ from pydantic import BaseModel, Json
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Auth, Conn, CurrentWorker, MaybeUser
-from underfit_api.helpers import MAX_JSON_BYTES, as_conflict, validate_path
+from underfit_api.helpers import as_conflict, validate_json_size, validate_path
 from underfit_api.models import Media, MediaType
 from underfit_api.repositories import media as media_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -48,8 +47,7 @@ async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: Me
         raise HTTPException(400, "No files provided")
     if any(f.content_type and not _content_type_is_valid(metadata.type.value, f.content_type) for f in files):
         raise HTTPException(400, "Files must all match the declared media type")
-    if metadata.metadata is not None and len(json.dumps(metadata.metadata)) > MAX_JSON_BYTES:
-        raise HTTPException(400, "Metadata too large")
+    validate_json_size(metadata.metadata, "Metadata")
     with db.engine.begin() as conn:
         if not workers_repo.touch(conn, worker):
             raise HTTPException(401, "Unauthorized")

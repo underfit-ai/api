@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import json
 import smtplib
 import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import Connection
 from sqlalchemy.exc import IntegrityError
 
-from underfit_api.config import EmailConfig
+from underfit_api.auth import create_signed_token
+from underfit_api.config import EmailConfig, config
 
 MAX_PATH_BYTES = 1024
 MAX_PATH_SEGMENT_BYTES = 255
@@ -60,3 +63,22 @@ def as_conflict(conn: Connection, message: str) -> Iterator[None]:
     except IntegrityError:
         conn.rollback()
         raise HTTPException(409, message) from None
+
+
+def validate_json_size(value: dict[str, object] | None, label: str) -> None:
+    if value is not None and len(json.dumps(value)) > MAX_JSON_BYTES:
+        raise HTTPException(400, f"{label} too large")
+
+
+def ensure_email_configured() -> EmailConfig:
+    if not config.email:
+        raise HTTPException(400, "Email is not configured")
+    if not config.frontend_url:
+        raise HTTPException(400, "Frontend URL is not configured")
+    return config.email
+
+
+def signed_link_url(payload: dict[str, Any], ttl: timedelta, path: str) -> str:
+    assert config.frontend_url is not None
+    token = create_signed_token(payload, ttl)
+    return f"{config.frontend_url.rstrip('/')}{path}?token={token}"

@@ -8,10 +8,10 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import AfterValidator, BaseModel, Field, ValidationError
 
-from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, create_signed_token, hash_password, verify_signed_token
+from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, hash_password, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
-from underfit_api.helpers import as_conflict, send_email
+from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
 from underfit_api.models import AuthResponse, OkResponse, Session
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import sessions as sessions_repo
@@ -108,19 +108,14 @@ def login(body: LoginBody, response: Response, request: Request, conn: Conn) -> 
 
 @router.post("/forgot-password")
 def forgot_password(body: ForgotPasswordBody, conn: Conn) -> OkResponse:
-    if not config.email:
-        raise HTTPException(400, "Email is not configured")
-    elif not config.frontend_url:
-        raise HTTPException(400, "Frontend URL is not configured")
-    elif user := users_repo.get_by_email(conn, body.email):
+    email_cfg = ensure_email_configured()
+    if user := users_repo.get_by_email(conn, body.email):
         pw_prefix = user_auth_repo.get_password_hash_prefix(conn, user.id)
-        token = create_signed_token({"user_id": str(user.id), "pw": pw_prefix}, RESET_TOKEN_TTL)
-        base_url = config.frontend_url.rstrip("/")
-        reset_url = f"{base_url}/reset-password?token={token}"
+        reset_url = signed_link_url(
+            {"user_id": str(user.id), "pw": pw_prefix}, RESET_TOKEN_TTL, "/reset-password",
+        )
         send_email(
-            config.email,
-            to=user.email,
-            subject="Reset your password",
+            email_cfg, to=user.email, subject="Reset your password",
             body=f"Click the link below to reset your password:\n\n{reset_url}\n\nThis link expires in 30 minutes.",
         )
     return OkResponse()

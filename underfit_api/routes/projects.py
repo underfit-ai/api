@@ -10,10 +10,10 @@ from pydantic.alias_generators import to_camel
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
-from underfit_api.auth import create_signed_token, verify_signed_token
+from underfit_api.auth import verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, MaybeUser, RequireUser
-from underfit_api.helpers import as_conflict, send_email
+from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
 from underfit_api.models import OkResponse, Project, ProjectVisibility
 from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import accounts as accounts_repo
@@ -148,11 +148,7 @@ def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn
 def initiate_transfer(
     handle: str, project_name: str, body: InitiateTransferBody, conn: Conn, user: RequireUser,
 ) -> OkResponse:
-    if not config.email:
-        raise HTTPException(400, "Email is not configured")
-    if not config.frontend_url:
-        raise HTTPException(400, "Frontend URL is not configured")
-
+    email_cfg = ensure_email_configured()
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
 
@@ -162,13 +158,11 @@ def initiate_transfer(
         raise HTTPException(400, "Cannot transfer a project to its current owner")
 
     projects_repo.set_pending_transfer(conn, project.id, recipient.id)
-
-    token = create_signed_token({"project_id": str(project.id), "to_account_id": str(recipient.id)}, TRANSFER_TOKEN_TTL)
-    base_url = config.frontend_url.rstrip("/")
-    transfer_url = f"{base_url}/transfer?token={token}"
+    transfer_url = signed_link_url(
+        {"project_id": str(project.id), "to_account_id": str(recipient.id)}, TRANSFER_TOKEN_TTL, "/transfer",
+    )
     send_email(
-        config.email,
-        to=recipient.email,
+        email_cfg, to=recipient.email,
         subject=f"Project transfer: {account.handle}/{project.name}",
         body=(
             f"{account.handle} wants to transfer the project \"{project.name}\" to you.\n\n"

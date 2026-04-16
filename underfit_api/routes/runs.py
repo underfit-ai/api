@@ -11,7 +11,7 @@ import underfit_api.storage as storage_mod
 from underfit_api.auth import create_worker_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser, RequireUser
-from underfit_api.helpers import MAX_JSON_BYTES, as_conflict
+from underfit_api.helpers import as_conflict, validate_json_size
 from underfit_api.models import OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import accounts as accounts_repo
@@ -55,13 +55,9 @@ class UpdateRunUIStateBody(BaseModel):
     is_baseline: bool | None = None
 
 
-def _validate_json(value: dict[str, object] | None, label: str) -> None:
-    if value is not None and len(json.dumps(value)) > MAX_JSON_BYTES:
-        raise HTTPException(400, f"{label} too large")
-
-
 def _launch_response(conn: Conn, run: Run, worker_id: object) -> Run:
-    refreshed = runs_repo.get_by_id(conn, run.id) or run
+    refreshed = runs_repo.get_by_id(conn, run.id)
+    assert refreshed is not None
     return refreshed.model_copy(update={"worker_token": create_worker_token(worker_id)})
 
 
@@ -82,8 +78,8 @@ def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUse
 def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: RequireUser) -> Run:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project, user.id)
-    _validate_json(body.config, "Config")
-    _validate_json(body.metadata, "Metadata")
+    validate_json_size(body.config, "Config")
+    validate_json_size(body.metadata, "Metadata")
 
     existing = runs_repo.get_by_project_and_launch_id(conn, project.id, body.launch_id)
     if existing:
@@ -110,7 +106,7 @@ def update_run(
 ) -> Run:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    _validate_json(body.metadata, "Metadata")
+    validate_json_size(body.metadata, "Metadata")
     if not (updated := runs_repo.update(conn, run.id, metadata=body.metadata)):
         raise HTTPException(404, "Run not found")
     return updated
@@ -134,7 +130,7 @@ def update_run_ui_state(
 ) -> Run:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
-    _validate_json(body.ui_state, "UI state")
+    validate_json_size(body.ui_state, "UI state")
     if body.is_baseline is not None:
         projects_repo.set_baseline_run(conn, run.project_id, run.id if body.is_baseline else None)
     updated = runs_repo.update(conn, run.id, ui_state=body.ui_state, is_pinned=body.is_pinned)
