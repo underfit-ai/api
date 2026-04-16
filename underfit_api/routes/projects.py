@@ -148,7 +148,7 @@ def initiate_transfer(
     projects_repo.set_pending_transfer(conn, project.id, recipient.id)
     transfer_url = signed_link_url(
         frontend_url, {"project_id": str(project.id), "to_account_id": str(recipient.id)},
-        TRANSFER_TOKEN_TTL, "/transfer",
+        TRANSFER_TOKEN_TTL, "transfer", "/transfer",
     )
     send_email(
         email_cfg, to=recipient.email,
@@ -174,7 +174,7 @@ def cancel_transfer(handle: str, project_name: str, conn: Conn, user: RequireUse
 
 @router.post("/transfer")
 def accept_transfer(body: AcceptTransferBody, conn: Conn, user: RequireUser) -> Project:
-    if not (raw := verify_signed_token(body.token)):
+    if not (raw := verify_signed_token(body.token, "transfer")):
         raise HTTPException(400, "Invalid or expired transfer token")
     try:
         payload = TransferTokenPayload.model_validate(raw)

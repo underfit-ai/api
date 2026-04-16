@@ -10,6 +10,8 @@ from underfit_api.helpers import utcnow
 from underfit_api.models import User
 from underfit_api.schema import accounts, users
 
+SEARCH_LIMIT = 20
+
 _base_query = users.join(accounts, users.c.id == accounts.c.id).select
 
 
@@ -51,15 +53,17 @@ def update(conn: Connection, user_id: UUID, name: str | None, bio: str | None) -
 def search(conn: Connection, query: str) -> list[User]:
     base = _base_query()
     if "@" in query:
-        rows = conn.execute(base.where(users.c.email.startswith(query)).order_by(users.c.email)).all()
+        rows = conn.execute(
+            base.where(users.c.email.istartswith(query)).order_by(users.c.email).limit(SEARCH_LIMIT),
+        ).all()
         return [User.model_validate(row) for row in rows]
 
-    name_rows = conn.execute(base.where(users.c.name == query).order_by(accounts.c.handle)).all()
+    name_rows = conn.execute(base.where(sa.func.lower(users.c.name) == query.lower())
+        .order_by(accounts.c.handle).limit(SEARCH_LIMIT)).all()
     seen_ids = {row.id for row in name_rows}
-    handle_query = base.where(accounts.c.handle.startswith(query.lower())).order_by(
-        sa.func.length(accounts.c.handle), accounts.c.handle,
-    )
+    handle_query = base.where(accounts.c.handle.istartswith(query))
     if seen_ids:
         handle_query = handle_query.where(~accounts.c.id.in_(seen_ids))
+    handle_query = handle_query.order_by(sa.func.length(accounts.c.handle), accounts.c.handle).limit(SEARCH_LIMIT)
     handle_rows = conn.execute(handle_query).all()
-    return [User.model_validate(row) for row in [*name_rows, *handle_rows]]
+    return [User.model_validate(row) for row in [*name_rows, *handle_rows][:SEARCH_LIMIT]]

@@ -42,7 +42,7 @@ def test_worker_auth_without_app_secret(monkeypatch: pytest.MonkeyPatch) -> None
     ("put", "/api/v1/runs/summary", {"summary": {}}),
 ])
 def test_worker_endpoints_reject_invalid_tokens(client: TestClient, method: str, url: str, body: object) -> None:
-    unknown = create_signed_token({"worker_id": str(UUID(int=0))}, timedelta(minutes=1))
+    unknown = create_signed_token({"worker_id": str(UUID(int=0))}, timedelta(minutes=1), "worker")
     for token in ["bogus", unknown]:
         response = getattr(client, method)(url, headers={"Authorization": f"Bearer {token}"}, json=body)
         assert response.status_code == 401

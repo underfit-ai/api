@@ -25,7 +25,7 @@ _SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 
 def reconcile_segments(
     conn: Connection, storage: Storage, run_id: UUID, run_keys: list[str],
-    explicit_summary: dict[str, float] | None,
+    explicit_summary: dict[str, float] | None, sizes: dict[str, int],
 ) -> None:
     seen_logs: set[str] = set()
     seen_scalars: set[str] = set()
@@ -34,12 +34,14 @@ def reconcile_segments(
         rel = key[len(f"{run_id}/"):]
         if m := _LOG.match(key):
             rwid = _ensure_worker(conn, run_id, m.group(2))
-            if _ingest_log_segment(conn, storage, rwid, key, rel, int(m.group(3))):
+            if _ingest_log_segment(conn, storage, rwid, key, rel, int(m.group(3)), sizes):
                 seen_logs.add(rel)
         elif m := _SCALAR.match(key):
             rwid = _ensure_worker(conn, run_id, m.group(2))
             resolution = int(m.group(3))
-            seen, new_points = _ingest_scalar_segment(conn, storage, rwid, key, rel, resolution, int(m.group(4)))
+            seen, new_points = _ingest_scalar_segment(
+                conn, storage, rwid, key, rel, resolution, int(m.group(4)), sizes,
+            )
             if seen:
                 seen_scalars.add(rel)
                 if resolution == 1 and new_points and (last_point is None or new_points[-1].step > last_point.step):
@@ -68,7 +70,11 @@ def _ensure_worker(conn: Connection, run_id: UUID, worker_label: str) -> UUID:
 
 def _ingest_log_segment(
     conn: Connection, storage: Storage, worker_id: UUID, full_key: str, storage_key: str, start_line: int,
+    sizes: dict[str, int],
 ) -> bool:
+    size = storage.size(full_key)
+    if sizes.get(full_key) == size:
+        return True
     lines = storage.read(full_key).decode().splitlines()
     if not lines:
         return False
@@ -83,13 +89,17 @@ def _ingest_log_segment(
             start_at=now, end_at=now, storage_key=storage_key,
         )
         workers_repo.touch(conn, worker_id)
+    sizes[full_key] = size
     return True
 
 
 def _ingest_scalar_segment(
     conn: Connection, storage: Storage, worker_id: UUID, full_key: str, storage_key: str,
-    resolution: int, start_line: int,
+    resolution: int, start_line: int, sizes: dict[str, int],
 ) -> tuple[bool, list[ScalarPoint]]:
+    size = storage.size(full_key)
+    if sizes.get(full_key) == size:
+        return True, []
     points: list[ScalarPoint] = []
     for raw_line in storage.read(full_key).decode().splitlines():
         if not raw_line:
@@ -108,10 +118,12 @@ def _ingest_scalar_segment(
         scalar_segments.c.start_line == start_line,
     )).scalar()
     if existing == end_line:
+        sizes[full_key] = size
         return True, []
     scalar_seg_repo.upsert(
         conn, worker_id, resolution, start_line=start_line, end_line=end_line, end_step=points[-1].step,
         start_at=points[0].timestamp, end_at=points[-1].timestamp, storage_key=storage_key,
     )
     workers_repo.touch(conn, worker_id)
+    sizes[full_key] = size
     return True, points[(existing - start_line) if existing is not None else 0:]

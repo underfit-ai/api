@@ -68,6 +68,9 @@ def get_auth(authorization: AuthorizationHeader = None, session_token: SessionTo
     return AuthContext(authorization, session_token)
 
 
+Auth = Annotated[AuthContext, Depends(get_auth)]
+
+
 def get_current_user(conn: Conn, auth: Auth) -> User:
     return auth.require_user(conn)
 
@@ -82,7 +85,7 @@ def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
     try:
         if not config.auth_enabled:
             return UUID(authorization[7:])
-        token = verify_signed_token(authorization[7:])
+        token = verify_signed_token(authorization[7:], "worker")
         if not token:
             raise HTTPException(401, "Unauthorized")
         return UUID(token["worker_id"])
@@ -90,7 +93,6 @@ def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
         raise HTTPException(401, "Unauthorized") from None
 
 
-Auth = Annotated[AuthContext, Depends(get_auth)]
 RequireUser = Annotated[User, Depends(get_current_user)]
 MaybeUser = Annotated[Optional[User], Depends(get_maybe_user)]
 CurrentWorker = Annotated[UUID, Depends(get_current_worker)]

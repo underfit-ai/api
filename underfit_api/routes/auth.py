@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import AfterValidator, BaseModel, Field, ValidationError
 
-from underfit_api.auth import PBKDF2_DIGEST, PBKDF2_ITERATIONS, hash_password, verify_signed_token
+from underfit_api.auth import hash_password, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
@@ -87,8 +87,7 @@ def register(body: RegisterBody, response: Response, request: Request, conn: Con
     with as_conflict(conn, "Email or handle already exists"):
         user = users_repo.create(conn, body.email, handle_lower, body.handle)
         accounts_repo.create_alias(conn, user.id, handle_lower)
-        pw_hash, pw_salt = hash_password(body.password)
-        user_auth_repo.create(conn, user.id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
+        user_auth_repo.create(conn, user.id, hash_password(body.password))
         session = sessions_repo.create(conn, user.id)
     _set_session_cookie(response, request, session)
     return AuthResponse(user=user, session=session)
@@ -112,7 +111,7 @@ def forgot_password(body: ForgotPasswordBody, conn: Conn) -> OkResponse:
     if user := users_repo.get_by_email(conn, body.email):
         pw_prefix = user_auth_repo.get_password_hash_prefix(conn, user.id)
         reset_url = signed_link_url(
-            frontend_url, {"user_id": str(user.id), "pw": pw_prefix}, RESET_TOKEN_TTL, "/reset-password",
+            frontend_url, {"user_id": str(user.id), "pw": pw_prefix}, RESET_TOKEN_TTL, "reset", "/reset-password",
         )
         send_email(
             email_cfg, to=user.email, subject="Reset your password",
@@ -123,7 +122,7 @@ def forgot_password(body: ForgotPasswordBody, conn: Conn) -> OkResponse:
 
 @router.post("/reset-password")
 def reset_password(body: ResetPasswordBody, conn: Conn) -> OkResponse:
-    if not (raw := verify_signed_token(body.token)):
+    if not (raw := verify_signed_token(body.token, "reset")):
         raise HTTPException(400, "Invalid or expired reset token")
     try:
         payload = ResetTokenPayload.model_validate(raw)
@@ -131,8 +130,7 @@ def reset_password(body: ResetPasswordBody, conn: Conn) -> OkResponse:
         raise HTTPException(400, "Invalid or expired reset token") from None
     if user_auth_repo.get_password_hash_prefix(conn, payload.user_id) != payload.pw:
         raise HTTPException(400, "Invalid or expired reset token")
-    pw_hash, pw_salt = hash_password(body.password)
-    user_auth_repo.update_password(conn, payload.user_id, pw_hash, pw_salt, PBKDF2_ITERATIONS, PBKDF2_DIGEST)
+    user_auth_repo.update_password(conn, payload.user_id, hash_password(body.password))
     return OkResponse()
 
 

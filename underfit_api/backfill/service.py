@@ -25,6 +25,7 @@ class BackfillService:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._pending: set[str] = set()
         self._tasks: list[asyncio.Task[None]] = []
+        self._segment_sizes: dict[str, int] = {}
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -97,6 +98,6 @@ class BackfillService:
             return
         run_id, project_id, metadata = ensured
         run_keys = self._storage.list_files(str(run_uuid))
-        reconcile_segments(conn, self._storage, run_id, run_keys, metadata.summary)
+        reconcile_segments(conn, self._storage, run_id, run_keys, metadata.summary, self._segment_sizes)
         reconcile_assets(conn, self._storage, run_id, run_keys)
         reconcile_project_ui(conn, self._storage, project_id)

@@ -52,8 +52,8 @@ class BadStartLineError(Exception):
 
 
 class BadStepError(Exception):
-    def __init__(self, expected: int) -> None:
-        self.expected = expected
+    def __init__(self, last_step: int) -> None:
+        self.last_step = last_step
 
 
 @dataclass

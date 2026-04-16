@@ -67,23 +67,44 @@ async def _flush_loop(ctx: AppContext) -> None:
         return
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+def _validate_config() -> None:
     if config.storage.backfill.enabled and config.auth_enabled:
         raise RuntimeError("Backfill mode requires auth_enabled = false")
+    if config.auth_enabled:
+        get_app_secret()
+
+
+def _init_context(app: FastAPI) -> AppContext:
     if not (ctx := getattr(app.state, "ctx", None)):
         engine = ensure_local_cache_schema() if config.storage.backfill.enabled else build_engine()
         ctx = AppContext(engine=engine, storage=build_storage(), log_buffer=LogBuffer(), scalar_buffer=ScalarBuffer())
-    app.state.ctx = api.state.ctx = ctx
-    backfill: BackfillService | None = None
-    if config.auth_enabled:
-        get_app_secret()
-    else:
+    if not config.auth_enabled:
         with ctx.engine.begin() as conn:
             accounts_repo.get_or_create_local(conn)
-    if config.storage.backfill.enabled:
-        backfill = BackfillService(ctx.storage, ctx.engine, config.storage.backfill)
-        await backfill.start()
+    return ctx
+
+
+async def _init_backfill(ctx: AppContext) -> BackfillService | None:
+    if not config.storage.backfill.enabled:
+        return None
+    backfill = BackfillService(ctx.storage, ctx.engine, config.storage.backfill)
+    await backfill.start()
+    return backfill
+
+
+def _shutdown_context(ctx: AppContext) -> None:
+    with ctx.engine.begin() as conn:
+        ctx.log_buffer.flush_all(conn, ctx.storage)
+        ctx.scalar_buffer.flush_all(conn, ctx.storage)
+    ctx.engine.dispose()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    _validate_config()
+    ctx = _init_context(app)
+    app.state.ctx = api.state.ctx = ctx
+    backfill = await _init_backfill(ctx)
     flush_task = asyncio.create_task(_flush_loop(ctx))
     yield
     flush_task.cancel()
@@ -91,10 +112,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await flush_task
     if backfill is not None:
         await backfill.stop()
-    with ctx.engine.begin() as conn:
-        ctx.log_buffer.flush_all(conn, ctx.storage)
-        ctx.scalar_buffer.flush_all(conn, ctx.storage)
-    ctx.engine.dispose()
+    _shutdown_context(ctx)
 
 
 app = FastAPI(lifespan=lifespan)

@@ -51,7 +51,7 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, ctx: Ctx, worker: CurrentW
     except BadStartLineError as e:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
     except BadStepError as e:
-        raise HTTPException(409, detail={"error": "Step must be strictly increasing", "lastStep": e.expected}) from e
+        raise HTTPException(409, detail={"error": "Step must be strictly increasing", "lastStep": e.last_step}) from e
     ctx.scalar_buffer.flush_if_needed(conn, ctx.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.scalars))
 

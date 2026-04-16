@@ -114,7 +114,7 @@ projects = sa.Table(
     sa.Column("baseline_project_id", sa.Uuid),
     sa.Column("baseline_run_id", sa.Uuid),
     sa.Column("visibility", sa.Text, nullable=False),
-    sa.Column("pending_transfer_to", sa.Uuid, sa.ForeignKey("accounts.id"), nullable=True),
+    sa.Column("pending_transfer_to", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
     sa.ForeignKeyConstraint(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
@@ -44,9 +45,9 @@ def download_file(
         key = _storage_key(run.storage_key, path)
     if not ctx.storage.exists(key):
         raise HTTPException(404, "File not found")
-    filename = path.rsplit("/", 1)[-1]
+    filename = quote(path.rsplit("/", 1)[-1])
     return StreamingResponse(
         ctx.storage.read_stream(key),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )

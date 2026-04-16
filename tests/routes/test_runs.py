@@ -68,8 +68,8 @@ def test_launch_join_and_retry(client: TestClient, owner_headers: Headers, creat
     payload = {"runName": "my-run", "launchId": "abc-123", "workerLabel": "0"}
     first = client.post(LAUNCH, headers=owner_headers, json=payload).json()
     retry = client.post(LAUNCH, headers=owner_headers, json=payload).json()
-    assert (first_token := verify_signed_token(str(first["workerToken"])))
-    assert (retry_token := verify_signed_token(str(retry["workerToken"])))
+    assert (first_token := verify_signed_token(str(first["workerToken"]), "worker"))
+    assert (retry_token := verify_signed_token(str(retry["workerToken"]), "worker"))
     assert first_token["worker_id"] == retry_token["worker_id"]
 
     payload = {"runName": "ignored", "launchId": "abc-123", "workerLabel": "1"}

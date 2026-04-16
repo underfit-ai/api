@@ -36,7 +36,7 @@ def test_list_and_download_run_files(
     downloaded = client.get(download_url, headers=owner_headers, params={"path": "checkpoints/model.bin"})
     assert downloaded.status_code == 200
     assert downloaded.content == b"model-bytes"
-    assert downloaded.headers["content-disposition"] == 'attachment; filename="model.bin"'
+    assert downloaded.headers["content-disposition"] == "attachment; filename*=UTF-8''model.bin"
     assert client.get(files_url, headers=owner_headers, params={"path": "../other-run"}).status_code == 400
     assert client.get(download_url, headers=owner_headers, params={"path": "../other-run/file.bin"}).status_code == 400
     assert client.get(download_url, headers=owner_headers, params={"path": "missing.bin"}).status_code == 404
