@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from underfit_api.buffer import BadStartLineError, LogLine, log_buffer
+from underfit_api.buffer import BadStartLineError, LogLine
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry
 from underfit_api.repositories import log_segments as log_seg_repo
@@ -33,10 +33,10 @@ def write_logs(body: WriteLogsBody, conn: Conn, ctx: Ctx, worker: CurrentWorker)
     if not body.lines:
         return BufferedResponse(next_start_line=body.start_line)
     try:
-        log_buffer.append(conn, worker, body.start_line, body.lines)
+        ctx.log_buffer.append(conn, worker, body.start_line, body.lines)
     except BadStartLineError as e:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
-    log_buffer.flush_if_needed(conn, ctx.storage, worker)
+    ctx.log_buffer.flush_if_needed(conn, ctx.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.lines))
 
 
@@ -50,7 +50,7 @@ def read_logs(
     if not (worker := workers_repo.get(conn, run.id, worker_label)):
         raise HTTPException(404, "Worker not found")
     entries: list[LogEntry] = []
-    buf_start = log_buffer.buffer_start_line(worker.id)
+    buf_start = ctx.log_buffer.buffer_start_line(worker.id)
     segments = log_seg_repo.list_for_range(conn, worker.id, cursor, count)
     if buf_start is not None:
         segments = [s for s in segments if s.start_line < buf_start]
@@ -68,7 +68,7 @@ def read_logs(
             start_at=seg.start_at,
             end_at=seg.end_at,
         ))
-    if not entries and (buffered := log_buffer.read_buffered(worker.id, cursor, count)):
+    if not entries and (buffered := ctx.log_buffer.read_buffered(worker.id, cursor, count)):
         entries.append(LogEntry(
             start_line=cursor,
             end_line=cursor + len(buffered),
@@ -77,5 +77,5 @@ def read_logs(
             end_at=buffered[-1].timestamp,
         ))
     next_cursor = entries[-1].end_line if entries else cursor
-    has_more = bool(entries) and next_cursor < log_buffer.get_end_line(conn, worker.id)
+    has_more = bool(entries) and next_cursor < ctx.log_buffer.get_end_line(conn, worker.id)
     return LogEntriesResponse(entries=entries, next_cursor=next_cursor, has_more=has_more)

@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from underfit_api.buffer import BadStartLineError, BadStepError, ScalarPoint, get_scalar_resolutions, scalar_buffer
+from underfit_api.buffer import BadStartLineError, BadStepError, ScalarBuffer, ScalarPoint, get_scalar_resolutions
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, Scalar, ScalarSeriesResponse, Worker
 from underfit_api.repositories import run_workers as workers_repo
@@ -24,8 +24,8 @@ class WriteScalarsBody(BaseModel):
     scalars: list[ScalarPoint]
 
 
-def _total_line_count(conn: Conn, workers: list[Worker], resolution: int) -> int:
-    return sum(scalar_buffer.resolution_line_count(conn, w.id, resolution) for w in workers)
+def _total_line_count(conn: Conn, buffer: ScalarBuffer, workers: list[Worker], resolution: int) -> int:
+    return sum(buffer.resolution_line_count(conn, w.id, resolution) for w in workers)
 
 
 def _select_resolution(counts: dict[int, int], target_points: int) -> int:
@@ -47,12 +47,12 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, ctx: Ctx, worker: CurrentW
     if not body.scalars:
         return BufferedResponse(next_start_line=body.start_line)
     try:
-        scalar_buffer.append(conn, worker, body.start_line, body.scalars)
+        ctx.scalar_buffer.append(conn, worker, body.start_line, body.scalars)
     except BadStartLineError as e:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
     except BadStepError as e:
         raise HTTPException(409, detail={"error": "Step must be strictly increasing", "lastStep": e.expected}) from e
-    scalar_buffer.flush_if_needed(conn, ctx.storage, worker)
+    ctx.scalar_buffer.flush_if_needed(conn, ctx.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.scalars))
 
 
@@ -66,7 +66,10 @@ def read_scalars(
     if resolution is not None and target_points is not None:
         raise HTTPException(400, "Cannot specify both resolution and targetPoints")
     workers = workers_repo.list_by_run(conn, run.id)
-    counts = {resolution: _total_line_count(conn, workers, resolution) for resolution in get_scalar_resolutions()}
+    counts = {
+        resolution: _total_line_count(conn, ctx.scalar_buffer, workers, resolution)
+        for resolution in get_scalar_resolutions()
+    }
     selected_resolution = resolution if resolution is not None else 1
     if target_points is not None:
         selected_resolution = _select_resolution(counts, target_points)
@@ -75,7 +78,7 @@ def read_scalars(
 
     scalars: list[Scalar] = []
     for worker in workers:
-        buf_start = scalar_buffer.buffer_start_line(worker.id, selected_resolution)
+        buf_start = ctx.scalar_buffer.buffer_start_line(worker.id, selected_resolution)
         segments = scalar_seg_repo.list_by_resolution(conn, worker.id, selected_resolution)
         if buf_start is not None:
             segments = [s for s in segments if s.start_line < buf_start]
@@ -89,6 +92,6 @@ def read_scalars(
                         values=parsed["values"],
                         timestamp=datetime.fromisoformat(parsed["timestamp"].replace("Z", "+00:00")),
                     ))
-        for point in scalar_buffer.read_buffered(worker.id, selected_resolution):
+        for point in ctx.scalar_buffer.read_buffered(worker.id, selected_resolution):
             scalars.append(Scalar(step=point.step, values=point.values, timestamp=point.timestamp))
     return ScalarSeriesResponse(resolution=selected_resolution, point_count=len(scalars), points=scalars)

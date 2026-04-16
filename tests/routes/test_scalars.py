@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
 from tests.conftest import Headers
-from underfit_api.buffer import scalar_buffer
+from underfit_api.main import app
 from underfit_api.storage.types import Storage
 
 
@@ -67,7 +67,7 @@ def test_read_scalars_from_storage(
         "/api/v1/ingest/scalars", headers=worker_headers, json={"start_line": 0, "scalars": points},
     ).status_code == 200
     with engine.begin() as conn:
-        scalar_buffer.flush_all(conn, storage)
+        app.state.ctx.scalar_buffer.flush_all(conn, storage)
     assert client.get(scalars_url, headers=owner_headers).json()["pointCount"] == 20
     reduced = client.get(scalars_url, headers=owner_headers, params={"resolution": 10}).json()
     assert reduced["resolution"] == 10

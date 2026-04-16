@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
 
 from underfit_api.auth import get_app_secret
-from underfit_api.buffer import log_buffer, scalar_buffer
+from underfit_api.buffer import LogBuffer, ScalarBuffer
 from underfit_api.config import config
 from underfit_api.db import build_engine, ensure_local_cache_schema
 from underfit_api.dependencies import AppContext
@@ -49,10 +49,10 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 def _flush_once(ctx: AppContext) -> None:
     with ctx.engine.begin() as conn:
-        log_buffer.persist_due(conn, ctx.storage)
-        scalar_buffer.persist_due(conn, ctx.storage)
-        log_buffer.flush_inactive(conn, ctx.storage)
-        scalar_buffer.flush_inactive(conn, ctx.storage)
+        ctx.log_buffer.persist_due(conn, ctx.storage)
+        ctx.scalar_buffer.persist_due(conn, ctx.storage)
+        ctx.log_buffer.flush_inactive(conn, ctx.storage)
+        ctx.scalar_buffer.flush_inactive(conn, ctx.storage)
 
 
 async def _flush_loop(ctx: AppContext) -> None:
@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise RuntimeError("Backfill mode requires auth_enabled = false")
     if not (ctx := getattr(app.state, "ctx", None)):
         engine = ensure_local_cache_schema() if config.storage.backfill.enabled else build_engine()
-        ctx = AppContext(engine=engine, storage=build_storage())
+        ctx = AppContext(engine=engine, storage=build_storage(), log_buffer=LogBuffer(), scalar_buffer=ScalarBuffer())
     app.state.ctx = api.state.ctx = ctx
     backfill: BackfillService | None = None
     if config.auth_enabled:
@@ -95,8 +95,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if backfill is not None:
         await backfill.stop()
     with ctx.engine.begin() as conn:
-        log_buffer.flush_all(conn, ctx.storage)
-        scalar_buffer.flush_all(conn, ctx.storage)
+        ctx.log_buffer.flush_all(conn, ctx.storage)
+        ctx.scalar_buffer.flush_all(conn, ctx.storage)
     ctx.engine.dispose()
 
 

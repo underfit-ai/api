@@ -343,7 +343,3 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
             if buf := self._buffers.get((worker_id, resolution)):
                 end = max(end, buf.end_line)
             return end
-
-
-log_buffer = LogBuffer()
-scalar_buffer = ScalarBuffer()

@@ -8,6 +8,7 @@ from fastapi import Cookie, Depends, Header, HTTPException, Request
 from sqlalchemy import Connection, Engine
 
 from underfit_api.auth import hash_token, verify_signed_token
+from underfit_api.buffer import LogBuffer, ScalarBuffer
 from underfit_api.config import config
 from underfit_api.models import User
 from underfit_api.repositories import api_keys as api_keys_repo
@@ -19,6 +20,8 @@ from underfit_api.storage.types import Storage
 class AppContext(NamedTuple):
     engine: Engine
     storage: Storage
+    log_buffer: LogBuffer
+    scalar_buffer: ScalarBuffer
 
 
 def get_ctx(request: Request) -> AppContext:
