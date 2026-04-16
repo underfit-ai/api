@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Annotated, Optional
 from uuid import UUID
 
@@ -31,18 +32,30 @@ def _authenticate(conn: Connection, authorization: str | None, session_token: st
     return None
 
 
-def get_current_user(
-    conn: Conn, authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
-) -> User:
-    if not (user := _authenticate(conn, authorization, session_token)):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return user
+@dataclass(frozen=True)
+class AuthContext:
+    authorization: str | None
+    session_token: str | None
+
+    def maybe_user(self, conn: Connection) -> User | None:
+        return _authenticate(conn, self.authorization, self.session_token)
+
+    def require_user(self, conn: Connection) -> User:
+        if not (user := self.maybe_user(conn)):
+            raise HTTPException(401, "Unauthorized")
+        return user
 
 
-def get_maybe_user(
-    conn: Conn, authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
-) -> User | None:
-    return _authenticate(conn, authorization, session_token)
+def get_auth(authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None) -> AuthContext:
+    return AuthContext(authorization, session_token)
+
+
+def get_current_user(conn: Conn, auth: Auth) -> User:
+    return auth.require_user(conn)
+
+
+def get_maybe_user(conn: Conn, auth: Auth) -> User | None:
+    return auth.maybe_user(conn)
 
 
 def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
@@ -59,6 +72,7 @@ def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
         raise HTTPException(401, "Unauthorized") from None
 
 
+Auth = Annotated[AuthContext, Depends(get_auth)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 MaybeUser = Annotated[Optional[User], Depends(get_maybe_user)]
 CurrentWorker = Annotated[UUID, Depends(get_current_worker)]

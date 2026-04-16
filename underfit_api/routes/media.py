@@ -12,14 +12,7 @@ from pydantic import BaseModel, Json
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
-from underfit_api.dependencies import (
-    AuthorizationHeader,
-    Conn,
-    CurrentWorker,
-    MaybeUser,
-    SessionTokenCookie,
-    get_maybe_user,
-)
+from underfit_api.dependencies import Auth, Conn, CurrentWorker, MaybeUser
 from underfit_api.helpers import as_conflict, validate_path
 from underfit_api.models import Media, MediaType
 from underfit_api.repositories import media as media_repo
@@ -97,12 +90,9 @@ def list_media(
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media/{media_id}/file")
-def get_media_file(
-    handle: str, project_name: str, run_name: str, media_id: UUID,
-    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
-) -> Response:
+def get_media_file(handle: str, project_name: str, run_name: str, media_id: UUID, auth: Auth) -> Response:
     with db.engine.begin() as conn:
-        user = get_maybe_user(conn, authorization, session_token)
+        user = auth.maybe_user(conn)
         run = resolve_run(conn, handle, project_name, run_name, user)
         record = media_repo.get_by_id(conn, media_id)
         if not record or record.run_id != run.id:

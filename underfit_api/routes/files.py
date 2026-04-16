@@ -7,7 +7,7 @@ from fastapi.responses import Response, StreamingResponse
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
-from underfit_api.dependencies import AuthorizationHeader, Conn, MaybeUser, SessionTokenCookie, get_maybe_user
+from underfit_api.dependencies import Auth, Conn, MaybeUser
 from underfit_api.helpers import validate_path
 from underfit_api.routes.resolvers import resolve_run
 from underfit_api.storage import DirEntry
@@ -36,13 +36,12 @@ def list_files(
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/files/download")
 def download_file(
-    handle: str, project_name: str, run_name: str, path: Annotated[str, Query()],
-    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
+    handle: str, project_name: str, run_name: str, path: Annotated[str, Query()], auth: Auth,
 ) -> Response:
     if not path:
         raise HTTPException(400, "Path is required")
     with db.engine.begin() as conn:
-        user = get_maybe_user(conn, authorization, session_token)
+        user = auth.maybe_user(conn)
         run = resolve_run(conn, handle, project_name, run_name, user)
         key = _storage_key(run.storage_key, path)
     if not storage_mod.storage.exists(key):

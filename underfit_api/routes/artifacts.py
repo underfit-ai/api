@@ -12,15 +12,7 @@ from pydantic.alias_generators import to_camel
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
-from underfit_api.dependencies import (
-    AuthorizationHeader,
-    Conn,
-    CurrentUser,
-    MaybeUser,
-    SessionTokenCookie,
-    get_current_user,
-    get_maybe_user,
-)
+from underfit_api.dependencies import Auth, Conn, CurrentUser, MaybeUser
 from underfit_api.helpers import validate_path
 from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
@@ -103,9 +95,7 @@ def _open_zip(artifact_id: UUID, zip_path: str, conn: Conn, user: MaybeUser) -> 
         raise HTTPException(400, "Not a zip file") from e
 
 
-def _create_artifact(
-    conn: Conn, project_id: UUID, body: CreateArtifactBody, run_id: UUID | None = None,
-) -> Artifact:
+def _create_artifact(conn: Conn, project_id: UUID, body: CreateArtifactBody, run_id: UUID | None = None) -> Artifact:
     if body.step is not None and run_id is None:
         raise HTTPException(400, "step requires run")
     if body.metadata is not None and len(json.dumps(body.metadata)) > MAX_JSON_BYTES:
@@ -160,12 +150,9 @@ def get_artifact(artifact_id: UUID, conn: Conn, user: MaybeUser) -> Artifact:
 
 
 @router.put("/artifacts/{artifact_id}/files/{file_path:path}")
-async def upload_file(
-    artifact_id: UUID, file_path: str, request: Request,
-    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
-) -> Artifact:
+async def upload_file(artifact_id: UUID, file_path: str, request: Request, auth: Auth) -> Artifact:
     with db.engine.begin() as conn:
-        user = get_current_user(conn, authorization, session_token)
+        user = auth.require_user(conn)
         artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         require_project_contributor(conn, artifact.project_id, user.id)
         if not artifacts_repo.begin_upload(conn, artifact.id):
@@ -195,12 +182,9 @@ def head_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) ->
 
 
 @router.get("/artifacts/{artifact_id}/files/{file_path:path}")
-def download_file(
-    artifact_id: UUID, file_path: str,
-    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
-) -> Response:
+def download_file(artifact_id: UUID, file_path: str, auth: Auth) -> Response:
     with db.engine.begin() as conn:
-        user = get_maybe_user(conn, authorization, session_token)
+        user = auth.maybe_user(conn)
         artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
     if not storage_mod.storage.exists(key):
@@ -232,20 +216,16 @@ def list_zip_entries(artifact_id: UUID, zip_path: str, conn: Conn, user: MaybeUs
 @router.get("/artifacts/{artifact_id}/zip/entry/{zip_path:path}")
 def read_zip_entry(artifact_id: UUID, zip_path: str, entry: str, conn: Conn, user: MaybeUser) -> Response:
     try:
-        return Response(
-            content=_open_zip(artifact_id, zip_path, conn, user).read(entry), media_type="application/octet-stream",
-        )
+        content = _open_zip(artifact_id, zip_path, conn, user).read(entry)
+        return Response(content=content, media_type="application/octet-stream")
     except KeyError as e:
         raise HTTPException(404, "Entry not found") from e
 
 
 @router.post("/artifacts/{artifact_id}/finalize")
-def finalize_artifact(
-    artifact_id: UUID, body: FinalizeArtifactBody,
-    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
-) -> OkResponse:
+def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, auth: Auth) -> OkResponse:
     with db.engine.begin() as conn:
-        user = get_current_user(conn, authorization, session_token)
+        user = auth.require_user(conn)
         artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         require_project_contributor(conn, artifact.project_id, user.id)
         if artifact.finalized_at is not None:
