@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import suppress
 from uuid import UUID, uuid4
 from zipfile import BadZipFile, ZipFile
 
@@ -92,7 +93,7 @@ class _ZipStorageFile:
 
 
 def _open_zip(artifact_id: UUID, zip_path: str, conn: Conn, user: MaybeUser) -> ZipFile:
-    artifact = resolve_artifact(conn, artifact_id, user)
+    artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
     key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(zip_path)}"
     if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
@@ -114,7 +115,6 @@ def _create_artifact(
         conn, artifact_id, project_id, run_id, body.step, body.name, body.type,
         f"artifacts/{artifact_id}", body.metadata,
     )
-
 
 def _storage_root(conn: Conn, artifact: Artifact) -> str:
     if artifact.run_id:
@@ -166,18 +166,22 @@ async def upload_file(
 ) -> Artifact:
     with db.engine.begin() as conn:
         user = get_current_user(conn, authorization, session_token)
-        artifact = resolve_artifact(conn, artifact_id, user)
+        artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         require_project_contributor(conn, artifact.project_id, user.id)
-        if artifact.finalized_at is not None:
+        if not artifacts_repo.begin_upload(conn, artifact.id):
             raise HTTPException(409, "Artifact is finalized")
         key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
-    await storage_mod.storage.write_stream(key, request.stream())
+    try:
+        await storage_mod.storage.write_stream(key, request.stream())
+    finally:
+        with suppress(Exception), db.engine.begin() as conn:
+            artifacts_repo.finish_upload(conn, artifact.id)
     return artifact
 
 
 @router.head("/artifacts/{artifact_id}/files/{file_path:path}")
 def head_file(artifact_id: UUID, file_path: str, conn: Conn, user: MaybeUser) -> Response:
-    artifact = resolve_artifact(conn, artifact_id, user)
+    artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
     try:
         stat = storage_mod.storage.stat(f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}")
     except FileNotFoundError as e:
@@ -197,7 +201,7 @@ def download_file(
 ) -> Response:
     with db.engine.begin() as conn:
         user = get_maybe_user(conn, authorization, session_token)
-        artifact = resolve_artifact(conn, artifact_id, user)
+        artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
     if not storage_mod.storage.exists(key):
         raise HTTPException(404, "File not found")
@@ -206,7 +210,7 @@ def download_file(
 
 @router.delete("/artifacts/{artifact_id}/files/{file_path:path}")
 def delete_file(artifact_id: UUID, file_path: str, conn: Conn, user: CurrentUser) -> Artifact:
-    artifact = resolve_artifact(conn, artifact_id, user)
+    artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
     require_project_contributor(conn, artifact.project_id, user.id)
     if artifact.finalized_at is not None:
         raise HTTPException(409, "Artifact is finalized")
@@ -236,23 +240,36 @@ def read_zip_entry(artifact_id: UUID, zip_path: str, entry: str, conn: Conn, use
 
 
 @router.post("/artifacts/{artifact_id}/finalize")
-def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, conn: Conn, user: CurrentUser) -> OkResponse:
-    artifact = resolve_artifact(conn, artifact_id, user)
-    require_project_contributor(conn, artifact.project_id, user.id)
-    if artifact.finalized_at is not None:
-        raise HTTPException(409, "Already finalized")
-    files = list(dict.fromkeys(validate_path(f) for f in body.manifest.files))
-    refs = list({ref.url: ref for ref in body.manifest.references}.values())
-    declared_paths = set(files)
-    artifact_prefix = _artifact_prefix(conn, artifact)
-    files_prefix = f"{artifact_prefix}/files"
-    uploaded_paths = {path[len(files_prefix) + 1:] for path in storage_mod.storage.list_files(files_prefix)}
-    missing = sorted(declared_paths - uploaded_paths)
-    extra = sorted(uploaded_paths - declared_paths)
-    if missing or extra:
-        raise HTTPException(409, {"missing": missing, "extra": extra})
-    stored_size_bytes = sum(storage_mod.storage.size(f"{files_prefix}/{path}") for path in uploaded_paths)
-    manifest = Manifest(files=files, references=refs)
-    storage_mod.storage.write(f"{artifact_prefix}/manifest.json", manifest.model_dump_json().encode())
-    artifacts_repo.finalize(conn, artifact.id, stored_size_bytes)
+def finalize_artifact(
+    artifact_id: UUID, body: FinalizeArtifactBody,
+    authorization: AuthorizationHeader = None, session_token: SessionTokenCookie = None,
+) -> OkResponse:
+    with db.engine.begin() as conn:
+        user = get_current_user(conn, authorization, session_token)
+        artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
+        require_project_contributor(conn, artifact.project_id, user.id)
+        if artifact.finalized_at is not None:
+            raise HTTPException(409, "Already finalized")
+        artifact_prefix = _artifact_prefix(conn, artifact)
+        if not artifacts_repo.begin_finalize(conn, artifact.id):
+            raise HTTPException(409, "Uploads in progress")
+    try:
+        files = list(dict.fromkeys(validate_path(f) for f in body.manifest.files))
+        refs = list({ref.url: ref for ref in body.manifest.references}.values())
+        declared_paths = set(files)
+        files_prefix = f"{artifact_prefix}/files"
+        uploaded_paths = {path[len(files_prefix) + 1:] for path in storage_mod.storage.list_files(files_prefix)}
+        missing = sorted(declared_paths - uploaded_paths)
+        extra = sorted(uploaded_paths - declared_paths)
+        if missing or extra:
+            raise HTTPException(409, {"missing": missing, "extra": extra})
+        stored_size_bytes = sum(storage_mod.storage.size(f"{files_prefix}/{path}") for path in uploaded_paths)
+        manifest = Manifest(files=files, references=refs)
+        storage_mod.storage.write(f"{artifact_prefix}/manifest.json", manifest.model_dump_json().encode())
+        with db.engine.begin() as write_conn:
+            artifacts_repo.finalize(write_conn, artifact.id, stored_size_bytes)
+    except Exception:
+        with suppress(Exception), db.engine.begin() as write_conn:
+            artifacts_repo.cancel_finalize(write_conn, artifact.id)
+        raise
     return OkResponse()

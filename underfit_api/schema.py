@@ -215,12 +215,14 @@ artifacts = sa.Table(
     sa.Column("type", sa.Text, nullable=False),
     sa.Column("storage_key", sa.Text, nullable=False),
     sa.Column("stored_size_bytes", sa.BigInteger),
+    sa.Column("active_uploads", sa.Integer, nullable=False, server_default="0"),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
     sa.Column("finalized_at", sa.DateTime),
     sa.Column("metadata", sa.JSON),
     sa.ForeignKeyConstraint(["project_id", "run_id"], ["runs.project_id", "runs.id"], ondelete="CASCADE"),
     sa.CheckConstraint("run_id IS NOT NULL OR step IS NULL"),
+    sa.CheckConstraint("active_uploads >= 0 OR active_uploads = -1"),
 )
 
 media = sa.Table(

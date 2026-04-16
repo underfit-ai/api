@@ -256,6 +256,8 @@ class BackfillService:
             runs_repo.update_summary(conn, run_id, explicit_summary)
         elif last_point is not None:
             runs_repo.update_summary(conn, run_id, last_point.values)
+        else:
+            runs_repo.update_summary(conn, run_id, {})
 
     def _ingest_log_segment(
         self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str, start_line: int,

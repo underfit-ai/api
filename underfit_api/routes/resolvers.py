@@ -81,8 +81,12 @@ def resolve_run(conn: Conn, handle: str, project_name: str, run_name: str, user:
     return run
 
 
-def resolve_artifact(conn: Conn, artifact_id: UUID, user: User | None = None) -> Artifact:
+def resolve_artifact(
+    conn: Conn, artifact_id: UUID, user: User | None = None, *, require_finalized: bool = True,
+) -> Artifact:
     if not (artifact := artifacts_repo.get_by_id(conn, artifact_id)):
+        raise HTTPException(404, "Artifact not found")
+    if require_finalized and artifact.finalized_at is None:
         raise HTTPException(404, "Artifact not found")
     require_project_viewer(conn, artifact.project_id, user.id if user else None)
     return artifact

@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
+from uuid import UUID
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from tests.conftest import AddCollaborator, CreateRun, Headers
 from underfit_api.helpers import validate_path
+from underfit_api.schema import artifacts
 
 PROJECT_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/artifacts"
 RUN_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/runs/test-run/artifacts"
@@ -25,6 +28,8 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
     created = client.post(RUN_ARTIFACTS, headers=owner_headers, json=payload_2)
     assert created.status_code == 200
     artifact = created.json()
+    assert client.get(PROJECT_ARTIFACTS, headers=owner_headers).json() == []
+    assert client.get(f"/api/v1/artifacts/{artifact['id']}", headers=owner_headers).status_code == 404
     assert artifact["storedSizeBytes"] is None
     assert not storage_mod.storage.exists(f"{run.storage_key}/{artifact['storageKey']}/manifest.json")
     assert not storage_mod.storage.exists(f"{run.storage_key}/{artifact['storageKey']}/artifact.json")
@@ -60,6 +65,7 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
     finalized = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=payload_4)
     assert finalized.status_code == 200
     assert finalized.json() == {"status": "ok"}
+    assert [row["id"] for row in client.get(PROJECT_ARTIFACTS, headers=owner_headers).json()] == [artifact["id"]]
 
     artifact = client.get(f"/api/v1/artifacts/{artifact['id']}", headers=owner_headers).json()
     assert artifact["storedSizeBytes"] == 9
@@ -93,6 +99,18 @@ def test_artifact_finalize(client: TestClient, owner_headers: Headers, create_ru
 
     finalized = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=payload)
     assert finalized.status_code == 200
+
+
+def test_artifact_finalize_blocks_inflight_uploads(
+    client: TestClient, owner_headers: Headers, create_run: CreateRun,
+) -> None:
+    create_run(handle="owner", user_handle="owner", project_name="underfit", name="test-run")
+    artifact = client.post(RUN_ARTIFACTS, headers=owner_headers, json={"name": "checkpoint", "type": "model"}).json()
+    with db.engine.begin() as conn:
+        conn.execute(artifacts.update().where(artifacts.c.id == UUID(artifact["id"])).values(active_uploads=1))
+    assert client.post(
+        f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json={"manifest": {"files": []}},
+    ).status_code == 409
 
 
 def test_artifact_access_controls(
