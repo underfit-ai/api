@@ -39,7 +39,6 @@ from underfit_api.routes.run_workers import router as workers_router
 from underfit_api.routes.runs import router as runs_router
 from underfit_api.routes.scalars import router as scalars_router
 from underfit_api.routes.users import router as users_router
-from underfit_api.schema import metadata
 from underfit_api.storage.backfill import BackfillService
 
 logger = logging.getLogger(__name__)
@@ -70,7 +69,10 @@ async def _flush_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    metadata.create_all(db.engine)
+    if config.storage.backfill.enabled and config.auth_enabled:
+        raise RuntimeError("Backfill mode requires auth_enabled = false")
+    if config.storage.backfill.enabled:
+        db.ensure_local_cache_schema()
     backfill: BackfillService | None = None
     if config.auth_enabled:
         get_app_secret()

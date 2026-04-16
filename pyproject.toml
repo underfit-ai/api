@@ -11,6 +11,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 
 dependencies = [
+    "alembic>=1.14",
     "fastapi>=0.128",
     "uvicorn>=0.39",
     "pydantic>=2.11",
@@ -43,6 +44,9 @@ Issues = "https://github.com/underfit-ai/api/issues"
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["underfit_api*"]
+
 [tool.setuptools.package-data]
 "underfit_api" = ["py.typed", "static/**/*"]
 
@@ -58,3 +62,8 @@ lint.ignore = [
 
 [tool.pytest.ini_options]
 addopts = "--basetemp=/tmp/underfit-pytest --disable-plugin-autoload"
+
+[tool.alembic]
+script_location = "%(here)s/migrations"
+prepend_sys_path = ["."]
+path_separator = "os"
