@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from underfit_api.auth import get_app_secret, hash_token
 from underfit_api.config import config
+from underfit_api.main import app
 
 
 def test_health_returns_status_and_version(client: TestClient) -> None:
@@ -23,6 +24,12 @@ def test_unknown_route_returns_json_404(client: TestClient) -> None:
     assert response.status_code == 404
     assert "application/json" in response.headers["content-type"]
     assert response.json() == {"error": "Route not found"}
+
+
+def test_backfill_with_auth_enabled_rejected() -> None:
+    config.storage.backfill.enabled = True
+    with pytest.raises(RuntimeError, match="auth_enabled = false"), TestClient(app):
+        pass
 
 
 def test_backfill_blocks_api_write_methods_but_not_get(client: TestClient) -> None:

@@ -71,5 +71,8 @@ def test_auth_modes(create_user: CreateUser, session_for_user: SessionForUser) -
     config.auth_enabled = False
     with TestClient(app) as client:
         current = client.get("/api/v1/me")
+        client.cookies.set("session_token", "stale")
+        bogus = client.get("/api/v1/me", headers={"Authorization": "Bearer nope"})
     assert current.status_code == 200
     assert (current.json()["handle"], current.json()["email"]) == ("local", "local@underfit.local")
+    assert bogus.status_code == 200 and bogus.json()["handle"] == "local"

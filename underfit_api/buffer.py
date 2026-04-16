@@ -105,10 +105,12 @@ class _BaseBuffer(Generic[K, V]):
         with self._dict_lock:
             state = self._worker_locks.setdefault(worker_id, _WorkerLockState())
             state.refs += 1
-        with state.lock:
-            yield
-        with self._dict_lock:
-            state.refs -= 1
+        try:
+            with state.lock:
+                yield
+        finally:
+            with self._dict_lock:
+                state.refs -= 1
 
     def persist_due(self, conn: Connection, storage: Storage) -> None:
         cutoff = utcnow() - timedelta(milliseconds=config.buffer.persist_interval_ms)

@@ -108,15 +108,19 @@ def test_project_visibility_and_listing(
     admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
     member_headers = create_org_member(org["id"], "member@example.com", "member", "Member")
     create_project(handle="core", name="secret")
+    create_project(handle="core", name="open", visibility="public")
     launch_url = "/api/v1/accounts/core/projects/secret/runs/launch"
     assert client.get("/api/v1/accounts/core/projects/secret", headers=member_headers).status_code == 403
     assert client.get("/api/v1/accounts/core/projects/secret", headers=admin_headers).status_code == 200
+    assert client.get("/api/v1/accounts/core/projects/secret", headers=outsider_headers).status_code == 403
+    assert client.get("/api/v1/accounts/core/projects/open", headers=outsider_headers).status_code == 200
+    assert client.get("/api/v1/accounts/core/projects/open").status_code == 200
     assert client.post(launch_url, headers=member_headers, json={"runName": "r", "launchId": "1"}).status_code == 403
     assert client.post(launch_url, headers=admin_headers, json={"runName": "r", "launchId": "1"}).status_code == 200
     org_projects = client.get("/api/v1/accounts/core/projects", headers=admin_headers)
-    assert org_projects.status_code == 200 and _project_names(org_projects) == {"secret"}
+    assert org_projects.status_code == 200 and _project_names(org_projects) == {"secret", "open"}
     admin_projects = client.get("/api/v1/me/projects", headers=admin_headers)
-    assert admin_projects.status_code == 200 and _project_names(admin_projects) == {"secret"}
+    assert admin_projects.status_code == 200 and _project_names(admin_projects) == {"secret", "open"}
 
 
 @pytest.mark.parametrize(("url", "payload", "status", "existing"), [
