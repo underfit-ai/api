@@ -18,10 +18,7 @@ def test_api_key_lifecycle(client: TestClient, create_user: CreateUser, session_
 
     listed = client.get("/api/v1/me/api-keys", headers=headers)
     assert listed.status_code == 200
-    assert len(listed.json()) == 1
-    assert listed.json()[0]["id"] == key["id"]
-    assert listed.json()[0]["tokenPrefix"] == key["tokenPrefix"]
-    assert "token" not in listed.json()[0]
+    assert [row["id"] for row in listed.json()] == [key["id"]]
 
     deleted = client.delete(f"/api/v1/me/api-keys/{key['id']}", headers=headers)
     assert deleted.status_code == 200

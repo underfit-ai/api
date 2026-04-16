@@ -11,20 +11,12 @@ from underfit_api.main import app
 def test_register_login_logout_flow(client: TestClient, register_user: RegisterUser) -> None:
     register = register_user()
     assert register.status_code == 200
-    user = register.json()["user"]
-    token = register.cookies.get("session_token")
-    assert token is not None
-    cookie = {"Cookie": f"session_token={token}"}
+    assert register.cookies.get("session_token") is not None
 
-    current = client.get("/api/v1/me", headers=cookie)
-    assert current.status_code == 200
-    assert current.json()["id"] == user["id"]
-
-    logout = client.post("/api/v1/auth/logout", headers=cookie)
-    assert logout.status_code == 200
-
-    expired = client.get("/api/v1/me", headers=cookie)
-    assert expired.status_code == 401
+    current = client.get("/api/v1/me")
+    assert current.status_code == 200 and current.json()["id"] == register.json()["user"]["id"]
+    assert client.post("/api/v1/auth/logout").status_code == 200
+    assert client.get("/api/v1/me").status_code == 401
 
 
 def test_register_rejects_duplicate_email_and_handle(register_user: RegisterUser) -> None:

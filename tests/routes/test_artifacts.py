@@ -35,13 +35,11 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
 
     assert client.put(file_base + "/weights.bin", headers=owner_headers, content=b"weights").status_code == 200
 
-    head_1 = client.head(file_base + "/weights.bin", headers=owner_headers)
-    assert head_1.status_code == 200
-    assert head_1.headers["content-length"] == "7"
-    assert "last-modified" in head_1.headers
+    head = client.head(file_base + "/weights.bin", headers=owner_headers)
+    assert head.status_code == 200 and head.headers["content-length"] == "7" and "last-modified" in head.headers
 
-    downloaded_1 = client.get(file_base + "/weights.bin", headers=owner_headers)
-    assert (downloaded_1.status_code, downloaded_1.content) == (200, b"weights")
+    downloaded = client.get(file_base + "/weights.bin", headers=owner_headers)
+    assert (downloaded.status_code, downloaded.content) == (200, b"weights")
 
     payload_3 = {"manifest": {"files": ["weights.bin", "dir/config.json"]}}
     missing = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=payload_3)
@@ -178,10 +176,7 @@ def test_artifact_zip_browse(client: TestClient, owner_headers: Headers, create_
     zip_base = f"/api/v1/artifacts/{artifact['id']}/zip"
     entries = client.get(f"{zip_base}/entries/code.zip", headers=owner_headers)
     assert entries.status_code == 200
-    assert entries.json() == [
-        {"path": "main.py", "size": 12, "compressedSize": entries.json()[0]["compressedSize"]},
-        {"path": "pkg/util.py", "size": 6, "compressedSize": entries.json()[1]["compressedSize"]},
-    ]
+    assert [(e["path"], e["size"]) for e in entries.json()] == [("main.py", 12), ("pkg/util.py", 6)]
 
     content = client.get(f"{zip_base}/entry/code.zip", headers=owner_headers, params={"entry": "pkg/util.py"})
     assert (content.status_code, content.content) == (200, b"x = 1\n")

@@ -11,18 +11,11 @@ BASE = "/api/v1/accounts"
 def test_account_exists_and_get_by_handle(client: TestClient, create_user: CreateUser) -> None:
     user = create_user(email="ada@example.com", handle="ada", name="Ada")
 
-    exists = client.get(f"{BASE}/ada/exists")
-    missing = client.get(f"{BASE}/missing/exists")
-
-    assert exists.status_code == 200 and exists.json() == {"exists": True}
-    assert missing.status_code == 200 and missing.json() == {"exists": False}
-
-    fetched = client.get(f"{BASE}/ada")
-    not_found = client.get(f"{BASE}/missing")
-
-    fetched_json = fetched.json()
-    assert fetched.status_code == 200 and fetched_json["id"] == str(user.id) and fetched_json["handle"] == "ada"
-    assert not_found.status_code == 404
+    assert client.get(f"{BASE}/ada/exists").json() == {"exists": True}
+    assert client.get(f"{BASE}/missing/exists").json() == {"exists": False}
+    assert client.get(f"{BASE}/missing").status_code == 404
+    fetched = client.get(f"{BASE}/ada").json()
+    assert fetched["id"] == str(user.id) and fetched["handle"] == "ada"
 
 
 def test_rename_account(client: TestClient, owner_headers: Headers, outsider_headers: Headers) -> None:

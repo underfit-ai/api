@@ -18,15 +18,12 @@ def test_ensure_local_cache_schema_recreates_sqlite_cache(tmp_path: Path) -> Non
     db.engine = db.build_engine()
     db.ensure_local_cache_schema()
     with db.engine.begin() as conn:
-        conn.execute(users.delete())
         users.drop(conn)
         conn.exec_driver_sql("PRAGMA user_version = 0")
     db.ensure_local_cache_schema()
     with db.engine.connect() as conn:
-        tables = set(sa.inspect(conn).get_table_names())
-        version = conn.exec_driver_sql("PRAGMA user_version").scalar_one()
-    assert "users" in tables
-    assert version == db.LOCAL_CACHE_SCHEMA_VERSION
+        assert "users" in set(sa.inspect(conn).get_table_names())
+        assert conn.exec_driver_sql("PRAGMA user_version").scalar_one() == db.LOCAL_CACHE_SCHEMA_VERSION
 
 
 def test_ensure_local_cache_schema_requires_sqlite() -> None:

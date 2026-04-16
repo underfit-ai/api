@@ -50,9 +50,8 @@ def test_get_app_secret_validation(secret: str | None, message: str, monkeypatch
     else:
         monkeypatch.setenv("UNDERFIT_APP_SECRET", secret)
     get_app_secret.cache_clear()
-    with pytest.raises(RuntimeError) as excinfo:
+    with pytest.raises(RuntimeError, match=message):
         get_app_secret()
-    assert message in str(excinfo.value)
 
 
 def test_hash_token_changes_when_secret_changes(monkeypatch: pytest.MonkeyPatch) -> None:

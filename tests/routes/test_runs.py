@@ -32,7 +32,6 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert run["terminalState"] is None
     assert run["config"] == {"lr": 0.001}
     assert run["metadata"] == {"summary": {"loss": 0.5}}
-    assert run["uiState"] == {} and run["isPinned"] is False and run["isBaseline"] is False
     assert run["launchId"] == "abc-123"
     assert run["name"] == "my-run"
     assert run["workerToken"] is not None

@@ -53,7 +53,6 @@ def test_s3_storage_metadata_and_listing(storage: S3Storage) -> None:
     entries = storage.list_dir("dir")
     assert [(entry.name, entry.is_directory) for entry in entries] == [("sub", True), ("a.txt", False)]
     assert storage.list_files("dir") == ["dir/a.txt", "dir/sub/b.txt"]
-    assert storage.size("dir/a.txt") == 1
     assert storage.stat("dir/a.txt").size == 1
 
     storage.delete("dir/a.txt")

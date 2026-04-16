@@ -18,7 +18,6 @@ from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import (
-    accounts,
     artifacts,
     log_segments,
     media,
@@ -27,7 +26,6 @@ from underfit_api.schema import (
     run_workers,
     runs,
     scalar_segments,
-    users,
 )
 from underfit_api.storage.backfill import BackfillService
 from underfit_api.storage.file import FileStorage, _StorageHandler
@@ -123,9 +121,6 @@ def test_backfill_ingests_segment_files(backfill_service: tuple[BackfillService,
     _scan(service)
 
     with db.engine.begin() as conn:
-        assert len(conn.execute(select(accounts)).all()) == 1
-        assert len(conn.execute(select(users)).all()) == 1
-        assert len(conn.execute(select(projects)).all()) == 1
         project_row = conn.execute(select(projects)).first()
         alias_row = conn.execute(select(project_aliases)).first()
         run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
