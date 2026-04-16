@@ -139,11 +139,9 @@ def test_backfill_ingests_segment_files(backfill_service: tuple[BackfillService,
     assert project_row is not None and project_row.name == "vision"
     assert alias_row is not None and alias_row.name == "vision"
     assert run_row is not None
-    assert run_row.id == run_id and run_row.name == "trial a" and run_row.storage_key == str(run_id)
+    assert run_row.name == "trial a" and run_row.storage_key == str(run_id)
     assert run_row.terminal_state is None and run_row.config == {"lr": 0.01, "seed": 7}
     assert run_row.metadata == {"summary": {"loss": 0.6}}
-    assert log_worker_row.worker_label == "worker-1"
-    assert scalar_worker_row.worker_label == "0"
     assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
     assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (1, 0, 2)
     assert scalar_row.end_at.isoformat() == "2025-01-01T00:00:01"

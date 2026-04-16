@@ -22,7 +22,7 @@ def test_ensure_local_cache_schema_recreates_sqlite_cache(tmp_path: Path) -> Non
         conn.exec_driver_sql("PRAGMA user_version = 0")
     db.ensure_local_cache_schema()
     with db.engine.connect() as conn:
-        assert "users" in set(sa.inspect(conn).get_table_names())
+        assert "users" in sa.inspect(conn).get_table_names()
         assert conn.exec_driver_sql("PRAGMA user_version").scalar_one() == db.LOCAL_CACHE_SCHEMA_VERSION
 
 

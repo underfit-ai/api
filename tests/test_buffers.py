@@ -25,7 +25,6 @@ def _create_worker(worker_label: str = "0") -> UUID:
         user = users_repo.create(conn, email="owner@example.com", handle="owner", name="Owner")
         project = projects_repo.create(conn, user.id, "underfit", None, "private", {})
         run = runs_repo.create(conn, project.id, user.id, "test-launch-id", "test-run", None, {})
-        assert run is not None
         worker = workers_repo.create(conn, run.id, worker_label)
         return worker.id
 
@@ -75,10 +74,7 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -
             .order_by(log_segments.c.start_line),
         ).all()
 
-    assert len(segments) == 2
-    assert (segments[0].start_line, segments[0].end_line, segments[1].start_line, segments[1].end_line) == (
-        0, 1, 1, 2,
-    )
+    assert [(s.start_line, s.end_line) for s in segments] == [(0, 1), (1, 2)]
     assert storage.read(f"{_run_storage_key(rwid)}/{segments[0].storage_key}").decode() == "first\n"
     assert storage.read(f"{_run_storage_key(rwid)}/{segments[1].storage_key}").decode() == "second\n"
 

@@ -206,7 +206,7 @@ def create_run(create_project: CreateProject) -> CreateRun:
         project = create_project(handle=handle, name=project_name)
         with db.engine.begin() as conn:
             assert (user := users_repo.get_by_handle(conn, handle)) is not None
-            assert (run := runs_repo.create(conn, project.id, user.id, launch_id, name, None, {})) is not None
+            run = runs_repo.create(conn, project.id, user.id, launch_id, name, None, {})
             run_workers_repo.create(conn, run.id, worker_label="0")
             return run
 
