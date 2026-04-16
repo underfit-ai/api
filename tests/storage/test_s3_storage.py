@@ -61,3 +61,24 @@ def test_s3_storage_metadata_and_listing(storage: S3Storage) -> None:
     with pytest.raises(FileNotFoundError):
         storage.read("dir/a.txt")
     assert not isinstance(storage, WatchableStorage)
+
+
+def test_s3_write_stream_aborts_multipart_on_failure(storage: S3Storage, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = vars(storage)["_client"]
+    aborted = False
+
+    async def gen() -> AsyncIterator[bytes]:
+        yield b"x" * MULTIPART_PART_SIZE
+
+    def fail_upload_part(*args: object, **kwargs: object) -> dict[str, str]:
+        raise RuntimeError("boom")
+
+    def abort_upload(*args: object, **kwargs: object) -> None:
+        nonlocal aborted
+        aborted = True
+
+    monkeypatch.setattr(client, "upload_part", fail_upload_part)
+    monkeypatch.setattr(client, "abort_multipart_upload", abort_upload)
+    with pytest.raises(RuntimeError, match="boom"):
+        asyncio.run(storage.write_stream("failed.txt", gen()))
+    assert aborted is True
