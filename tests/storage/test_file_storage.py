@@ -36,3 +36,16 @@ def test_file_storage_crud_and_listing(tmp_path: Path) -> None:
     assert storage.list_files("dir") == ["dir/file.bin"] and storage.stat("dir/file.bin").size == 4
     storage.delete("root.txt")
     assert not storage.exists("root.txt")
+
+
+def test_file_storage_write_stream_is_atomic(tmp_path: Path) -> None:
+    storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
+    storage.write("dir/file.bin", b"old")
+
+    async def stream() -> AsyncIterator[bytes]:
+        yield b"new"
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        asyncio.run(storage.write_stream("dir/file.bin", stream()))
+    assert storage.read("dir/file.bin") == b"old"

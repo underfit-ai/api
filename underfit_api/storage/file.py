@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import datetime, timezone
 from email.utils import format_datetime
@@ -35,6 +36,7 @@ class _StorageHandler(FileSystemEventHandler):
 class FileStorage:
     def __init__(self, config: FileStorageConfig) -> None:
         self.base = Path(config.base)
+        self._tmp = self.base.parent / f".{self.base.name}.tmp"
         self._observer: BaseObserver | None = None
 
     def _resolve(self, key: str) -> Path:
@@ -46,16 +48,28 @@ class FileStorage:
     def write(self, key: str, content: bytes) -> None:
         path = self._resolve(key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(content)
+        self._tmp.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=self._tmp, delete=False) as f:
+            f.write(content)
+        Path(f.name).replace(path)
 
     async def write_stream(self, key: str, stream: AsyncIterator[bytes]) -> int:
         path = self._resolve(key)
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._tmp.mkdir(parents=True, exist_ok=True)
         total = 0
-        with path.open("wb") as f:
-            async for chunk in stream:
-                f.write(chunk)
-                total += len(chunk)
+        tmp: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=self._tmp, delete=False) as f:
+                tmp = Path(f.name)
+                async for chunk in stream:
+                    f.write(chunk)
+                    total += len(chunk)
+            tmp.replace(path)
+        except Exception:
+            if tmp:
+                tmp.unlink(missing_ok=True)
+            raise
         return total
 
     def read(self, key: str, byte_offset: int = 0, byte_count: int | None = None) -> bytes:
