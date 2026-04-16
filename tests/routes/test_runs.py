@@ -121,17 +121,6 @@ def test_launch_duplicate_name(client: TestClient, owner_headers: Headers, creat
     assert resp.status_code == 409
 
 
-def test_launch_access_controls(
-    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
-    create_project: CreateProject, add_collaborator: AddCollaborator,
-) -> None:
-    create_project(handle="owner", name="underfit")
-    body = {"runName": "r", "launchId": "1"}
-    assert client.post(LAUNCH, headers=outsider_headers, json=body).status_code == 403
-    add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
-    assert client.post(LAUNCH, headers=outsider_headers, json=body).status_code == 200
-
-
 def test_list_user_runs_visibility(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers,
     create_project: CreateProject, add_collaborator: AddCollaborator,

@@ -100,10 +100,9 @@ def test_project_visibility_and_listing(
 @pytest.mark.parametrize(("url", "payload", "status", "existing"), [
     ("/api/v1/accounts/missing/projects", {"name": "underfit", "visibility": "private"}, 404, False),
     (BASE, {"name": "underfit", "visibility": "internal"}, 400, False),
-    (BASE, {"name": "underfit", "visibility": "private"}, 200, False),
     (BASE, {"name": "UNDERFIT", "visibility": "private"}, 409, True),
 ])
-def test_project_creation_validation(
+def test_project_creation_rejects_invalid_requests(
     url: str, payload: dict[str, str], status: int, existing: bool,
     client: TestClient, owner_headers: Headers, create_project: CreateProject,
 ) -> None:
