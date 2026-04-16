@@ -195,6 +195,7 @@ scalar_segments = sa.Table(
     sa.Column("resolution", sa.Integer, nullable=False),
     sa.Column("start_line", sa.Integer, nullable=False),
     sa.Column("end_line", sa.Integer, nullable=False),
+    sa.Column("end_step", sa.Integer, nullable=False),
     sa.Column("start_at", sa.DateTime, nullable=False),
     sa.Column("end_at", sa.DateTime, nullable=False),
     sa.Column("storage_key", sa.Text, nullable=False),

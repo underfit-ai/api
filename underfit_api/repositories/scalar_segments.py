@@ -22,18 +22,18 @@ def get_end_line(conn: Connection, worker_id: UUID, resolution: int) -> int:
 
 
 def upsert(
-    conn: Connection, worker_id: UUID, resolution: int, start_line: int, end_line: int,
+    conn: Connection, worker_id: UUID, resolution: int, start_line: int, end_line: int, end_step: int,
     start_at: datetime, end_at: datetime, storage_key: str,
 ) -> None:
     updated = conn.execute(scalar_segments.update().where(
         scalar_segments.c.worker_id == worker_id,
         scalar_segments.c.resolution == resolution,
         scalar_segments.c.start_line == start_line,
-    ).values(end_line=end_line, end_at=end_at, storage_key=storage_key)).rowcount
+    ).values(end_line=end_line, end_step=end_step, end_at=end_at, storage_key=storage_key)).rowcount
     if updated == 0:
         conn.execute(scalar_segments.insert().values(
             id=uuid4(), worker_id=worker_id, resolution=resolution, start_line=start_line, end_line=end_line,
-            start_at=start_at, end_at=end_at, storage_key=storage_key, created_at=utcnow(),
+            end_step=end_step, start_at=start_at, end_at=end_at, storage_key=storage_key, created_at=utcnow(),
         ))
 
 
@@ -43,3 +43,13 @@ def list_by_resolution(conn: Connection, worker_id: UUID, resolution: int) -> Se
         .where(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution)
         .order_by(scalar_segments.c.start_line),
     ).all()
+
+
+def get_last_step(conn: Connection, worker_id: UUID) -> int | None:
+    row = conn.execute(
+        scalar_segments.select()
+        .where(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == 1)
+        .order_by(scalar_segments.c.end_line.desc())
+        .limit(1),
+    ).first()
+    return row.end_step if row else None

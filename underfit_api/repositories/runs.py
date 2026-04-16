@@ -130,13 +130,6 @@ def update_summary(conn: Connection, pk: UUID, points: Iterable[ScalarPoint]) ->
         ts = point.timestamp.isoformat() + "Z"
         for key, value in point.values.items():
             entry = summary.get(key)
-            if entry is None or _is_newer(point.step, ts, entry):
+            if entry is None or point.step > entry["step"]:  # ty: ignore[unsupported-operator]
                 summary[key] = {"value": value, "step": point.step, "timestamp": ts}
     conn.execute(runs.update().where(runs.c.id == pk).values(summary=summary))
-
-
-def _is_newer(step: int | None, ts: str, existing: dict[str, object]) -> bool:
-    existing_step, existing_ts = existing["step"], existing["timestamp"]
-    if step is not None and isinstance(existing_step, int):
-        return step > existing_step
-    return isinstance(existing_ts, str) and ts > existing_ts

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
 import underfit_api.storage as storage_mod
-from underfit_api.buffer import ScalarPoint, get_scalar_resolutions, scalar_buffer
+from underfit_api.buffer import BadStartLineError, BadStepError, ScalarPoint, get_scalar_resolutions, scalar_buffer
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, Scalar, Worker
 from underfit_api.repositories import run_workers as workers_repo
@@ -48,8 +48,12 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> 
         raise HTTPException(400, "startLine must be >= 0")
     if not body.scalars:
         return BufferedResponse(next_start_line=body.start_line)
-    if (expected := scalar_buffer.append(conn, worker, body.start_line, body.scalars)) is not None:
-        raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
+    try:
+        scalar_buffer.append(conn, worker, body.start_line, body.scalars)
+    except BadStartLineError as e:
+        raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
+    except BadStepError as e:
+        raise HTTPException(409, detail={"error": "Step must be strictly increasing", "lastStep": e.expected}) from e
     scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker)
     assert (row := workers_repo.get_by_id(conn, worker)) is not None
     runs_repo.update_summary(conn, row.run_id, body.scalars)

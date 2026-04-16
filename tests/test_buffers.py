@@ -4,10 +4,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select
 
 import underfit_api.db as db
-from underfit_api.buffer import LogBuffer, LogLine, ScalarBuffer, ScalarPoint
+from underfit_api.buffer import BadStartLineError, LogBuffer, LogLine, ScalarBuffer, ScalarPoint
 from underfit_api.config import FileStorageConfig, config
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -42,16 +43,16 @@ def test_log_buffer_slices_by_cursor() -> None:
     t0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
     with db.engine.begin() as conn:
-        expected = buffer.append(conn, rwid, 0, [
+        buffer.append(conn, rwid, 0, [
             LogLine(timestamp=t0, content="a"),
             LogLine(timestamp=t0 + timedelta(seconds=1), content="b"),
         ])
-        assert expected is None
         assert buffer.get_end_line(conn, rwid) == 2
         assert [line.content for line in buffer.read_buffered(rwid, cursor=1, count=2)] == ["b"]
 
-        conflict = buffer.append(conn, rwid, 1, [LogLine(timestamp=t0, content="late")])
-        assert conflict == 2
+        with pytest.raises(BadStartLineError) as exc_info:
+            buffer.append(conn, rwid, 1, [LogLine(timestamp=t0, content="late")])
+        assert exc_info.value.expected == 2
 
 
 def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(tmp_path: Path) -> None:

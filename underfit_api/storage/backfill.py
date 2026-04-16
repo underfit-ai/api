@@ -295,7 +295,7 @@ class BackfillService:
         if existing == end_line:
             return []
         scalar_seg_repo.upsert(
-            conn, worker_id, resolution, start_line=start_line, end_line=end_line,
+            conn, worker_id, resolution, start_line=start_line, end_line=end_line, end_step=points[-1].step,
             start_at=points[0].timestamp, end_at=points[-1].timestamp, storage_key=storage_key,
         )
         conn.execute(run_workers.update().where(run_workers.c.id == worker_id).values(last_heartbeat=utcnow()))

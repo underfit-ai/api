@@ -42,9 +42,19 @@ class LogLine(BaseModel):
 
 
 class ScalarPoint(BaseModel):
-    step: int | None = None
+    step: int
     values: dict[str, float]
     timestamp: UTCDatetime
+
+
+class BadStartLineError(Exception):
+    def __init__(self, expected: int) -> None:
+        self.expected = expected
+
+
+class BadStepError(Exception):
+    def __init__(self, expected: int) -> None:
+        self.expected = expected
 
 
 @dataclass
@@ -64,7 +74,7 @@ class _Accumulator:
     sums: dict[str, float] = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
     n: int = 0
-    last_step: int | None = None
+    last_step: int = 0
     last_timestamp: datetime | None = None
 
 
@@ -133,17 +143,16 @@ class LogBuffer(_BaseBuffer[UUID, LogLine]):
             buf = self._buffers.get(worker_id)
             return buf.end_line if buf and buf.lines else log_seg_repo.get_end_line(conn, worker_id)
 
-    def append(self, conn: Connection, worker_id: UUID, start_line: int, lines: list[LogLine]) -> int | None:
+    def append(self, conn: Connection, worker_id: UUID, start_line: int, lines: list[LogLine]) -> None:
         with self._worker_lock(worker_id):
             expected = self.get_end_line(conn, worker_id)
             if start_line != expected:
-                return expected
+                raise BadStartLineError(expected)
             with self._dict_lock:
                 buf = self._buffers.setdefault(worker_id, _LineBuffer(start_line=start_line))
             for line in lines:
                 buf.lines.append(line)
                 buf.byte_count += len(line.content.encode()) + 1
-            return None
 
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID, *, clear: bool = False) -> None:
         with self._worker_lock(worker_id):
@@ -197,6 +206,14 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
     def __init__(self) -> None:
         super().__init__()
         self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
+        self._last_steps: dict[UUID, int] = {}
+
+    def _resolve_last_step(self, conn: Connection, worker_id: UUID) -> int | None:
+        if worker_id in self._last_steps:
+            return self._last_steps[worker_id]
+        if (last := scalar_seg_repo.get_last_step(conn, worker_id)) is not None:
+            self._last_steps[worker_id] = last
+        return last
 
     def _worker_id_of(self, key: tuple[UUID, int]) -> UUID:
         return key[0]
@@ -206,18 +223,24 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
             buf = self._buffers.get((worker_id, resolution))
             return buf.end_line if buf and buf.lines else scalar_seg_repo.get_end_line(conn, worker_id, resolution)
 
-    def append(self, conn: Connection, worker_id: UUID, start_line: int, scalars: list[ScalarPoint]) -> int | None:
+    def append(self, conn: Connection, worker_id: UUID, start_line: int, scalars: list[ScalarPoint]) -> None:
         with self._worker_lock(worker_id):
             expected = self.get_end_line(conn, worker_id, 1)
             if start_line != expected:
-                return expected
+                raise BadStartLineError(expected)
+            last_step = self._resolve_last_step(conn, worker_id)
+            for scalar in scalars:
+                if last_step is not None and scalar.step <= last_step:
+                    raise BadStepError(last_step)
+                last_step = scalar.step
             with self._dict_lock:
                 buf = self._buffers.setdefault((worker_id, 1), _LineBuffer(start_line=start_line))
             for scalar in scalars:
                 buf.lines.append(scalar)
                 buf.byte_count += len(scalar.model_dump_json().encode()) + 1
                 self._feed_accumulators(conn, worker_id, scalar)
-            return None
+            if scalars:
+                self._last_steps[worker_id] = scalars[-1].step
 
     def _feed_accumulators(self, conn: Connection, worker_id: UUID, scalar: ScalarPoint) -> None:
         for resolution in get_scalar_resolutions()[1:]:
@@ -267,7 +290,7 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
         storage.write(f"{run.storage_key}/{storage_key}", content.encode())
         scalar_seg_repo.upsert(
             conn, worker_id, resolution,
-            start_line=buf.start_line, end_line=buf.end_line,
+            start_line=buf.start_line, end_line=buf.end_line, end_step=buf.lines[-1].step,
             start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
             storage_key=storage_key,
         )

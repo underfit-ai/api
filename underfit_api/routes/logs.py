@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
 import underfit_api.storage as storage_mod
-from underfit_api.buffer import LogLine, log_buffer
+from underfit_api.buffer import BadStartLineError, LogLine, log_buffer
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry
 from underfit_api.repositories import log_segments as log_seg_repo
@@ -33,9 +33,10 @@ def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> Buffer
         raise HTTPException(400, "Log lines must not contain newlines")
     if not body.lines:
         return BufferedResponse(next_start_line=body.start_line)
-    expected = log_buffer.append(conn, worker, body.start_line, body.lines)
-    if expected is not None:
-        raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
+    try:
+        log_buffer.append(conn, worker, body.start_line, body.lines)
+    except BadStartLineError as e:
+        raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
     log_buffer.flush_if_needed(conn, storage_mod.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.lines))
 
