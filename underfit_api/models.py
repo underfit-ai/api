@@ -131,7 +131,6 @@ class Worker(_Base):
     run_id: UUID
     run_storage_key: str = Field(exclude=True)
     worker_label: str
-    worker_token: str | None = None
     last_heartbeat: UTCDatetime
     joined_at: UTCDatetime
 

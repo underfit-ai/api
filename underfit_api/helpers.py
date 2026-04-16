@@ -70,15 +70,14 @@ def validate_json_size(value: dict[str, object] | None, label: str) -> None:
         raise HTTPException(400, f"{label} too large")
 
 
-def ensure_email_configured() -> EmailConfig:
+def ensure_email_configured() -> tuple[EmailConfig, str]:
     if not config.email:
         raise HTTPException(400, "Email is not configured")
     if not config.frontend_url:
         raise HTTPException(400, "Frontend URL is not configured")
-    return config.email
+    return config.email, config.frontend_url
 
 
-def signed_link_url(payload: dict[str, Any], ttl: timedelta, path: str) -> str:
-    assert config.frontend_url is not None
+def signed_link_url(frontend_url: str, payload: dict[str, Any], ttl: timedelta, path: str) -> str:
     token = create_signed_token(payload, ttl)
-    return f"{config.frontend_url.rstrip('/')}{path}?token={token}"
+    return f"{frontend_url.rstrip('/')}{path}?token={token}"

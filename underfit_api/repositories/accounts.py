@@ -5,10 +5,13 @@ from uuid import UUID, uuid4
 from sqlalchemy import Connection, Row
 
 from underfit_api.helpers import utcnow
-from underfit_api.models import Account
+from underfit_api.models import Account, User
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import account_aliases, accounts
+
+LOCAL_USER_EMAIL = "local@underfit.local"
+LOCAL_USER_HANDLE = "local"
 
 
 def get_by_id(conn: Connection, account_id: UUID) -> Account | None:
@@ -41,3 +44,11 @@ def get_alias_by_handle(conn: Connection, handle: str) -> Row | None:
     return conn.execute(
         account_aliases.select().where(account_aliases.c.handle == handle.lower()),
     ).first()
+
+
+def get_or_create_local(conn: Connection) -> User:
+    if user := users_repo.get_by_email(conn, LOCAL_USER_EMAIL):
+        return user
+    user = users_repo.create(conn, LOCAL_USER_EMAIL, LOCAL_USER_HANDLE, "Local User")
+    create_alias(conn, user.id, LOCAL_USER_HANDLE)
+    return user

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from underfit_api.auth import create_worker_token
-from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, validate_json_size
 from underfit_api.models import OkResponse, Run, RunTerminalState
@@ -18,6 +15,7 @@ from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_project, resolve_run
 from underfit_api.storage import delete_prefix
+from underfit_api.storage.backfill import sync_run_ui_sidecar
 
 router = APIRouter()
 
@@ -130,9 +128,7 @@ def update_run_ui_state(
     if body.is_baseline is not None:
         projects_repo.set_baseline_run(conn, run.project_id, run.id if body.is_baseline else None)
     updated = runs_repo.update(conn, run.id, ui_state=body.ui_state, is_pinned=body.is_pinned)
-    if config.storage.backfill.enabled:
-        payload = {"uiState": updated.ui_state, "isPinned": updated.is_pinned, "isBaseline": updated.is_baseline}
-        ctx.storage.write(f"{updated.storage_key}/ui.json", json.dumps(payload).encode())
+    sync_run_ui_sidecar(ctx.storage, updated)
     return updated
 
 

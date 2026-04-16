@@ -108,11 +108,11 @@ def login(body: LoginBody, response: Response, request: Request, conn: Conn) -> 
 
 @router.post("/forgot-password")
 def forgot_password(body: ForgotPasswordBody, conn: Conn) -> OkResponse:
-    email_cfg = ensure_email_configured()
+    email_cfg, frontend_url = ensure_email_configured()
     if user := users_repo.get_by_email(conn, body.email):
         pw_prefix = user_auth_repo.get_password_hash_prefix(conn, user.id)
         reset_url = signed_link_url(
-            {"user_id": str(user.id), "pw": pw_prefix}, RESET_TOKEN_TTL, "/reset-password",
+            frontend_url, {"user_id": str(user.id), "pw": pw_prefix}, RESET_TOKEN_TTL, "/reset-password",
         )
         send_email(
             email_cfg, to=user.email, subject="Reset your password",

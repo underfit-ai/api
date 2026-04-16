@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import timedelta
 from uuid import UUID
 
@@ -9,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
 
 from underfit_api.auth import verify_signed_token
-from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
 from underfit_api.models import OkResponse, Project, ProjectVisibility
@@ -20,6 +18,7 @@ from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
 from underfit_api.storage import delete_prefix
+from underfit_api.storage.backfill import sync_project_ui_sidecar
 
 router = APIRouter()
 
@@ -119,11 +118,7 @@ def update_project_ui_state(
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project.id, user.id)
     updated = projects_repo.update(conn, project.id, ui_state=body.ui_state)
-    if config.storage.backfill.enabled:
-        ctx.storage.write(
-            f".projects/{updated.owner}/{updated.name}/ui.json",
-            json.dumps({"uiState": updated.ui_state}).encode(),
-        )
+    sync_project_ui_sidecar(ctx.storage, updated)
     return updated
 
 
@@ -141,7 +136,7 @@ def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn
 def initiate_transfer(
     handle: str, project_name: str, body: InitiateTransferBody, conn: Conn, user: RequireUser,
 ) -> OkResponse:
-    email_cfg = ensure_email_configured()
+    email_cfg, frontend_url = ensure_email_configured()
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
 
@@ -152,7 +147,8 @@ def initiate_transfer(
 
     projects_repo.set_pending_transfer(conn, project.id, recipient.id)
     transfer_url = signed_link_url(
-        {"project_id": str(project.id), "to_account_id": str(recipient.id)}, TRANSFER_TOKEN_TTL, "/transfer",
+        frontend_url, {"project_id": str(project.id), "to_account_id": str(recipient.id)},
+        TRANSFER_TOKEN_TTL, "/transfer",
     )
     send_email(
         email_cfg, to=recipient.email,

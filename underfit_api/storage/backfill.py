@@ -13,8 +13,9 @@ from pydantic.alias_generators import to_camel
 from sqlalchemy import Connection, Engine
 
 from underfit_api.buffer import ScalarPoint
-from underfit_api.config import BackfillConfig
+from underfit_api.config import BackfillConfig, config
 from underfit_api.helpers import utcnow
+from underfit_api.models import Project, Run
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import projects as projects_repo
@@ -54,6 +55,19 @@ class RunUISidecar(BaseModel):
 class ProjectUISidecar(BaseModel):
     model_config = ConfigDict(extra="ignore", alias_generator=to_camel, populate_by_name=True)
     ui_state: dict[str, object] = Field(default_factory=dict)
+
+
+def sync_project_ui_sidecar(storage: Storage, project: Project) -> None:
+    if config.storage.backfill.enabled:
+        sidecar = ProjectUISidecar(ui_state=project.ui_state)
+        storage_key = f".projects/{project.owner}/{project.name}/ui.json"
+        storage.write(storage_key, sidecar.model_dump_json(by_alias=True).encode())
+
+
+def sync_run_ui_sidecar(storage: Storage, run: Run) -> None:
+    if config.storage.backfill.enabled:
+        sidecar = RunUISidecar(ui_state=run.ui_state, is_pinned=run.is_pinned, is_baseline=run.is_baseline)
+        storage.write(f"{run.storage_key}/ui.json", sidecar.model_dump_json(by_alias=True).encode())
 
 
 class BackfillService:
@@ -235,11 +249,9 @@ class BackfillService:
             return None
         if user := users_repo.get_by_handle(conn, handle):
             return user.id
-        if handle.lower() != "local":
+        if handle.lower() != accounts_repo.LOCAL_USER_HANDLE:
             return None
-        user = users_repo.create(conn, "local@underfit.local", "local", "Local User")
-        accounts_repo.create_alias(conn, user.id, "local")
-        return user.id
+        return accounts_repo.get_or_create_local(conn).id
 
     def _resolve_project(self, conn: Connection, account_id: UUID, name: str) -> UUID:
         name = name.lower()

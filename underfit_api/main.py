@@ -21,7 +21,6 @@ from underfit_api.db import build_engine, ensure_local_cache_schema
 from underfit_api.dependencies import AppContext
 from underfit_api.models import HealthResponse
 from underfit_api.repositories import accounts as accounts_repo
-from underfit_api.repositories import users as users_repo
 from underfit_api.routes.account_avatars import router as account_avatars_router
 from underfit_api.routes.accounts import router as accounts_router
 from underfit_api.routes.api_keys import router as api_keys_router
@@ -81,9 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_app_secret()
     else:
         with ctx.engine.begin() as conn:
-            if not users_repo.get_by_email(conn, "local@underfit.local"):
-                user = users_repo.create(conn, "local@underfit.local", "local", "Local User")
-                accounts_repo.create_alias(conn, user.id, "local")
+            accounts_repo.get_or_create_local(conn)
     if config.storage.backfill.enabled:
         backfill = BackfillService(ctx.storage, ctx.engine, config.storage.backfill)
         await backfill.start()
