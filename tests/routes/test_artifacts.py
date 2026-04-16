@@ -108,15 +108,16 @@ def test_artifact_failures_allow_retry(
     create_run(handle="owner", user_handle="owner", project_name="underfit", name="test-run")
     artifact = client.post(RUN_ARTIFACTS, headers=owner_headers, json={"name": "checkpoint", "type": "model"}).json()
     file_url = f"/api/v1/artifacts/{artifact['id']}/files/weights.bin"
-    write_stream = storage_mod.storage.write_stream
 
     async def fail_write_stream(key: str, stream: object) -> int:
+        storage_mod.storage.write(key, b"partial")
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(storage_mod.storage, "write_stream", fail_write_stream)
-    with pytest.raises(RuntimeError, match="boom"):
-        client.put(file_url, headers=owner_headers, content=b"x")
-    monkeypatch.setattr(storage_mod.storage, "write_stream", write_stream)
+    with monkeypatch.context() as m:
+        m.setattr(storage_mod.storage, "write_stream", fail_write_stream)
+        with pytest.raises(RuntimeError, match="boom"):
+            client.put(file_url, headers=owner_headers, content=b"x")
+    assert client.head(file_url, headers=owner_headers).status_code == 404
     assert client.put(file_url, headers=owner_headers, content=b"x").status_code == 200
     write = storage_mod.storage.write
 
@@ -125,11 +126,11 @@ def test_artifact_failures_allow_retry(
             raise RuntimeError("boom")
         write(key, content)
 
-    monkeypatch.setattr(storage_mod.storage, "write", fail_manifest_write)
     finalize_body = {"manifest": {"files": ["weights.bin"]}}
-    with pytest.raises(RuntimeError, match="boom"):
-        client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=finalize_body)
-    monkeypatch.setattr(storage_mod.storage, "write", write)
+    with monkeypatch.context() as m:
+        m.setattr(storage_mod.storage, "write", fail_manifest_write)
+        with pytest.raises(RuntimeError, match="boom"):
+            client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=finalize_body)
     finalized = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=finalize_body)
     assert finalized.status_code == 200
 

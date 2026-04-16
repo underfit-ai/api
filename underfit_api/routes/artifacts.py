@@ -160,6 +160,10 @@ async def upload_file(artifact_id: UUID, file_path: str, request: Request, auth:
         key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
     try:
         await storage_mod.storage.write_stream(key, request.stream())
+    except Exception:
+        with suppress(Exception):
+            storage_mod.storage.delete(key)
+        raise
     finally:
         with suppress(Exception), db.engine.begin() as conn:
             artifacts_repo.finish_upload(conn, artifact.id)

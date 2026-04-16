@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from typing import Annotated
 from uuid import UUID
 
@@ -62,22 +63,28 @@ async def create_media(worker: CurrentWorker, metadata: MediaMetadata, files: Me
         run_storage_key = run.storage_key
         run_id = run.id
     storage_keys: list[str] = []
-    for i, f in enumerate(files):
-        ext = mimetypes.guess_extension(f.content_type or "") or ".bin"
-        storage_key = f"media/{metadata.type.value}/{key}_{metadata.step}_{i}{ext}"
-        async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
-            while chunk := await f.read(262144):
-                yield chunk
-        await storage_mod.storage.write_stream(f"{run_storage_key}/{storage_key}", _chunks())
-        storage_keys.append(storage_key)
-    with db.engine.begin() as conn, as_conflict(conn, "Media already exists for this type/key/step"):
-        return [
-            media_repo.create(
-                conn, run_id=run_id, key=key, step=metadata.step, media_type=metadata.type,
-                index=i, storage_key=sk, metadata=metadata.metadata,
-            )
-            for i, sk in enumerate(storage_keys)
-        ]
+    try:
+        for i, f in enumerate(files):
+            ext = mimetypes.guess_extension(f.content_type or "") or ".bin"
+            storage_key = f"media/{metadata.type.value}/{key}_{metadata.step}_{i}{ext}"
+            storage_keys.append(storage_key)
+            async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
+                while chunk := await f.read(262144):
+                    yield chunk
+            await storage_mod.storage.write_stream(f"{run_storage_key}/{storage_key}", _chunks())
+        with db.engine.begin() as conn, as_conflict(conn, "Media already exists for this type/key/step"):
+            return [
+                media_repo.create(
+                    conn, run_id=run_id, key=key, step=metadata.step, media_type=metadata.type,
+                    index=i, storage_key=sk, metadata=metadata.metadata,
+                )
+                for i, sk in enumerate(storage_keys)
+            ]
+    except Exception:
+        for storage_key in storage_keys:
+            with suppress(Exception):
+                storage_mod.storage.delete(f"{run_storage_key}/{storage_key}")
+        raise
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media")

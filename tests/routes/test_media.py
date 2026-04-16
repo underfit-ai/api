@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
+import underfit_api.storage as storage_mod
 from tests.conftest import Headers
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
@@ -58,3 +60,25 @@ def test_media_ingest_rejects_mixed_types(client: TestClient, owner_headers: Hea
     response = client.post("/api/v1/ingest/media", headers=headers, data={"metadata": MEDIA_METADATA}, files=mixed)
     assert response.status_code == 400
     assert response.json()["error"] == "Files must all match the declared media type"
+
+
+def test_media_ingest_cleans_up_failed_upload(
+    client: TestClient, owner_headers: Headers, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_payload = {"name": "underfit", "visibility": "private"}
+    client.post("/api/v1/accounts/owner/projects", headers=owner_headers, json=project_payload)
+    run = client.post(LAUNCH, headers=owner_headers, json={"runName": "r", "launchId": "1"}).json()
+
+    async def fail_write_stream(key: str, stream: object) -> int:
+        storage_mod.storage.write(key, b"partial")
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(storage_mod.storage, "write_stream", fail_write_stream)
+    with pytest.raises(RuntimeError, match="boom"):
+        client.post(
+            "/api/v1/ingest/media",
+            headers={"Authorization": f"Bearer {run['workerToken']}"},
+            data={"metadata": MEDIA_METADATA},
+            files=MEDIA_FILES,
+        )
+    assert storage_mod.storage.list_files(run["id"]) == []
