@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
 
 from underfit_api.auth import get_app_secret
+from underfit_api.backfill import BackfillService
 from underfit_api.buffer import LogBuffer, ScalarBuffer
 from underfit_api.config import config
 from underfit_api.db import build_engine, ensure_local_cache_schema
@@ -39,7 +40,6 @@ from underfit_api.routes.runs import router as runs_router
 from underfit_api.routes.scalars import router as scalars_router
 from underfit_api.routes.users import router as users_router
 from underfit_api.storage import build_storage
-from underfit_api.storage.backfill import BackfillService
 
 logger = logging.getLogger(__name__)
 BACKFILL_WRITE_ERROR = "API write endpoints are disabled while backfill is enabled"

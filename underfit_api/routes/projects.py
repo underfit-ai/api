@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
 
 from underfit_api.auth import verify_signed_token
+from underfit_api.backfill import sync_project_ui_sidecar
 from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
 from underfit_api.models import OkResponse, Project, ProjectVisibility
@@ -18,7 +19,6 @@ from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
 from underfit_api.storage import delete_prefix
-from underfit_api.storage.backfill import sync_project_ui_sidecar
 
 router = APIRouter()
 

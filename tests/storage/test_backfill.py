@@ -12,6 +12,7 @@ from moto import mock_aws
 from sqlalchemy import Engine, select
 from watchdog.events import FileMovedEvent
 
+from underfit_api.backfill import BackfillService
 from underfit_api.config import BackfillConfig, FileStorageConfig, S3StorageConfig
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organizations as organizations_repo
@@ -26,7 +27,6 @@ from underfit_api.schema import (
     runs,
     scalar_segments,
 )
-from underfit_api.storage.backfill import BackfillService
 from underfit_api.storage.file import FileStorage, _StorageHandler
 from underfit_api.storage.s3 import S3Storage
 from underfit_api.storage.types import Storage
