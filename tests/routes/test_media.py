@@ -4,6 +4,7 @@ import json
 
 from fastapi.testclient import TestClient
 
+import underfit_api.storage as storage_mod
 from tests.conftest import Headers
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
@@ -27,6 +28,8 @@ def test_media_ingest_and_retrieval(client: TestClient, owner_headers: Headers) 
     rows = created.json()
     assert [r["index"] for r in rows] == [0, 1]
     assert all(r["key"] == "val/gen/%d" and r["step"] == 200 and r["type"] == "image" for r in rows)
+    assert storage_mod.storage.exists(f"{run['id']}/media/image/val/gen/%d_200_0.png")
+    assert not storage_mod.storage.exists(f"{run['id']}/media/MediaType.IMAGE/val/gen/%d_200_0.png")
 
     listed = client.get(media_url, headers=owner_headers, params={"key": "val/gen/%d", "step": 200})
     assert listed.status_code == 200 and [m["id"] for m in listed.json()] == [r["id"] for r in rows]

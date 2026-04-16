@@ -19,7 +19,7 @@ from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
-from underfit_api.routes.resolvers import resolve_account_and_project_path, resolve_project, resolve_run
+from underfit_api.routes.resolvers import resolve_project, resolve_run
 
 router = APIRouter()
 
@@ -112,9 +112,7 @@ def update_run(
 
 @router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
 def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, user: CurrentUser) -> OkResponse:
-    _, project = resolve_account_and_project_path(conn, handle, project_name)
-    if not (run := runs_repo.get_by_project_and_name(conn, project.id, run_name)):
-        raise HTTPException(404, "Run not found")
+    run = resolve_run(conn, handle, project_name, run_name, user)
     if run.user != user.handle:
         assert (owner_account := accounts_repo.get_by_handle(conn, run.project_owner)) is not None
         require_account_admin(conn, owner_account.id, owner_account.type, user.id)

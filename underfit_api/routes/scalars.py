@@ -26,6 +26,16 @@ class WriteScalarsBody(BaseModel):
     scalars: list[ScalarPoint]
 
 
+def _select_resolution(conn: Conn, worker: Worker, max_points: int) -> int:
+    for resolution in reversed(get_scalar_resolutions()):
+        if 0 < scalar_buffer.resolution_line_count(conn, worker.id, resolution) <= max_points:
+            return resolution
+    for resolution in reversed(get_scalar_resolutions()):
+        if scalar_buffer.resolution_line_count(conn, worker.id, resolution) > 0:
+            return resolution  # Intentionally prefer full data at the coarsest available resolution.
+    return 1
+
+
 @router.post("/ingest/scalars")
 def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> BufferedResponse:
     if not workers_repo.touch(conn, worker):
@@ -57,26 +67,12 @@ def read_scalars(
         selected_resolution = _select_resolution(conn, worker, max_points)
     if scalar_buffer.resolution_line_count(conn, worker.id, selected_resolution) == 0:
         raise HTTPException(404, "Resolution not found")
-    return _read_resolution(conn, worker, selected_resolution)
 
-
-def _select_resolution(conn: Conn, worker: Worker, max_points: int) -> int:
-    for resolution in reversed(get_scalar_resolutions()):
-        if 0 < scalar_buffer.resolution_line_count(conn, worker.id, resolution) <= max_points:
-            return resolution
-    for resolution in reversed(get_scalar_resolutions()):
-        if scalar_buffer.resolution_line_count(conn, worker.id, resolution) > 0:
-            return resolution  # Intentionally prefer full data at the coarsest available resolution.
-    return 1
-
-
-def _read_resolution(conn: Conn, worker: Worker, resolution: int) -> list[Scalar]:
-    buf_start = scalar_buffer.buffer_start_line(worker.id, resolution)
-    segments = scalar_seg_repo.list_by_resolution(conn, worker.id, resolution)
+    buf_start = scalar_buffer.buffer_start_line(worker.id, selected_resolution)
+    segments = scalar_seg_repo.list_by_resolution(conn, worker.id, selected_resolution)
     if buf_start is not None:
         segments = [s for s in segments if s.start_line < buf_start]
-    run = runs_repo.get_by_id(conn, worker.run_id)
-    assert run is not None
+    assert (run := runs_repo.get_by_id(conn, worker.run_id)) is not None
     scalars: list[Scalar] = []
     for seg in segments:
         data = storage_mod.storage.read(f"{run.storage_key}/{seg.storage_key}")
@@ -88,6 +84,6 @@ def _read_resolution(conn: Conn, worker: Worker, resolution: int) -> list[Scalar
                     values=parsed["values"],
                     timestamp=datetime.fromisoformat(parsed["timestamp"].replace("Z", "+00:00")),
                 ))
-    for point in scalar_buffer.read_buffered(worker.id, resolution):
+    for point in scalar_buffer.read_buffered(worker.id, selected_resolution):
         scalars.append(Scalar(step=point.step, values=point.values, timestamp=point.timestamp))
     return scalars

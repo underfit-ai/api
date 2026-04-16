@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from underfit_api.config import FileStorageConfig, S3StorageConfig, config
 from underfit_api.storage.types import DirEntry, FileStat, Storage
+
+logger = logging.getLogger(__name__)
 
 
 def build_storage() -> Storage:
@@ -15,8 +19,19 @@ def build_storage() -> Storage:
 
 
 def delete_prefix(prefix: str) -> None:
-    for key in storage.list_files(prefix):
-        storage.delete(key)
+    # NOTE: Deletion is DB-authoritative, partially-deleted artifacts aren't acceptible so we always
+    # delete from the DB first and make storage cleanup best-effort. We can always garbage-collect
+    # orphaned files if necessary.
+    try:
+        keys = storage.list_files(prefix)
+    except Exception:
+        logger.exception("Failed to list storage keys for deletion: %s", prefix)
+        return
+    for key in keys:
+        try:
+            storage.delete(key)
+        except Exception:
+            logger.exception("Failed to delete storage key: %s", key)
 
 
 storage = build_storage()
