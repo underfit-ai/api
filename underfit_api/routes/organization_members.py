@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from underfit_api.dependencies import Conn, CurrentUser
+from underfit_api.dependencies import Conn, RequireUser
 from underfit_api.models import OkResponse, OrganizationMember
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import users as users_repo
@@ -24,7 +24,7 @@ def list_members(handle: str, conn: Conn) -> list[OrganizationMember]:
 
 @router.put("/{handle}/members/{user_handle}")
 def add_or_update_member(
-    handle: str, user_handle: str, body: UpdateMemberBody, conn: Conn, user: CurrentUser,
+    handle: str, user_handle: str, body: UpdateMemberBody, conn: Conn, user: RequireUser,
 ) -> OrganizationMember:
     org = resolve_organization(conn, handle)
     if not organization_members_repo.is_admin(conn, org.id, user.id):
@@ -45,7 +45,7 @@ def add_or_update_member(
 
 
 @router.delete("/{handle}/members/{user_handle}")
-def remove_member(handle: str, user_handle: str, conn: Conn, user: CurrentUser) -> OkResponse:
+def remove_member(handle: str, user_handle: str, conn: Conn, user: RequireUser) -> OkResponse:
     org = resolve_organization(conn, handle)
     if not (target := users_repo.get_by_handle(conn, user_handle)):
         raise HTTPException(404, "User not found")

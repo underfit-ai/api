@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from underfit_api.dependencies import Conn, CurrentUser
+from underfit_api.dependencies import Conn, RequireUser
 from underfit_api.helpers import as_conflict
 from underfit_api.models import Organization
 from underfit_api.repositories import accounts as accounts_repo
@@ -24,7 +24,7 @@ class UpdateOrgBody(BaseModel):
 
 
 @router.post("", status_code=201)
-def create_organization(body: CreateOrgBody, conn: Conn, user: CurrentUser) -> Organization:
+def create_organization(body: CreateOrgBody, conn: Conn, user: RequireUser) -> Organization:
     handle_lower = body.handle.lower()
     with as_conflict(conn, "Handle already exists"):
         org = organizations_repo.create(conn, handle_lower, body.name)
@@ -34,7 +34,7 @@ def create_organization(body: CreateOrgBody, conn: Conn, user: CurrentUser) -> O
 
 
 @router.patch("/{handle}")
-def update_organization(handle: str, body: UpdateOrgBody, conn: Conn, user: CurrentUser) -> Organization:
+def update_organization(handle: str, body: UpdateOrgBody, conn: Conn, user: RequireUser) -> Organization:
     org = resolve_organization(conn, handle)
     if not organization_members_repo.is_admin(conn, org.id, user.id):
         raise HTTPException(403, "Forbidden")

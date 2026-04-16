@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
+from underfit_api.dependencies import Conn, MaybeUser, RequireUser
 from underfit_api.models import OkResponse, ProjectCollaborator
 from underfit_api.permissions import require_account_admin
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
@@ -20,7 +20,7 @@ def list_collaborators(handle: str, project_name: str, conn: Conn, user: MaybeUs
 
 @router.put("/accounts/{handle}/projects/{project_name}/collaborators/{user_handle}")
 def add_collaborator(
-    handle: str, project_name: str, user_handle: str, conn: Conn, user: CurrentUser,
+    handle: str, project_name: str, user_handle: str, conn: Conn, user: RequireUser,
 ) -> ProjectCollaborator:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
@@ -33,7 +33,7 @@ def add_collaborator(
 
 @router.delete("/accounts/{handle}/projects/{project_name}/collaborators/{user_handle}")
 def remove_collaborator(
-    handle: str, project_name: str, user_handle: str, conn: Conn, user: CurrentUser,
+    handle: str, project_name: str, user_handle: str, conn: Conn, user: RequireUser,
 ) -> OkResponse:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)

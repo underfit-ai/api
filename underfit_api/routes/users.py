@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from underfit_api.dependencies import Conn, CurrentUser
+from underfit_api.dependencies import Conn, RequireUser
 from underfit_api.models import ExistsResponse, User, UserMembership
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import users as users_repo
@@ -26,12 +26,12 @@ def email_exists(conn: Conn, email: Annotated[str, Query()] = "") -> ExistsRespo
 
 
 @router.get("/me")
-def get_me(user: CurrentUser) -> User:
+def get_me(user: RequireUser) -> User:
     return user
 
 
 @router.patch("/me")
-def update_me(body: UpdateMeBody, conn: Conn, user: CurrentUser) -> User:
+def update_me(body: UpdateMeBody, conn: Conn, user: RequireUser) -> User:
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "Name cannot be empty")
     if not (updated := users_repo.update(conn, user.id, body.name, body.bio)):
@@ -40,7 +40,7 @@ def update_me(body: UpdateMeBody, conn: Conn, user: CurrentUser) -> User:
 
 
 @router.get("/users/search")
-def search_users(conn: Conn, user: CurrentUser, query: Annotated[str, Query()] = "") -> list[User]:
+def search_users(conn: Conn, user: RequireUser, query: Annotated[str, Query()] = "") -> list[User]:
     if not query:
         raise HTTPException(400, "Missing query")
     return users_repo.search(conn, query)

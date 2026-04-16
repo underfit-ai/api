@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from underfit_api.dependencies import Conn, CurrentUser
+from underfit_api.dependencies import Conn, RequireUser
 from underfit_api.models import ApiKey, ApiKeyWithToken, OkResponse
 from underfit_api.repositories import api_keys as api_keys_repo
 
@@ -17,17 +17,17 @@ class CreateApiKeyBody(BaseModel):
 
 
 @router.get("")
-def list_api_keys(conn: Conn, user: CurrentUser) -> list[ApiKey]:
+def list_api_keys(conn: Conn, user: RequireUser) -> list[ApiKey]:
     return api_keys_repo.list_by_user(conn, user.id)
 
 
 @router.post("")
-def create_api_key(body: CreateApiKeyBody, conn: Conn, user: CurrentUser) -> ApiKeyWithToken:
+def create_api_key(body: CreateApiKeyBody, conn: Conn, user: RequireUser) -> ApiKeyWithToken:
     return api_keys_repo.create(conn, user.id, body.label)
 
 
 @router.delete("/{key_id}")
-def delete_api_key(key_id: str, conn: Conn, user: CurrentUser) -> OkResponse:
+def delete_api_key(key_id: str, conn: Conn, user: RequireUser) -> OkResponse:
     try:
         parsed_id = UUID(key_id)
     except ValueError:

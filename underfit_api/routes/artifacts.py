@@ -12,7 +12,7 @@ from pydantic.alias_generators import to_camel
 
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
-from underfit_api.dependencies import Auth, Conn, CurrentUser, MaybeUser
+from underfit_api.dependencies import Auth, Conn, MaybeUser, RequireUser
 from underfit_api.helpers import validate_path
 from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
@@ -128,7 +128,7 @@ def list_artifacts(handle: str, project_name: str, conn: Conn, user: MaybeUser) 
 
 @router.post("/accounts/{handle}/projects/{project_name}/artifacts")
 def create_project_artifact(
-    handle: str, project_name: str, body: CreateArtifactBody, conn: Conn, user: CurrentUser,
+    handle: str, project_name: str, body: CreateArtifactBody, conn: Conn, user: RequireUser,
 ) -> Artifact:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project, user.id)
@@ -137,7 +137,7 @@ def create_project_artifact(
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/artifacts")
 def create_run_artifact(
-    handle: str, project_name: str, run_name: str, body: CreateArtifactBody, conn: Conn, user: CurrentUser,
+    handle: str, project_name: str, run_name: str, body: CreateArtifactBody, conn: Conn, user: RequireUser,
 ) -> Artifact:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
@@ -193,7 +193,7 @@ def download_file(artifact_id: UUID, file_path: str, auth: Auth) -> Response:
 
 
 @router.delete("/artifacts/{artifact_id}/files/{file_path:path}")
-def delete_file(artifact_id: UUID, file_path: str, conn: Conn, user: CurrentUser) -> Artifact:
+def delete_file(artifact_id: UUID, file_path: str, conn: Conn, user: RequireUser) -> Artifact:
     artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
     require_project_contributor(conn, artifact.project_id, user.id)
     if artifact.finalized_at is not None:

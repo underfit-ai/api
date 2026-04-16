@@ -73,6 +73,6 @@ def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
 
 
 Auth = Annotated[AuthContext, Depends(get_auth)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
+RequireUser = Annotated[User, Depends(get_current_user)]
 MaybeUser = Annotated[Optional[User], Depends(get_maybe_user)]
 CurrentWorker = Annotated[UUID, Depends(get_current_worker)]

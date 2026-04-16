@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from underfit_api.dependencies import Conn, CurrentUser
+from underfit_api.dependencies import Conn, RequireUser
 from underfit_api.helpers import as_conflict
 from underfit_api.models import Account, ExistsResponse
 from underfit_api.permissions import require_account_admin
@@ -30,7 +30,7 @@ def get_account(handle: str, conn: Conn) -> Account:
 
 
 @router.post("/{handle}/rename")
-def rename_account(handle: str, body: RenameAccountBody, conn: Conn, user: CurrentUser) -> Account:
+def rename_account(handle: str, body: RenameAccountBody, conn: Conn, user: RequireUser) -> Account:
     account = resolve_account(conn, handle)
     require_account_admin(conn, account.id, account.type, user.id)
     new_handle = body.handle.lower()

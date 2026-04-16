@@ -11,7 +11,7 @@ import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.auth import create_signed_token
 from underfit_api.config import config
-from underfit_api.dependencies import Conn, CurrentUser, CurrentWorker, MaybeUser
+from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict
 from underfit_api.models import OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
@@ -76,7 +76,7 @@ def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUse
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/launch")
-def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: CurrentUser) -> Run:
+def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: RequireUser) -> Run:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project, user.id)
     _validate_json(body.config, "Config")
@@ -104,7 +104,7 @@ def get_run(handle: str, project_name: str, run_name: str, conn: Conn, user: May
 
 @router.put("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
 def update_run(
-    handle: str, project_name: str, run_name: str, body: UpdateRunBody, conn: Conn, user: CurrentUser,
+    handle: str, project_name: str, run_name: str, body: UpdateRunBody, conn: Conn, user: RequireUser,
 ) -> Run:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
@@ -115,7 +115,7 @@ def update_run(
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
-def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, user: CurrentUser) -> OkResponse:
+def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, user: RequireUser) -> OkResponse:
     run = resolve_run(conn, handle, project_name, run_name, user)
     if run.user != user.handle:
         assert (owner_account := accounts_repo.get_by_handle(conn, run.project_owner)) is not None

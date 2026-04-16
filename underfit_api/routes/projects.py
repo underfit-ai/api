@@ -10,7 +10,7 @@ import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.auth import create_signed_token, verify_signed_token
 from underfit_api.config import config
-from underfit_api.dependencies import Conn, CurrentUser, MaybeUser
+from underfit_api.dependencies import Conn, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, send_email
 from underfit_api.models import OkResponse, Project, ProjectVisibility
 from underfit_api.permissions import require_account_admin
@@ -59,7 +59,7 @@ class TransferTokenPayload(BaseModel):
 
 
 @router.get("/me/projects")
-def list_my_projects(conn: Conn, user: CurrentUser) -> list[Project]:
+def list_my_projects(conn: Conn, user: RequireUser) -> list[Project]:
     return projects_repo.list_related_to_user(conn, user.id)
 
 
@@ -70,7 +70,7 @@ def list_account_projects(handle: str, conn: Conn, user: MaybeUser) -> list[Proj
 
 
 @router.post("/accounts/{handle}/projects")
-def create_project(handle: str, body: CreateProjectBody, conn: Conn, user: CurrentUser) -> Project:
+def create_project(handle: str, body: CreateProjectBody, conn: Conn, user: RequireUser) -> Project:
     account = resolve_account(conn, handle)
     require_account_admin(conn, account.id, account.type, user.id)
     name_lower = body.name.lower()
@@ -86,7 +86,7 @@ def get_project(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> 
 
 
 @router.put("/accounts/{handle}/projects/{project_name}")
-def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn: Conn, user: CurrentUser) -> Project:
+def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn: Conn, user: RequireUser) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     if not (updated := projects_repo.update(conn, project.id, body.description, body.visibility, body.metadata)):
@@ -95,7 +95,7 @@ def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}")
-def delete_project(handle: str, project_name: str, conn: Conn, user: CurrentUser) -> OkResponse:
+def delete_project(handle: str, project_name: str, conn: Conn, user: RequireUser) -> OkResponse:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     run_storage_keys = [run.storage_key for run in runs_repo.list_by_project(conn, project.id)]
@@ -108,7 +108,7 @@ def delete_project(handle: str, project_name: str, conn: Conn, user: CurrentUser
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/rename")
-def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn: Conn, user: CurrentUser) -> Project:
+def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn: Conn, user: RequireUser) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     new_name = body.name.lower()
@@ -121,7 +121,7 @@ def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn
 
 @router.post("/accounts/{handle}/projects/{project_name}/transfer")
 def initiate_transfer(
-    handle: str, project_name: str, body: InitiateTransferBody, conn: Conn, user: CurrentUser,
+    handle: str, project_name: str, body: InitiateTransferBody, conn: Conn, user: RequireUser,
 ) -> OkResponse:
     if not config.email:
         raise HTTPException(400, "Email is not configured")
@@ -155,7 +155,7 @@ def initiate_transfer(
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}/transfer")
-def cancel_transfer(handle: str, project_name: str, conn: Conn, user: CurrentUser) -> OkResponse:
+def cancel_transfer(handle: str, project_name: str, conn: Conn, user: RequireUser) -> OkResponse:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     if not project.pending_transfer_to:
@@ -165,7 +165,7 @@ def cancel_transfer(handle: str, project_name: str, conn: Conn, user: CurrentUse
 
 
 @router.post("/transfer")
-def accept_transfer(body: AcceptTransferBody, conn: Conn, user: CurrentUser) -> Project:
+def accept_transfer(body: AcceptTransferBody, conn: Conn, user: RequireUser) -> Project:
     if not (raw := verify_signed_token(body.token)):
         raise HTTPException(400, "Invalid or expired transfer token")
     try:
