@@ -35,13 +35,14 @@ def test_write_and_read_scalars_with_auto_resolution(client: TestClient, owner_h
     assert len(client.get(scalars_url, headers=owner_headers, params={"maxPoints": 1}).json()) == 2
 
 
-def test_scalars_validate_cursor_inputs(client: TestClient, owner_headers: Headers) -> None:
+def test_scalar_ingest_and_query_validation(client: TestClient, owner_headers: Headers) -> None:
     headers, scalars_url = _setup_scalars(client, owner_headers)
-
     payload = {
         "start_line": 0,
         "scalars": [{"step": 1, "values": {"loss": 0.1}, "timestamp": "2025-01-01T00:00:00+00:00"}],
     }
+
+    assert client.post("/api/v1/ingest/scalars", json=payload).status_code == 401
     assert client.post("/api/v1/ingest/scalars", headers=headers, json=payload).status_code == 200
     duplicate = {
         "start_line": 0,
@@ -53,11 +54,3 @@ def test_scalars_validate_cursor_inputs(client: TestClient, owner_headers: Heade
     assert invalid_query.status_code == 400
     missing_resolution = client.get(scalars_url, headers=owner_headers, params={"resolution": 10})
     assert missing_resolution.status_code == 404
-
-
-def test_scalars_require_worker_token(client: TestClient) -> None:
-    payload = {
-        "start_line": 0,
-        "scalars": [{"step": 1, "values": {"loss": 0.1}, "timestamp": "2025-01-01T00:00:00+00:00"}],
-    }
-    assert client.post("/api/v1/ingest/scalars", json=payload).status_code == 401

@@ -19,12 +19,6 @@ def test_create_update_organization(client: TestClient, owner_headers: Headers, 
     assert updated.status_code == 200 and updated.json()["name"] == "Core Team"
 
 
-def test_cannot_demote_or_remove_only_admin(client: TestClient, owner_headers: Headers) -> None:
-    assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
-    assert client.put(f"{MEMBERS}/owner", headers=owner_headers, json={"role": "MEMBER"}).status_code == 400
-    assert client.delete(f"{MEMBERS}/owner", headers=owner_headers).status_code == 400
-
-
 def test_member_can_remove_self(
     client: TestClient, owner_headers: Headers, create_user: CreateUser, session_for_user: SessionForUser,
 ) -> None:
@@ -45,6 +39,8 @@ def test_member_mutation_validation(
     outsider = create_user(email="outsider@example.com", handle="outsider", name="Outsider")
     member_headers = session_for_user(member)
     assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
+    assert client.put(f"{MEMBERS}/owner", headers=owner_headers, json={"role": "MEMBER"}).status_code == 400
+    assert client.delete(f"{MEMBERS}/owner", headers=owner_headers).status_code == 400
     assert client.put(f"{MEMBERS}/member", headers=owner_headers, json={}).status_code == 200
     assert client.put(f"{MEMBERS}/member", headers=member_headers, json={"role": "ADMIN"}).status_code == 403
     assert client.put(f"{MEMBERS}/member", headers=owner_headers, json={"role": "NOPE"}).status_code == 400

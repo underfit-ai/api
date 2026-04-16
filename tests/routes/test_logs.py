@@ -43,22 +43,14 @@ def test_write_read_logs_from_buffer(client: TestClient, owner_headers: Headers)
     assert second_page.status_code == 200 and second_json["entries"][0]["content"] == "tail"
 
 
-def test_logs_reject_out_of_order_start_line(client: TestClient, owner_headers: Headers) -> None:
-    _, logs_url = _setup_logs(client, owner_headers)
+def test_log_ingest_validation(client: TestClient, owner_headers: Headers) -> None:
+    headers, _ = _setup_logs(client, owner_headers)
     worker_headers = _add_worker(client, owner_headers, "worker-1")
     hello_line = {"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"}
     payload = {"start_line": 0, "lines": [hello_line]}
+    newline_payload = {"start_line": 0, "lines": [{"timestamp": hello_line["timestamp"], "content": "a\nb"}]}
 
+    assert client.post("/api/v1/ingest/logs", json=payload).status_code == 401
+    assert client.post("/api/v1/ingest/logs", headers=headers, json=newline_payload).status_code == 400
     assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=payload).status_code == 200
     assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=payload).status_code == 409
-
-
-def test_logs_require_worker_token(client: TestClient) -> None:
-    payload = {"start_line": 0, "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "hi"}]}
-    assert client.post("/api/v1/ingest/logs", json=payload).status_code == 401
-
-
-def test_logs_reject_newlines(client: TestClient, owner_headers: Headers) -> None:
-    headers, _ = _setup_logs(client, owner_headers)
-    payload = {"start_line": 0, "lines": [{"timestamp": "2025-01-01T00:00:00+00:00", "content": "a\nb"}]}
-    assert client.post("/api/v1/ingest/logs", headers=headers, json=payload).status_code == 400

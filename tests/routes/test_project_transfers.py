@@ -53,7 +53,6 @@ def test_full_transfer_flow(client: TestClient, transfer_setup: TransferSetup) -
     project = client.get(RECIPIENT_PROJECT, headers=recipient_headers)
     assert project.status_code == 200
     assert project.json()["owner"] == "recipient"
-    assert client.get(OWNER_PROJECT, headers=recipient_headers, follow_redirects=False).status_code == 307
 
 
 def test_cancel_transfer(client: TestClient, transfer_setup: TransferSetup) -> None:

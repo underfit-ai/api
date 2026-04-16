@@ -48,7 +48,7 @@ def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
     assert cleared.json()["metadata"] == {}
 
 
-def test_list_projects(
+def test_project_visibility_and_listing(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers,
     create_project: CreateProject, create_org: CreateOrg, create_org_member: CreateOrgMember,
 ) -> None:
@@ -56,18 +56,24 @@ def test_list_projects(
     create_project(handle="owner", name="shared")
     create_project(handle="owner", name="public", visibility="public")
     create_project(handle="outsider", name="outsider-private")
-    added = client.put("/api/v1/accounts/owner/projects/shared/collaborators/outsider", headers=owner_headers)
-    assert added.status_code == 200
 
     def _project_names(projects: Response) -> set[str]:
         return {cast(str, project["name"]) for project in projects.json()}
 
+    assert client.get(f"{BASE}/public").status_code == 200
+    assert client.get(f"{BASE}/private").status_code == 401
+    assert client.get(f"{BASE}/private", headers=outsider_headers).status_code == 403
+    assert client.get(f"{BASE}/shared", headers=outsider_headers).status_code == 403
     owner_projects = client.get(BASE, headers=owner_headers)
     assert owner_projects.status_code == 200 and _project_names(owner_projects) == {"private", "public", "shared"}
     outsider_projects = client.get(BASE, headers=outsider_headers)
-    assert outsider_projects.status_code == 200 and _project_names(outsider_projects) == {"public", "shared"}
+    assert outsider_projects.status_code == 200 and _project_names(outsider_projects) == {"public"}
     public_projects = client.get(BASE)
     assert public_projects.status_code == 200 and _project_names(public_projects) == {"public"}
+    added = client.put("/api/v1/accounts/owner/projects/shared/collaborators/outsider", headers=owner_headers)
+    assert added.status_code == 200
+    assert client.get(f"{BASE}/shared", headers=outsider_headers).status_code == 200
+    assert _project_names(client.get(BASE, headers=outsider_headers)) == {"public", "shared"}
     launched = client.post("/api/v1/accounts/owner/projects/shared/runs/launch", headers=outsider_headers, json={
         "runName": "r", "launchId": "1",
     })
@@ -78,45 +84,17 @@ def test_list_projects(
 
     org = create_org(owner_headers)
     admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
+    member_headers = create_org_member(org["id"], "member@example.com", "member", "Member")
     create_project(handle="core", name="secret")
+    launch_url = "/api/v1/accounts/core/projects/secret/runs/launch"
+    assert client.get("/api/v1/accounts/core/projects/secret", headers=member_headers).status_code == 403
+    assert client.get("/api/v1/accounts/core/projects/secret", headers=admin_headers).status_code == 200
+    assert client.post(launch_url, headers=member_headers, json={"runName": "r", "launchId": "1"}).status_code == 403
+    assert client.post(launch_url, headers=admin_headers, json={"runName": "r", "launchId": "1"}).status_code == 200
     org_projects = client.get("/api/v1/accounts/core/projects", headers=admin_headers)
     assert org_projects.status_code == 200 and _project_names(org_projects) == {"secret"}
     admin_projects = client.get("/api/v1/me/projects", headers=admin_headers)
     assert admin_projects.status_code == 200 and _project_names(admin_projects) == {"secret"}
-
-
-def test_get_project_access_controls(
-    client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
-) -> None:
-    create_project(handle="owner", name="private")
-    create_project(handle="owner", name="shared")
-    create_project(handle="owner", name="public", visibility="public")
-
-    assert client.get(f"{BASE}/public").status_code == 200
-    assert client.get(f"{BASE}/private").status_code == 401
-    assert client.get(f"{BASE}/private", headers=outsider_headers).status_code == 403
-    assert client.get(f"{BASE}/shared", headers=outsider_headers).status_code == 403
-
-    added = client.put("/api/v1/accounts/owner/projects/shared/collaborators/outsider", headers=owner_headers)
-    assert added.status_code == 200
-    assert client.get(f"{BASE}/shared", headers=outsider_headers).status_code == 200
-
-
-def test_org_admin_can_access_project(
-    client: TestClient, owner_headers: Headers, create_project: CreateProject,
-    create_org: CreateOrg, create_org_member: CreateOrgMember,
-) -> None:
-    org = create_org(owner_headers)
-    admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
-    member_headers = create_org_member(org["id"], "member@example.com", "member", "Member")
-    create_project(handle="core", name="secret")
-    launch_url = "/api/v1/accounts/core/projects/secret/runs/launch"
-    launch_payload = {"runName": "r", "launchId": "1"}
-
-    assert client.get("/api/v1/accounts/core/projects/secret", headers=member_headers).status_code == 403
-    assert client.get("/api/v1/accounts/core/projects/secret", headers=admin_headers).status_code == 200
-    assert client.post(launch_url, headers=member_headers, json=launch_payload).status_code == 403
-    assert client.post(launch_url, headers=admin_headers, json=launch_payload).status_code == 200
 
 
 @pytest.mark.parametrize(("url", "payload", "status", "existing"), [
