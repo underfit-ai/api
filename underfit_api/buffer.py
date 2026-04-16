@@ -33,7 +33,7 @@ def _scalar_storage_key(worker_label: str, resolution: int, start_line: int) -> 
 
 
 def get_scalar_resolutions() -> list[int]:
-    return sorted(list({1, *config.buffer.scalar_resolutions}))
+    return sorted({1, *config.buffer.scalar_resolutions})
 
 
 class LogLine(BaseModel):

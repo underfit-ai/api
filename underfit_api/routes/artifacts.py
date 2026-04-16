@@ -13,7 +13,7 @@ from pydantic.alias_generators import to_camel
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Auth, Conn, MaybeUser, RequireUser
-from underfit_api.helpers import validate_path
+from underfit_api.helpers import MAX_JSON_BYTES, validate_path
 from underfit_api.models import Artifact, OkResponse
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import artifacts as artifacts_repo
@@ -22,8 +22,6 @@ from underfit_api.repositories import runs as runs_repo
 from underfit_api.routes.resolvers import resolve_artifact, resolve_project, resolve_run
 
 router = APIRouter()
-
-MAX_JSON_BYTES = 65536
 
 
 class ManifestReference(BaseModel):

@@ -56,11 +56,10 @@ def search(conn: Connection, query: str) -> list[User]:
 
     name_rows = conn.execute(base.where(users.c.name == query).order_by(accounts.c.handle)).all()
     seen_ids = {row.id for row in name_rows}
-    handle_rows = (
-        base.where(accounts.c.handle.startswith(query.lower()))
-        .where(sa.true() if not seen_ids else ~accounts.c.id.in_(seen_ids))
-        .order_by(sa.func.length(accounts.c.handle), accounts.c.handle)
+    handle_query = base.where(accounts.c.handle.startswith(query.lower())).order_by(
+        sa.func.length(accounts.c.handle), accounts.c.handle,
     )
-    handle_results = conn.execute(handle_rows).all()
-    rows = list(name_rows) + list(handle_results)
-    return [User.model_validate(row) for row in rows]
+    if seen_ids:
+        handle_query = handle_query.where(~accounts.c.id.in_(seen_ids))
+    handle_rows = conn.execute(handle_query).all()
+    return [User.model_validate(row) for row in [*name_rows, *handle_rows]]

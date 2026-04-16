@@ -43,9 +43,7 @@ def create(
         metadata=metadata,
         created_at=utcnow(),
     ))
-    result = Media.model_validate(conn.execute(media.select().where(media.c.id == media_id)).first())
-    assert result is not None
-    return result
+    return Media.model_validate(conn.execute(media.select().where(media.c.id == media_id)).first())
 
 
 def finalize_group(conn: Connection, run_id: UUID, media_type: str, key: str, step: int) -> None:

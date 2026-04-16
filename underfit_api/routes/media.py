@@ -14,7 +14,7 @@ from pydantic import BaseModel, Json
 import underfit_api.db as db
 import underfit_api.storage as storage_mod
 from underfit_api.dependencies import Auth, Conn, CurrentWorker, MaybeUser
-from underfit_api.helpers import as_conflict, validate_path
+from underfit_api.helpers import MAX_JSON_BYTES, as_conflict, validate_path
 from underfit_api.models import Media, MediaType
 from underfit_api.repositories import media as media_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -22,8 +22,6 @@ from underfit_api.repositories import runs as runs_repo
 from underfit_api.routes.resolvers import resolve_run
 
 router = APIRouter()
-
-MAX_JSON_BYTES = 65536
 
 
 class CreateMediaMetadata(BaseModel):

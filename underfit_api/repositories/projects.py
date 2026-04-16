@@ -106,8 +106,8 @@ def update(
     metadata: dict[str, object] | None = None, ui_state: dict[str, object] | None = None,
 ) -> Project | None:
     values = {
-        'updated_at': utcnow(), 'description': description, 'visibility': visibility,
-        'metadata': metadata, 'ui_state': ui_state,
+        "updated_at": utcnow(), "description": description, "visibility": visibility,
+        "metadata": metadata, "ui_state": ui_state,
     }
     values = {k: v for k, v in values.items() if v is not None}
     conn.execute(projects.update().where(projects.c.id == project_id).values(**values))

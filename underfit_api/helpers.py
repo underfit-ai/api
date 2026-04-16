@@ -15,6 +15,7 @@ from underfit_api.config import EmailConfig
 
 MAX_PATH_BYTES = 1024
 MAX_PATH_SEGMENT_BYTES = 255
+MAX_JSON_BYTES = 65536
 
 
 def utcnow() -> datetime:

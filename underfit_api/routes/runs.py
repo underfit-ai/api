@@ -11,7 +11,7 @@ import underfit_api.storage as storage_mod
 from underfit_api.auth import create_worker_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser, RequireUser
-from underfit_api.helpers import as_conflict
+from underfit_api.helpers import MAX_JSON_BYTES, as_conflict
 from underfit_api.models import OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import accounts as accounts_repo
@@ -23,7 +23,6 @@ from underfit_api.routes.resolvers import resolve_project, resolve_run
 
 router = APIRouter()
 
-MAX_JSON_BYTES = 65536
 RUN_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
 
@@ -90,9 +89,8 @@ def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: R
     if existing:
         if not runs_repo.has_active_worker(conn, existing.id):
             raise HTTPException(409, "Stale run with this launch ID already exists")
-        if worker := workers_repo.get(conn, existing.id, body.worker_label):
-            return _launch_response(conn, existing, worker.id)
-        worker = workers_repo.create(conn, existing.id, body.worker_label)
+        worker = workers_repo.get(conn, existing.id, body.worker_label) \
+            or workers_repo.create(conn, existing.id, body.worker_label)
         return _launch_response(conn, existing, worker.id)
 
     with as_conflict(conn, "Run already exists"):
