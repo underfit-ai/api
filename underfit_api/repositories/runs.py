@@ -110,14 +110,16 @@ def update(
     conn: Connection, pk: UUID, *,
     metadata: dict[str, object] | None = None, terminal_state: str | None = None, is_pinned: bool | None = None,
     summary: dict[str, float] | None = None, ui_state: dict[str, object] | None = None,
-) -> Run | None:
+) -> Run:
     values = {
         "updated_at": utcnow(), "metadata": metadata, "terminal_state": terminal_state,
         "summary": summary, "ui_state": ui_state, "is_pinned": is_pinned,
     }
     values = {k: v for k, v in values.items() if v is not None}
     conn.execute(runs.update().where(runs.c.id == pk).values(**values))
-    return get_by_id(conn, pk)
+    result = get_by_id(conn, pk)
+    assert result is not None
+    return result
 
 
 def delete(conn: Connection, pk: UUID) -> None:

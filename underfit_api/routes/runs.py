@@ -107,9 +107,7 @@ def update_run(
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
     validate_json_size(body.metadata, "Metadata")
-    if not (updated := runs_repo.update(conn, run.id, metadata=body.metadata)):
-        raise HTTPException(404, "Run not found")
-    return updated
+    return runs_repo.update(conn, run.id, metadata=body.metadata)
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
@@ -134,7 +132,6 @@ def update_run_ui_state(
     if body.is_baseline is not None:
         projects_repo.set_baseline_run(conn, run.project_id, run.id if body.is_baseline else None)
     updated = runs_repo.update(conn, run.id, ui_state=body.ui_state, is_pinned=body.is_pinned)
-    assert updated is not None
     if config.storage.backfill.enabled:
         payload = {"uiState": updated.ui_state, "isPinned": updated.is_pinned, "isBaseline": updated.is_baseline}
         storage_mod.storage.write(f"{updated.storage_key}/ui.json", json.dumps(payload).encode())
@@ -145,15 +142,11 @@ def update_run_ui_state(
 def update_terminal_state(body: UpdateTerminalStateBody, conn: Conn, worker_id: CurrentWorker) -> Run:
     if not (worker := workers_repo.get_by_id(conn, worker_id)):
         raise HTTPException(401, "Unauthorized")
-    if not (run := runs_repo.update(conn, worker.run_id, terminal_state=body.terminal_state.value)):
-        raise HTTPException(404, "Run not found")
-    return run
+    return runs_repo.update(conn, worker.run_id, terminal_state=body.terminal_state.value)
 
 
 @router.put("/runs/summary")
 def update_summary(body: UpdateSummaryBody, conn: Conn, worker_id: CurrentWorker) -> Run:
     if not (worker := workers_repo.get_by_id(conn, worker_id)):
         raise HTTPException(401, "Unauthorized")
-    if not (run := runs_repo.update(conn, worker.run_id, summary=body.summary)):
-        raise HTTPException(404, "Run not found")
-    return run
+    return runs_repo.update(conn, worker.run_id, summary=body.summary)

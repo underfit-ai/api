@@ -96,11 +96,9 @@ def get_project(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> 
 def update_project(handle: str, project_name: str, body: UpdateProjectBody, conn: Conn, user: RequireUser) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
-    if not (updated := projects_repo.update(
+    return projects_repo.update(
         conn, project.id, description=body.description, visibility=body.visibility, metadata=body.metadata,
-    )):
-        raise HTTPException(404, "Project not found")
-    return updated
+    )
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}")
@@ -123,7 +121,6 @@ def update_project_ui_state(
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project.id, user.id)
     updated = projects_repo.update(conn, project.id, ui_state=body.ui_state)
-    assert updated is not None
     if config.storage.backfill.enabled:
         storage_mod.storage.write(
             f".projects/{updated.owner}/{updated.name}/ui.json",
@@ -139,9 +136,7 @@ def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn
     new_name = body.name.lower()
     with as_conflict(conn, "Project already exists"):
         projects_repo.create_alias(conn, project.id, account.id, new_name)
-        result = projects_repo.rename(conn, project.id, new_name)
-    assert result is not None
-    return result
+        return projects_repo.rename(conn, project.id, new_name)
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/transfer")
@@ -208,6 +203,4 @@ def accept_transfer(body: AcceptTransferBody, conn: Conn, user: RequireUser) -> 
         projects_repo.create_alias(conn, project.id, payload.to_account_id, new_name)
         if project_collaborators_repo.get(conn, project.id, user.id):
             project_collaborators_repo.remove(conn, project.id, user.id)
-        result = projects_repo.transfer(conn, payload.project_id, payload.to_account_id, new_name)
-    assert result is not None
-    return result
+        return projects_repo.transfer(conn, payload.project_id, payload.to_account_id, new_name)

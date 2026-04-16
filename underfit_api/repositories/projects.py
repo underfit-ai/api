@@ -104,14 +104,16 @@ def update(
     conn: Connection, project_id: UUID, *,
     description: str | None = None, visibility: str | None = None,
     metadata: dict[str, object] | None = None, ui_state: dict[str, object] | None = None,
-) -> Project | None:
+) -> Project:
     values = {
         "updated_at": utcnow(), "description": description, "visibility": visibility,
         "metadata": metadata, "ui_state": ui_state,
     }
     values = {k: v for k, v in values.items() if v is not None}
     conn.execute(projects.update().where(projects.c.id == project_id).values(**values))
-    return get_by_id(conn, project_id)
+    result = get_by_id(conn, project_id)
+    assert result is not None
+    return result
 
 
 def set_baseline_run(conn: Connection, project_id: UUID, run_id: UUID | None) -> None:
@@ -122,9 +124,11 @@ def set_baseline_run(conn: Connection, project_id: UUID, run_id: UUID | None) ->
     ))
 
 
-def rename(conn: Connection, project_id: UUID, new_name: str) -> Project | None:
+def rename(conn: Connection, project_id: UUID, new_name: str) -> Project:
     conn.execute(projects.update().where(projects.c.id == project_id).values(name=new_name, updated_at=utcnow()))
-    return get_by_id(conn, project_id)
+    result = get_by_id(conn, project_id)
+    assert result is not None
+    return result
 
 
 def set_pending_transfer(conn: Connection, project_id: UUID, to_account_id: UUID | None) -> None:
@@ -134,14 +138,16 @@ def set_pending_transfer(conn: Connection, project_id: UUID, to_account_id: UUID
     )
 
 
-def transfer(conn: Connection, project_id: UUID, new_account_id: UUID, new_name: str) -> Project | None:
+def transfer(conn: Connection, project_id: UUID, new_account_id: UUID, new_name: str) -> Project:
     now = utcnow()
     conn.execute(
         projects.update().where(projects.c.id == project_id).values(
             account_id=new_account_id, name=new_name, pending_transfer_to=None, updated_at=now,
         ),
     )
-    return get_by_id(conn, project_id)
+    result = get_by_id(conn, project_id)
+    assert result is not None
+    return result
 
 
 def create_alias(conn: Connection, project_id: UUID, account_id: UUID, name: str) -> None:
