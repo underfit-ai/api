@@ -37,8 +37,6 @@ def ensure_run(conn: Connection, storage: Storage, run_uuid: UUID) -> tuple[UUID
     except (ValidationError, json.JSONDecodeError, FileNotFoundError):
         logger.warning("Skipping run %s due to invalid run.json", run_uuid)
         return None
-    if not metadata.project or not metadata.user:
-        return None
     if not (user_id := resolve_user(conn, metadata.user)):
         return None
     project_id = resolve_project(conn, user_id, metadata.project)

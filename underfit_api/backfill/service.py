@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 class BackfillService:
     def __init__(self, storage: Storage, engine: Engine, backfill_config: BackfillConfig) -> None:
         self._storage = storage
-        self._watchable = storage if isinstance(storage, WatchableStorage) else None
         self._engine = engine
         self._config = backfill_config
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -30,15 +29,15 @@ class BackfillService:
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._tasks.append(asyncio.create_task(self._process_loop()))
-        if self._watchable is not None:
-            self._watchable.watch(self._watch_enqueue)
+        if isinstance(self._storage, WatchableStorage):
+            self._storage.watch(self._watch_enqueue)
             self._pending.update(await asyncio.to_thread(self._collect_pending))
             # Keep periodic scans as a backstop in case filesystem events are missed.
         self._tasks.append(asyncio.create_task(self._scan_loop()))
 
     async def stop(self) -> None:
-        if self._watchable is not None:
-            self._watchable.stop_watching()
+        if isinstance(self._storage, WatchableStorage):
+            self._storage.stop_watching()
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
