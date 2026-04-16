@@ -36,3 +36,17 @@ def test_member_can_remove_self(
     assert removed.status_code == 200 and removed.json() == {"status": "ok"}
     listed = client.get(MEMBERS)
     assert listed.status_code == 200 and [entry["handle"] for entry in listed.json()] == ["owner"]
+
+
+def test_member_mutation_validation(
+    client: TestClient, owner_headers: Headers, create_user: CreateUser, session_for_user: SessionForUser,
+) -> None:
+    member = create_user(email="member@example.com", handle="member", name="Member")
+    outsider = create_user(email="outsider@example.com", handle="outsider", name="Outsider")
+    member_headers = session_for_user(member)
+    assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
+    assert client.put(f"{MEMBERS}/member", headers=owner_headers, json={}).status_code == 200
+    assert client.put(f"{MEMBERS}/member", headers=member_headers, json={"role": "ADMIN"}).status_code == 403
+    assert client.put(f"{MEMBERS}/member", headers=owner_headers, json={"role": "NOPE"}).status_code == 400
+    assert client.put(f"{MEMBERS}/missing", headers=owner_headers, json={}).status_code == 404
+    assert client.delete(f"{MEMBERS}/{outsider.handle}", headers=owner_headers).status_code == 404

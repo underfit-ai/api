@@ -56,8 +56,8 @@ def test_rename_org_handle_redirects(client: TestClient, owner_headers: Headers,
     create_org(owner_headers, handle="my-org", name="My Org")
     client.post(f"{BASE}/my-org/rename", headers=owner_headers, json={"handle": "new-org"})
 
-    response = client.get("/api/v1/organizations/my-org/members", follow_redirects=False)
+    response = client.get("/api/v1/organizations/my-org/members", params={"page": "1"}, follow_redirects=False)
     assert response.status_code == 307
-    assert "/organizations/new-org" in response.headers["location"]
+    assert response.headers["location"] == "/api/v1/organizations/new-org/members?page=1"
 
     assert client.get("/api/v1/organizations/new-org/members").status_code == 200

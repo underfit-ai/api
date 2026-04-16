@@ -59,7 +59,6 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert client.get(f"{RUNS}/{run['name']}", headers=owner_headers).json()["isActive"] is False
 
     assert len(client.get(RUNS, headers=owner_headers).json()) == 1
-    assert client.get("/api/v1/users/owner/runs", headers=owner_headers).json()[0]["id"] == run["id"]
 
 
 def test_update_summary_overwrites(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
@@ -73,23 +72,7 @@ def test_update_summary_overwrites(client: TestClient, owner_headers: Headers, c
     assert client.put("/api/v1/runs/summary", json={"summary": {}}).status_code == 401
 
 
-def test_launch_join(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
-    create_project(handle="owner", name="underfit")
-    run = _launch(client, owner_headers)
-    joined = client.post(LAUNCH, headers=owner_headers, json={
-        "runName": "ignored", "launchId": "abc-123", "workerLabel": "1",
-    })
-    assert joined.status_code == 200
-    assert joined.json()["id"] == run["id"]
-    assert joined.json()["name"] == "my-run"
-    assert joined.json()["workerToken"] is not None
-    assert joined.json()["workerToken"] != run["workerToken"]
-
-    workers = client.get(f"{RUNS}/{run['name']}/workers", headers=owner_headers).json()
-    assert {w["workerLabel"] for w in workers} == {"0", "1"}
-
-
-def test_launch_idempotent_retry(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+def test_launch_join_and_retry(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(handle="owner", name="underfit")
     first = _launch(client, owner_headers)
     retry = _launch(client, owner_headers)
@@ -97,6 +80,15 @@ def test_launch_idempotent_retry(client: TestClient, owner_headers: Headers, cre
     retry_token = verify_signed_token(str(retry["workerToken"]))
     assert first_token is not None and retry_token is not None
     assert first_token["worker_id"] == retry_token["worker_id"]
+
+    payload = {"runName": "ignored", "launchId": "abc-123", "workerLabel": "1"}
+    joined = client.post(LAUNCH, headers=owner_headers, json=payload)
+    assert joined.status_code == 200
+    assert joined.json()["id"] == first["id"]
+    assert joined.json()["name"] == "my-run"
+    assert joined.json()["workerToken"] != first["workerToken"]
+    workers = client.get(f"{RUNS}/{first['name']}/workers", headers=owner_headers).json()
+    assert {w["workerLabel"] for w in workers} == {"0", "1"}
 
 
 def test_launch_rejects_stale_run(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
@@ -140,6 +132,24 @@ def test_launch_access_controls(
     assert client.post(LAUNCH, headers=outsider_headers, json=body).status_code == 200
 
 
+def test_list_user_runs_visibility(
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers,
+    create_project: CreateProject, add_collaborator: AddCollaborator,
+) -> None:
+    for name, visibility in [("private", "private"), ("shared", "private"), ("public", "public")]:
+        create_project(handle="owner", name=name, visibility=visibility)
+        url = f"/api/v1/accounts/owner/projects/{name}/runs/launch"
+        assert client.post(url, headers=owner_headers, json={"runName": name, "launchId": name}).status_code == 200
+    add_collaborator(handle="owner", project_name="shared", user_handle="outsider")
+
+    owner_runs = client.get("/api/v1/users/owner/runs", headers=owner_headers).json()
+    assert [run["name"] for run in owner_runs] == ["public", "shared", "private"]
+    outsider_runs = client.get("/api/v1/users/owner/runs", headers=outsider_headers).json()
+    assert [run["name"] for run in outsider_runs] == ["public", "shared"]
+    public_runs = client.get("/api/v1/users/owner/runs").json()
+    assert [run["name"] for run in public_runs] == ["public"]
+
+
 def test_delete_run(
     client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
     add_collaborator: AddCollaborator, create_org: CreateOrg, create_org_member: CreateOrgMember,
@@ -163,12 +173,10 @@ def test_delete_run(
     org = create_org(owner_headers)
     admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
     create_project(handle="core", name="secret")
-    org_run = client.post("/api/v1/accounts/core/projects/secret/runs/launch", headers=owner_headers, json={
-        "runName": "org-run", "launchId": "org-run",
-    }).json()
+    project_base = "/api/v1/accounts/core/projects/secret"
+    payload = {"runName": "org-run", "launchId": "org-run"}
+    org_run = client.post(f"{project_base}/runs/launch", headers=owner_headers, json=payload).json()
     storage_mod.storage.write(f"{org_run['id']}/media/0", b"media")
-    assert client.delete(
-        "/api/v1/accounts/core/projects/secret/runs/org-run", headers=outsider_headers,
-    ).status_code == 403
-    assert client.delete("/api/v1/accounts/core/projects/secret/runs/org-run", headers=admin_headers).status_code == 200
+    assert client.delete(f"{project_base}/runs/org-run", headers=outsider_headers).status_code == 403
+    assert client.delete(f"{project_base}/runs/org-run", headers=admin_headers).status_code == 200
     assert not storage_mod.storage.exists(f"{org_run['id']}/media/0")
