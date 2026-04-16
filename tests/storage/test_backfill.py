@@ -152,15 +152,24 @@ def test_backfill_ingests_segment_files(backfill_service: tuple[BackfillService,
     assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
     assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (1, 0, 2)
     assert scalar_row.end_at.isoformat() == "2025-01-01T00:00:01"
+    assert run_row.summary == {"loss": {"value": 0.6, "step": 2, "timestamp": "2025-01-01T00:00:01Z"}}
 
+    _write_text(storage, f"{run_id}/scalars/0/r1/2.jsonl", (
+        '{"step":3,"values":{"loss":0.4,"acc":0.9},"timestamp":"2025-01-01T00:00:02Z"}\n'
+    ))
     _scan(service)
     with db.engine.begin() as conn:
         rescanned_log_worker = conn.execute(select(run_workers).where(run_workers.c.id == log_worker_row.id)).first()
         rescanned_log = conn.execute(select(log_segments).where(log_segments.c.id == log_row.id)).first()
         log_segment_count = conn.execute(select(log_segments)).all()
+        rescanned_run = conn.execute(select(runs).where(runs.c.id == run_id)).first()
     assert rescanned_log_worker is not None and rescanned_log_worker.last_heartbeat == log_worker_row.last_heartbeat
     assert rescanned_log is not None and rescanned_log.end_line == 2
     assert len(log_segment_count) == 1
+    assert rescanned_run is not None and rescanned_run.summary == {
+        "loss": {"value": 0.4, "step": 3, "timestamp": "2025-01-01T00:00:02Z"},
+        "acc": {"value": 0.9, "step": 3, "timestamp": "2025-01-01T00:00:02Z"},
+    }
 
 
 def test_backfill_stops_scalar_segment_at_invalid_json(backfill_service: tuple[BackfillService, Storage]) -> None:

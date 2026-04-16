@@ -21,15 +21,22 @@ def test_write_and_read_scalars_with_auto_resolution(client: TestClient, owner_h
     ]
     scalars = {"start_line": 0, "scalars": points}
     assert client.post("/api/v1/ingest/scalars", headers=headers, json=scalars).json()["nextStartLine"] == 20
+    # Stale step must not overwrite; new key is added.
+    stale = {"step": 5, "values": {"loss": 9.9, "acc": 0.5}, "timestamp": "2025-01-01T00:01:00+00:00"}
+    client.post("/api/v1/ingest/scalars", headers=headers, json={"start_line": 20, "scalars": [stale]})
 
     full = client.get(scalars_url, headers=owner_headers)
     assert full.status_code == 200
-    assert len(full.json()) == 20
+    assert len(full.json()) == 21
 
     reduced = client.get(scalars_url, headers=owner_headers, params={"maxPoints": 5})
     assert reduced.status_code == 200
     assert len(reduced.json()) == 2
     assert len(client.get(scalars_url, headers=owner_headers, params={"maxPoints": 1}).json()) == 2
+
+    run = client.get("/api/v1/accounts/owner/projects/underfit/runs/r", headers=owner_headers).json()
+    assert run["summary"]["loss"] == {"value": 0.81, "step": 19, "timestamp": "2025-01-01T00:00:19Z"}
+    assert run["summary"]["acc"] == {"value": 0.5, "step": 5, "timestamp": "2025-01-01T00:01:00Z"}
 
 
 def test_scalars_validate_cursor_inputs(client: TestClient, owner_headers: Headers) -> None:

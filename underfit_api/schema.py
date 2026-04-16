@@ -152,6 +152,7 @@ runs = sa.Table(
     sa.Column("terminal_state", sa.Text),
     sa.Column("config", sa.JSON),
     sa.Column("metadata", sa.JSON, nullable=False),
+    sa.Column("summary", sa.JSON, nullable=False),
     sa.Column("created_at", sa.DateTime, nullable=False),
     sa.Column("updated_at", sa.DateTime, nullable=False),
     sa.UniqueConstraint("project_id", "name"),

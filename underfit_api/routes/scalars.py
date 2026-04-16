@@ -47,6 +47,8 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> 
     if (expected := scalar_buffer.append(conn, worker, body.start_line, body.scalars)) is not None:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": expected})
     scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker)
+    assert (row := workers_repo.get_by_id(conn, worker)) is not None
+    runs_repo.update_summary(conn, row.run_id, body.scalars)
     return BufferedResponse(next_start_line=body.start_line + len(body.scalars))
 
 

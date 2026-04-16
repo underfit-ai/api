@@ -17,6 +17,7 @@ from underfit_api.helpers import utcnow
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import projects as projects_repo
+from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import artifacts, log_segments, media, projects, run_workers, runs, scalar_segments
@@ -149,6 +150,7 @@ class BackfillService:
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 metadata=metadata.metadata,
+                summary={},
                 created_at=now,
                 updated_at=now,
             ))
@@ -219,6 +221,7 @@ class BackfillService:
     def _reconcile_segments(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
         seen_logs: set[str] = set()
         seen_scalars: set[str] = set()
+        summary_points: list[ScalarPoint] = []
         for key in sorted(run_keys):
             rel = key[len(f"{run_id}/"):]
             if m := _LOG.match(key):
@@ -227,8 +230,12 @@ class BackfillService:
                     seen_logs.add(rel)
             elif m := _SCALAR.match(key):
                 rwid = self._ensure_worker(conn, run_id, m.group(2))
-                if self._ingest_scalar_segment(conn, rwid, key, rel, int(m.group(3)), int(m.group(4))):
+                resolution = int(m.group(3))
+                points = self._ingest_scalar_segment(conn, rwid, key, rel, resolution, int(m.group(4)))
+                if points is not None:
                     seen_scalars.add(rel)
+                    if resolution == 1:
+                        summary_points.extend(points)
         worker_ids = sa.select(run_workers.c.id).where(run_workers.c.run_id == run_id).scalar_subquery()
         conn.execute(log_segments.delete().where(
             log_segments.c.worker_id.in_(worker_ids), log_segments.c.storage_key.not_in(seen_logs),
@@ -241,6 +248,8 @@ class BackfillService:
             ~sa.exists().where(log_segments.c.worker_id == run_workers.c.id),
             ~sa.exists().where(scalar_segments.c.worker_id == run_workers.c.id),
         ))
+        if summary_points:
+            runs_repo.update_summary(conn, run_id, summary_points)
 
     def _ingest_log_segment(
         self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str, start_line: int,
@@ -265,7 +274,7 @@ class BackfillService:
     def _ingest_scalar_segment(
         self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str,
         resolution: int, start_line: int,
-    ) -> bool:
+    ) -> list[ScalarPoint] | None:
         points: list[ScalarPoint] = []
         for raw_line in self._storage.read(full_key).decode().splitlines():
             if not raw_line:
@@ -276,7 +285,7 @@ class BackfillService:
                 logger.warning("Stopping scalar ingest at invalid line in %s", full_key)
                 break
         if not points:
-            return False
+            return None
         end_line = start_line + len(points)
         existing = conn.execute(sa.select(scalar_segments.c.end_line).where(
             scalar_segments.c.worker_id == worker_id,
@@ -284,13 +293,13 @@ class BackfillService:
             scalar_segments.c.start_line == start_line,
         )).scalar()
         if existing == end_line:
-            return True
+            return []
         scalar_seg_repo.upsert(
             conn, worker_id, resolution, start_line=start_line, end_line=end_line,
             start_at=points[0].timestamp, end_at=points[-1].timestamp, storage_key=storage_key,
         )
         conn.execute(run_workers.update().where(run_workers.c.id == worker_id).values(last_heartbeat=utcnow()))
-        return True
+        return points[(existing - start_line) if existing is not None else 0:]
 
     def _reconcile_assets(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
         seen_artifacts: set[UUID] = set()

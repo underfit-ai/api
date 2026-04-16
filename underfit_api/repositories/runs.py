@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
@@ -11,6 +13,9 @@ from underfit_api.helpers import utcnow
 from underfit_api.models import Run
 from underfit_api.repositories.projects import is_collaborator, is_org_admin
 from underfit_api.schema import accounts, projects, run_workers, runs
+
+if TYPE_CHECKING:
+    from underfit_api.buffer import ScalarPoint
 
 _join = runs.join(projects, runs.c.project_id == projects.c.id).join(accounts, projects.c.account_id == accounts.c.id)
 _user_handle = sa.select(accounts.c.handle).where(accounts.c.id == runs.c.user_id).correlate(runs).scalar_subquery()
@@ -35,6 +40,7 @@ def _query() -> sa.Select[tuple[object, ...]]:
         is_active,
         runs.c.config,
         runs.c.metadata,
+        runs.c.summary,
         runs.c.created_at,
         runs.c.updated_at,
     ).select_from(_join)
@@ -91,7 +97,7 @@ def create(
     conn.execute(runs.insert().values(
         id=pk, project_id=project_id, user_id=user_id,
         launch_id=launch_id, name=name.lower(), storage_key=str(pk),
-        config=config, metadata=metadata, created_at=now, updated_at=now,
+        config=config, metadata=metadata, summary={}, created_at=now, updated_at=now,
     ))
     result = get_by_id(conn, pk)
     assert result is not None
@@ -113,3 +119,24 @@ def update_terminal_state(conn: Connection, pk: UUID, terminal_state: str) -> Ru
 
 def delete(conn: Connection, pk: UUID) -> None:
     conn.execute(runs.delete().where(runs.c.id == pk))
+
+
+def update_summary(conn: Connection, pk: UUID, points: Iterable[ScalarPoint]) -> None:
+    row = conn.execute(sa.select(runs.c.summary).where(runs.c.id == pk).with_for_update()).first()
+    if row is None:
+        return
+    summary: dict[str, dict[str, object]] = dict(row.summary or {})
+    for point in points:
+        ts = point.timestamp.isoformat() + "Z"
+        for key, value in point.values.items():
+            entry = summary.get(key)
+            if entry is None or _is_newer(point.step, ts, entry):
+                summary[key] = {"value": value, "step": point.step, "timestamp": ts}
+    conn.execute(runs.update().where(runs.c.id == pk).values(summary=summary))
+
+
+def _is_newer(step: int | None, ts: str, existing: dict[str, object]) -> bool:
+    existing_step, existing_ts = existing["step"], existing["timestamp"]
+    if step is not None and isinstance(existing_step, int):
+        return step > existing_step
+    return isinstance(existing_ts, str) and ts > existing_ts
