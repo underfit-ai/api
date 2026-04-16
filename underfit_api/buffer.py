@@ -96,6 +96,11 @@ class _BaseBuffer(Generic[K, V]):
     def flush(self, conn: Connection, storage: Storage, worker_id: UUID) -> None: raise NotImplementedError
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None: raise NotImplementedError
 
+    def _discard_worker(self, worker_id: UUID) -> None:
+        with self._dict_lock:
+            for key in [key for key in self._buffers if self._worker_id_of(key) == worker_id]:
+                self._buffers.pop(key, None)
+
     @contextmanager
     def _worker_lock(self, worker_id: UUID) -> Iterator[None]:
         with self._dict_lock:
@@ -156,11 +161,12 @@ class LogBuffer(_BaseBuffer[UUID, LogLine]):
 
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID, *, clear: bool = False) -> None:
         with self._worker_lock(worker_id):
+            if not (worker := workers_repo.get_by_id(conn, worker_id)):
+                self._discard_worker(worker_id)
+                return
             buf = self._buffers.get(worker_id)
             if not buf or not buf.lines:
                 return
-            if not (worker := workers_repo.get_by_id(conn, worker_id)):
-                raise RuntimeError("Worker not found")
             run = runs_repo.get_by_id(conn, worker.run_id)
             assert run is not None
             content = "".join(f"{line.content}\n" for line in buf.lines)
@@ -207,6 +213,13 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
         super().__init__()
         self._accumulators: dict[tuple[UUID, int], _Accumulator] = {}
         self._last_steps: dict[UUID, int] = {}
+
+    def _discard_worker(self, worker_id: UUID) -> None:
+        super()._discard_worker(worker_id)
+        with self._dict_lock:
+            self._last_steps.pop(worker_id, None)
+            for key in [key for key in self._accumulators if key[0] == worker_id]:
+                self._accumulators.pop(key, None)
 
     def _resolve_last_step(self, conn: Connection, worker_id: UUID) -> int | None:
         if worker_id in self._last_steps:
@@ -267,6 +280,9 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
 
     def flush(self, conn: Connection, storage: Storage, worker_id: UUID, *, emit_partial: bool = True) -> None:
         with self._worker_lock(worker_id):
+            if not workers_repo.get_by_id(conn, worker_id):
+                self._discard_worker(worker_id)
+                return
             if emit_partial:
                 for resolution in get_scalar_resolutions()[1:]:
                     if (acc := self._accumulators.get((worker_id, resolution))) and acc.n > 0:
@@ -302,6 +318,9 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], ScalarPoint]):
 
     def persist(self, conn: Connection, storage: Storage, worker_id: UUID) -> None:
         with self._worker_lock(worker_id):
+            if not workers_repo.get_by_id(conn, worker_id):
+                self._discard_worker(worker_id)
+                return
             for resolution in get_scalar_resolutions():
                 self._persist_resolution(conn, storage, worker_id, resolution)
 
