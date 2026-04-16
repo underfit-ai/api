@@ -51,6 +51,7 @@ def test_forgot_password_validation(client: TestClient) -> None:
 
 def test_reset_password_full_flow(client: TestClient, register_user: RegisterUser) -> None:
     config.email = EmailConfig()
+    config.frontend_url = "http://localhost:3000"
     register_user(email="sam@example.com", handle="sam")
 
     token = _request_reset(client)
@@ -61,6 +62,7 @@ def test_reset_password_full_flow(client: TestClient, register_user: RegisterUse
 
 def test_reset_password_token_validation(client: TestClient, register_user: RegisterUser) -> None:
     config.email = EmailConfig()
+    config.frontend_url = "http://localhost:3000"
     register_user(email="sam@example.com", handle="sam")
     with patch("underfit_api.routes.auth.RESET_TOKEN_TTL", timedelta(seconds=-1)):
         token = _request_reset(client)

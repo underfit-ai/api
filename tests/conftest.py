@@ -107,16 +107,17 @@ def _database_config(
 
 @pytest.fixture(autouse=True)
 def _reset_state(request: pytest.FixtureRequest, tmp_path: Path, db_backend: str) -> Iterator[None]:
+    snapshot = config.model_copy(deep=True)
     config.database = _database_config(request, db_backend, tmp_path)
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
-    config.auth_enabled = True
-    config.email = None
     ctx = AppContext(engine=build_engine(), storage=build_storage())
     app.state.ctx = ctx
     metadata.drop_all(ctx.engine)
     metadata.create_all(ctx.engine)
     yield
     ctx.engine.dispose()
+    for field in type(config).model_fields:
+        setattr(config, field, getattr(snapshot, field))
 
 
 @pytest.fixture

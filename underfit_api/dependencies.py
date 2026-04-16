@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass
-from typing import Annotated, Optional
+from typing import Annotated, NamedTuple, Optional
 from uuid import UUID
 
 from fastapi import Cookie, Depends, Header, HTTPException, Request
@@ -16,12 +15,8 @@ from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.storage.types import Storage
 
-AuthorizationHeader = Annotated[Optional[str], Header()]
-SessionTokenCookie = Annotated[Optional[str], Cookie()]
 
-
-@dataclass(frozen=True)
-class AppContext:
+class AppContext(NamedTuple):
     engine: Engine
     storage: Storage
 
@@ -30,15 +25,15 @@ def get_ctx(request: Request) -> AppContext:
     return request.app.state.ctx
 
 
-Ctx = Annotated[AppContext, Depends(get_ctx)]
-
-
-def get_conn(ctx: Ctx) -> Iterator[Connection]:
+def get_conn(ctx: Annotated[AppContext, Depends(get_ctx)]) -> Iterator[Connection]:
     with ctx.engine.begin() as conn:
         yield conn
 
 
+Ctx = Annotated[AppContext, Depends(get_ctx)]
 Conn = Annotated[Connection, Depends(get_conn)]
+AuthorizationHeader = Annotated[Optional[str], Header()]
+SessionTokenCookie = Annotated[Optional[str], Cookie()]
 
 
 def _authenticate(conn: Connection, authorization: str | None, session_token: str | None) -> User | None:
@@ -53,8 +48,7 @@ def _authenticate(conn: Connection, authorization: str | None, session_token: st
     return None
 
 
-@dataclass(frozen=True)
-class AuthContext:
+class AuthContext(NamedTuple):
     authorization: str | None
     session_token: str | None
 
