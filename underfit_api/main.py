@@ -161,25 +161,25 @@ def validation_exception_handler(_request: Request, exc: RequestValidationError)
     return JSONResponse(status_code=400, content={"error": "Validation error"})
 
 
+def _redirect(request: Request, new_path: str) -> RedirectResponse:
+    query = str(request.url.query)
+    return RedirectResponse(url=new_path + (f"?{query}" if query else ""), status_code=307)
+
+
 @api.exception_handler(AccountAliasRedirectError)
 def account_alias_redirect_handler(request: Request, exc: AccountAliasRedirectError) -> RedirectResponse:
-    new_path = re.sub(r"/(accounts|users|organizations)/[^/]+", rf"/\1/{exc.new_handle}", request.url.path, count=1)
-    query = str(request.url.query)
-    location = new_path + (f"?{query}" if query else "")
-    return RedirectResponse(url=location, status_code=307)
+    return _redirect(request, re.sub(
+        r"/(accounts|users|organizations)/[^/]+", rf"/\1/{exc.new_handle}", request.url.path, count=1,
+    ))
 
 
 @api.exception_handler(ProjectAliasRedirectError)
 def project_alias_redirect_handler(request: Request, exc: ProjectAliasRedirectError) -> RedirectResponse:
-    new_path = re.sub(
+    return _redirect(request, re.sub(
         r"/accounts/[^/]+/projects/[^/]+",
         f"/accounts/{exc.new_account_handle}/projects/{exc.new_project_name}",
-        request.url.path,
-        count=1,
-    )
-    query = str(request.url.query)
-    location = new_path + (f"?{query}" if query else "")
-    return RedirectResponse(url=location, status_code=307)
+        request.url.path, count=1,
+    ))
 
 
 @api.get("/health")

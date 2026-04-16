@@ -65,10 +65,9 @@ def create_worker_token(worker_id: object) -> str:
 
 
 def verify_signed_token(token: str) -> dict[str, Any] | None:
-    parts = token.split(".", 1)
-    if len(parts) != 2:
+    if "." not in token:
         return None
-    data, sig = parts
+    data, sig = token.split(".", 1)
     expected_sig = hmac.new(get_app_secret(), data.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sig, expected_sig):
         return None

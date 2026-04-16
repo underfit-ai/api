@@ -54,10 +54,8 @@ class UpdateRunUIStateBody(BaseModel):
     is_baseline: bool | None = None
 
 
-def _launch_response(conn: Conn, run: Run, worker_id: object) -> Run:
-    refreshed = runs_repo.get_by_id(conn, run.id)
-    assert refreshed is not None
-    return refreshed.model_copy(update={"worker_token": create_worker_token(worker_id)})
+def _launch_response(run: Run, worker_id: object) -> Run:
+    return run.model_copy(update={"worker_token": create_worker_token(worker_id), "is_active": True})
 
 
 @router.get("/users/{handle}/runs")
@@ -86,12 +84,12 @@ def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: R
             raise HTTPException(409, "Stale run with this launch ID already exists")
         worker = workers_repo.get(conn, existing.id, body.worker_label) \
             or workers_repo.create(conn, existing.id, body.worker_label)
-        return _launch_response(conn, existing, worker.id)
+        return _launch_response(existing, worker.id)
 
     with as_conflict(conn, "Run already exists"):
         run = runs_repo.create(conn, project.id, user.id, body.launch_id, body.run_name, body.config, body.metadata)
         worker = workers_repo.create(conn, run.id, body.worker_label)
-    return _launch_response(conn, run, worker.id)
+    return _launch_response(run, worker.id)
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}")

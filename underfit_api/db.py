@@ -51,6 +51,7 @@ engine = build_engine()
 
 
 def ensure_local_cache_schema() -> None:
+    global engine  # noqa: PLW0603
     if not isinstance(config.database, SqliteDatabaseConfig):
         raise RuntimeError("Local backfill mode requires a sqlite database")
     with engine.connect() as conn:
@@ -59,7 +60,7 @@ def ensure_local_cache_schema() -> None:
     engine.dispose()
     if config.database.path != ":memory:":
         Path(config.database.path).unlink(missing_ok=True)
-    globals()["engine"] = build_engine()
+    engine = build_engine()
     metadata.create_all(engine)
     with engine.begin() as conn:
         conn.exec_driver_sql(f"PRAGMA user_version = {LOCAL_CACHE_SCHEMA_VERSION}")
