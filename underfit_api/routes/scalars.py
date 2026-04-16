@@ -13,7 +13,6 @@ from underfit_api.buffer import BadStartLineError, BadStepError, ScalarPoint, ge
 from underfit_api.dependencies import Conn, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, Scalar, Worker
 from underfit_api.repositories import run_workers as workers_repo
-from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
 
@@ -55,8 +54,6 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> 
     except BadStepError as e:
         raise HTTPException(409, detail={"error": "Step must be strictly increasing", "lastStep": e.expected}) from e
     scalar_buffer.flush_if_needed(conn, storage_mod.storage, worker)
-    assert (row := workers_repo.get_by_id(conn, worker)) is not None
-    runs_repo.update_summary(conn, row.run_id, body.scalars)
     return BufferedResponse(next_start_line=body.start_line + len(body.scalars))
 
 

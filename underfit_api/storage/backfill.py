@@ -39,6 +39,7 @@ class RunMetadata(BaseModel):
     terminal_state: Literal["finished", "failed", "cancelled"] | None = None
     config: dict[str, object] | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
+    summary: dict[str, float] | None = None
 
 
 class BackfillService:
@@ -119,13 +120,14 @@ class BackfillService:
             conn.execute(runs.delete().where(runs.c.id == run_uuid))
             return
         # Keep the last good DB state if the file exists but is temporarily unreadable.
-        if not (run_id := self._ensure_run(conn, run_uuid)):
+        if not (ensured := self._ensure_run(conn, run_uuid)):
             return
+        run_id, metadata = ensured
         run_keys = self._storage.list_files(str(run_uuid))
-        self._reconcile_segments(conn, run_id, run_keys)
+        self._reconcile_segments(conn, run_id, run_keys, metadata.summary)
         self._reconcile_assets(conn, run_id, run_keys)
 
-    def _ensure_run(self, conn: Connection, run_uuid: UUID) -> UUID | None:
+    def _ensure_run(self, conn: Connection, run_uuid: UUID) -> tuple[UUID, RunMetadata] | None:
         try:
             metadata = RunMetadata.model_validate_json(self._storage.read(f"{run_uuid}/run.json"))
         except (ValidationError, json.JSONDecodeError, FileNotFoundError):
@@ -150,7 +152,7 @@ class BackfillService:
                 terminal_state=metadata.terminal_state,
                 config=metadata.config,
                 metadata=metadata.metadata,
-                summary={},
+                summary=metadata.summary or {},
                 created_at=now,
                 updated_at=now,
             ))
@@ -175,7 +177,7 @@ class BackfillService:
                 metadata=metadata.metadata,
                 updated_at=utcnow(),
             ))
-        return run_uuid
+        return run_uuid, metadata
 
     def _resolve_user(self, conn: Connection, handle: str) -> UUID | None:
         if alias := accounts_repo.get_alias_by_handle(conn, handle):
@@ -218,10 +220,12 @@ class BackfillService:
         ))
         return rwid
 
-    def _reconcile_segments(self, conn: Connection, run_id: UUID, run_keys: list[str]) -> None:
+    def _reconcile_segments(
+        self, conn: Connection, run_id: UUID, run_keys: list[str], explicit_summary: dict[str, float] | None,
+    ) -> None:
         seen_logs: set[str] = set()
         seen_scalars: set[str] = set()
-        summary_points: list[ScalarPoint] = []
+        last_point: ScalarPoint | None = None
         for key in sorted(run_keys):
             rel = key[len(f"{run_id}/"):]
             if m := _LOG.match(key):
@@ -234,8 +238,8 @@ class BackfillService:
                 points = self._ingest_scalar_segment(conn, rwid, key, rel, resolution, int(m.group(4)))
                 if points is not None:
                     seen_scalars.add(rel)
-                    if resolution == 1:
-                        summary_points.extend(points)
+                    if resolution == 1 and points and (last_point is None or points[-1].step > last_point.step):
+                        last_point = points[-1]
         worker_ids = sa.select(run_workers.c.id).where(run_workers.c.run_id == run_id).scalar_subquery()
         conn.execute(log_segments.delete().where(
             log_segments.c.worker_id.in_(worker_ids), log_segments.c.storage_key.not_in(seen_logs),
@@ -248,8 +252,10 @@ class BackfillService:
             ~sa.exists().where(log_segments.c.worker_id == run_workers.c.id),
             ~sa.exists().where(scalar_segments.c.worker_id == run_workers.c.id),
         ))
-        if summary_points:
-            runs_repo.update_summary(conn, run_id, summary_points)
+        if explicit_summary is not None:
+            runs_repo.update_summary(conn, run_id, explicit_summary)
+        elif last_point is not None:
+            runs_repo.update_summary(conn, run_id, last_point.values)
 
     def _ingest_log_segment(
         self, conn: Connection, worker_id: UUID, full_key: str, storage_key: str, start_line: int,

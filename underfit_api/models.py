@@ -98,12 +98,6 @@ class Project(_Base):
     updated_at: UTCDatetime
 
 
-class SummaryEntry(_Base):
-    value: float
-    step: int | None
-    timestamp: UTCDatetime
-
-
 class Run(_Base):
     id: UUID
     project_id: UUID
@@ -117,7 +111,7 @@ class Run(_Base):
     is_active: bool
     config: dict[str, object] | None
     metadata: dict[str, object] = Field(default_factory=dict)
-    summary: dict[str, SummaryEntry] = Field(default_factory=dict)
+    summary: dict[str, float] = Field(default_factory=dict)
     worker_token: str | None = None
     created_at: UTCDatetime
     updated_at: UTCDatetime

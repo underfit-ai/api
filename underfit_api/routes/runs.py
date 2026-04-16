@@ -45,6 +45,10 @@ class UpdateTerminalStateBody(BaseModel):
     terminal_state: RunTerminalState
 
 
+class UpdateSummaryBody(BaseModel):
+    summary: dict[str, float]
+
+
 def _validate_json(value: dict[str, object] | None, label: str) -> None:
     if value is not None and len(json.dumps(value)) > MAX_JSON_BYTES:
         raise HTTPException(400, f"{label} too large")
@@ -127,5 +131,14 @@ def update_terminal_state(body: UpdateTerminalStateBody, conn: Conn, worker_id: 
     if not (worker := workers_repo.get_by_id(conn, worker_id)):
         raise HTTPException(401, "Unauthorized")
     if not (run := runs_repo.update_terminal_state(conn, worker.run_id, body.terminal_state.value)):
+        raise HTTPException(404, "Run not found")
+    return run
+
+
+@router.put("/runs/summary")
+def update_summary(body: UpdateSummaryBody, conn: Conn, worker_id: CurrentWorker) -> Run:
+    if not (worker := workers_repo.get_by_id(conn, worker_id)):
+        raise HTTPException(401, "Unauthorized")
+    if not (run := runs_repo.update_summary(conn, worker.run_id, body.summary)):
         raise HTTPException(404, "Run not found")
     return run

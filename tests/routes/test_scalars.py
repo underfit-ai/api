@@ -34,9 +34,6 @@ def test_write_and_read_scalars_with_auto_resolution(client: TestClient, owner_h
     assert len(reduced.json()) == 2
     assert len(client.get(scalars_url, headers=owner_headers, params={"maxPoints": 1}).json()) == 2
 
-    run = client.get("/api/v1/accounts/owner/projects/underfit/runs/r", headers=owner_headers).json()
-    assert run["summary"]["loss"] == {"value": 0.81, "step": 19, "timestamp": "2025-01-01T00:00:19Z"}
-
 
 def test_scalars_validate_cursor_inputs(client: TestClient, owner_headers: Headers) -> None:
     headers, scalars_url = _setup_scalars(client, owner_headers)

@@ -62,6 +62,17 @@ def test_launch_lifecycle(client: TestClient, owner_headers: Headers, create_pro
     assert client.get("/api/v1/users/owner/runs", headers=owner_headers).json()[0]["id"] == run["id"]
 
 
+def test_update_summary_overwrites(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
+    create_project(handle="owner", name="underfit")
+    run = _launch(client, owner_headers)
+    worker_headers: Headers = {"Authorization": f"Bearer {run['workerToken']}"}
+    first = client.put("/api/v1/runs/summary", headers=worker_headers, json={"summary": {"loss": 0.5, "acc": 0.9}})
+    assert first.status_code == 200 and first.json()["summary"] == {"loss": 0.5, "acc": 0.9}
+    second = client.put("/api/v1/runs/summary", headers=worker_headers, json={"summary": {"loss": 0.2}})
+    assert second.status_code == 200 and second.json()["summary"] == {"loss": 0.2}
+    assert client.put("/api/v1/runs/summary", json={"summary": {}}).status_code == 401
+
+
 def test_launch_join(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(handle="owner", name="underfit")
     run = _launch(client, owner_headers)
