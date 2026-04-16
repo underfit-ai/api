@@ -32,13 +32,13 @@ def test_write_read_logs_from_buffer(client: TestClient, owner_headers: Headers)
     assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=logs_1).json()["nextStartLine"] == 2
     assert client.post("/api/v1/ingest/logs", headers=worker_headers, json=logs_2).json()["nextStartLine"] == 3
 
-    first_page = client.get(logs_url, headers=owner_headers, params={"workerLabel": "worker-1", "count": 2})
+    first_page = client.get(f"{logs_url}/worker-1", headers=owner_headers, params={"count": 2})
     first_json = first_page.json()
     assert first_page.status_code == 200
     assert first_json["entries"][0]["content"] == "hello\nworld"
     assert first_json["nextCursor"] == 2 and first_json["hasMore"] is True
 
-    second_page = client.get(logs_url, headers=owner_headers, params={"workerLabel": "worker-1", "cursor": 2})
+    second_page = client.get(f"{logs_url}/worker-1", headers=owner_headers, params={"cursor": 2})
     second_json = second_page.json()
     assert second_page.status_code == 200 and second_json["entries"][0]["content"] == "tail"
 

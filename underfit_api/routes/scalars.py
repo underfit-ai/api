@@ -26,12 +26,16 @@ class WriteScalarsBody(BaseModel):
     scalars: list[ScalarPoint]
 
 
-def _select_resolution(conn: Conn, worker: Worker, max_points: int) -> int:
+def _total_line_count(conn: Conn, workers: list[Worker], resolution: int) -> int:
+    return sum(scalar_buffer.resolution_line_count(conn, w.id, resolution) for w in workers)
+
+
+def _select_resolution(conn: Conn, workers: list[Worker], max_points: int) -> int:
     for resolution in reversed(get_scalar_resolutions()):
-        if 0 < scalar_buffer.resolution_line_count(conn, worker.id, resolution) <= max_points:
+        if 0 < _total_line_count(conn, workers, resolution) <= max_points:
             return resolution
     for resolution in reversed(get_scalar_resolutions()):
-        if scalar_buffer.resolution_line_count(conn, worker.id, resolution) > 0:
+        if _total_line_count(conn, workers, resolution) > 0:
             return resolution  # Intentionally prefer full data at the coarsest available resolution.
     return 1
 
@@ -55,37 +59,35 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker: CurrentWorker) -> 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
 def read_scalars(
     handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser,
-    worker_label: Annotated[str, Query(alias="workerLabel")] = "0",
     resolution: Annotated[int | None, Query()] = None,
     max_points: Annotated[int | None, Query(alias="maxPoints")] = None,
 ) -> list[Scalar]:
     run = resolve_run(conn, handle, project_name, run_name, user)
-    if not (worker := workers_repo.get(conn, run.id, worker_label)):
-        raise HTTPException(404, "Worker not found")
     if resolution is not None and max_points is not None:
         raise HTTPException(400, "Cannot specify both resolution and maxPoints")
+    workers = workers_repo.list_by_run(conn, run.id)
     selected_resolution = resolution if resolution is not None else 1
     if max_points is not None:
-        selected_resolution = _select_resolution(conn, worker, max_points)
-    if scalar_buffer.resolution_line_count(conn, worker.id, selected_resolution) == 0:
+        selected_resolution = _select_resolution(conn, workers, max_points)
+    if _total_line_count(conn, workers, selected_resolution) == 0:
         raise HTTPException(404, "Resolution not found")
 
-    buf_start = scalar_buffer.buffer_start_line(worker.id, selected_resolution)
-    segments = scalar_seg_repo.list_by_resolution(conn, worker.id, selected_resolution)
-    if buf_start is not None:
-        segments = [s for s in segments if s.start_line < buf_start]
-    assert (run := runs_repo.get_by_id(conn, worker.run_id)) is not None
     scalars: list[Scalar] = []
-    for seg in segments:
-        data = storage_mod.storage.read(f"{run.storage_key}/{seg.storage_key}")
-        for line in data.decode().splitlines():
-            if line:
-                parsed = json.loads(line)
-                scalars.append(Scalar(
-                    step=parsed.get("step"),
-                    values=parsed["values"],
-                    timestamp=datetime.fromisoformat(parsed["timestamp"].replace("Z", "+00:00")),
-                ))
-    for point in scalar_buffer.read_buffered(worker.id, selected_resolution):
-        scalars.append(Scalar(step=point.step, values=point.values, timestamp=point.timestamp))
+    for worker in workers:
+        buf_start = scalar_buffer.buffer_start_line(worker.id, selected_resolution)
+        segments = scalar_seg_repo.list_by_resolution(conn, worker.id, selected_resolution)
+        if buf_start is not None:
+            segments = [s for s in segments if s.start_line < buf_start]
+        for seg in segments:
+            data = storage_mod.storage.read(f"{run.storage_key}/{seg.storage_key}")
+            for line in data.decode().splitlines():
+                if line:
+                    parsed = json.loads(line)
+                    scalars.append(Scalar(
+                        step=parsed.get("step"),
+                        values=parsed["values"],
+                        timestamp=datetime.fromisoformat(parsed["timestamp"].replace("Z", "+00:00")),
+                    ))
+        for point in scalar_buffer.read_buffered(worker.id, selected_resolution):
+            scalars.append(Scalar(step=point.step, values=point.values, timestamp=point.timestamp))
     return scalars

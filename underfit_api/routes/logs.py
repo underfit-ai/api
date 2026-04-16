@@ -40,10 +40,9 @@ def write_logs(body: WriteLogsBody, conn: Conn, worker: CurrentWorker) -> Buffer
     return BufferedResponse(next_start_line=body.start_line + len(body.lines))
 
 
-@router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs")
+@router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs/{worker_label}")
 def read_logs(
-    handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser,
-    worker_label: Annotated[str, Query(alias="workerLabel")],
+    handle: str, project_name: str, run_name: str, worker_label: str, conn: Conn, user: MaybeUser,
     cursor: Annotated[int, Query()] = 0,
     count: Annotated[int, Query()] = 10000,
 ) -> LogEntriesResponse:
