@@ -51,8 +51,7 @@ def test_read_logs_from_storage(
         {"timestamp": f"2025-01-01T00:00:0{i}+00:00", "content": content} for i, content in enumerate(["a", "b", "c"])
     ]
     assert client.post(INGEST, headers=worker_headers, json={"start_line": 0, "lines": lines}).status_code == 200
-    with engine.begin() as conn:
-        app.state.ctx.log_buffer.flush_all(conn, storage)
+    app.state.ctx.buffer.flush_all(engine, storage)
     page = client.get(logs_url, headers=owner_headers, params={"cursor": 1, "count": 1})
     assert page.status_code == 200
     assert page.json()["entries"][0]["content"] == "b"

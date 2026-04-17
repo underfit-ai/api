@@ -197,6 +197,33 @@ scalar_segments = sa.Table(
     sa.UniqueConstraint("worker_id", "resolution", "end_line"),
 )
 
+scalar_points = sa.Table(
+    "scalar_points",
+    metadata,
+    sa.Column("id", sa.BigInteger().with_variant(sa.Integer, "sqlite"), primary_key=True, autoincrement=True),
+    sa.Column("worker_id", sa.Uuid, sa.ForeignKey("run_workers.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("line", sa.Integer, nullable=False),
+    sa.Column("step", sa.Integer, nullable=False),
+    sa.Column("key", sa.Text, nullable=False),
+    sa.Column("value", sa.Float, nullable=False),
+    sa.Column("timestamp", sa.DateTime, nullable=False),
+    sa.Index("ix_scalar_points_worker_line", "worker_id", "line"),
+)
+
+log_chunks = sa.Table(
+    "log_chunks",
+    metadata,
+    sa.Column("id", sa.BigInteger().with_variant(sa.Integer, "sqlite"), primary_key=True, autoincrement=True),
+    sa.Column("worker_id", sa.Uuid, sa.ForeignKey("run_workers.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("start_line", sa.Integer, nullable=False),
+    sa.Column("line_count", sa.Integer, nullable=False),
+    sa.Column("byte_count", sa.Integer, nullable=False),
+    sa.Column("content", sa.Text, nullable=False),
+    sa.Column("start_at", sa.DateTime, nullable=False),
+    sa.Column("end_at", sa.DateTime, nullable=False),
+    sa.Index("ix_log_chunks_worker_start", "worker_id", "start_line"),
+)
+
 artifacts = sa.Table(
     "artifacts",
     metadata,

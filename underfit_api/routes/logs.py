@@ -33,10 +33,9 @@ def write_logs(body: WriteLogsBody, conn: Conn, ctx: Ctx, worker: CurrentWorker)
     if not body.lines:
         return BufferedResponse(next_start_line=body.start_line)
     try:
-        ctx.log_buffer.append(conn, worker, body.start_line, body.lines)
+        ctx.buffer.append_logs(conn, worker, body.start_line, body.lines)
     except BadStartLineError as e:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
-    ctx.log_buffer.flush_if_needed(conn, ctx.storage, worker)
     return BufferedResponse(next_start_line=body.start_line + len(body.lines))
 
 
@@ -49,11 +48,7 @@ def read_logs(
     if not (worker := workers_repo.get(conn, run.id, worker_label)):
         raise HTTPException(404, "Worker not found")
     entries: list[LogEntry] = []
-    buf_start = ctx.log_buffer.buffer_start_line(worker.id)
-    segments = log_seg_repo.list_for_range(conn, worker.id, cursor, count)
-    if buf_start is not None:
-        segments = [s for s in segments if s.start_line < buf_start]
-    for seg in segments:
+    for seg in log_seg_repo.list_for_range(conn, worker.id, cursor, count):
         data = ctx.storage.read(f"{run.storage_key}/{seg.storage_key}")
         all_lines = data.decode().splitlines()
         seg_start = max(cursor, seg.start_line)
@@ -64,12 +59,11 @@ def read_logs(
             start_line=seg_start, end_line=seg_end, content="\n".join(clipped),
             start_at=seg.start_at, end_at=seg.end_at,
         ))
-    if not entries and (buffered := ctx.log_buffer.read_buffered(worker.id, cursor, count)):
-        entries.append(LogEntry(
-            start_line=cursor, end_line=cursor + len(buffered),
-            content="\n".join(line.content for line in buffered),
-            start_at=buffered[0].timestamp, end_at=buffered[-1].timestamp,
+    last_seg_end = entries[-1].end_line if entries else cursor
+    if last_seg_end < cursor + count:
+        entries.extend(ctx.buffer.read_buffered_logs(
+            conn, worker.id, max(cursor, last_seg_end), cursor + count - last_seg_end,
         ))
     next_cursor = entries[-1].end_line if entries else cursor
-    has_more = bool(entries) and next_cursor < ctx.log_buffer.get_end_line(conn, worker.id)
+    has_more = bool(entries) and next_cursor < ctx.buffer.log_end_line(conn, worker.id)
     return LogEntriesResponse(entries=entries, next_cursor=next_cursor, has_more=has_more)

@@ -8,7 +8,7 @@ from sqlalchemy.engine import URL
 from underfit_api.config import MysqlDatabaseConfig, PostgresqlDatabaseConfig, SqliteDatabaseConfig, config
 from underfit_api.schema import metadata
 
-LOCAL_CACHE_SCHEMA_VERSION = 1
+LOCAL_CACHE_SCHEMA_VERSION = 2
 
 
 def database_url() -> str | URL:

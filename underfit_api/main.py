@@ -15,7 +15,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from underfit_api.auth import get_app_secret
 from underfit_api.backfill import BackfillService
-from underfit_api.buffer import LogBuffer, ScalarBuffer
+from underfit_api.buffer import BufferStore
 from underfit_api.config import config
 from underfit_api.db import build_engine, ensure_local_cache_schema
 from underfit_api.dependencies import AppContext
@@ -43,21 +43,13 @@ BACKFILL_WRITE_ERROR = "API write endpoints are disabled while backfill is enabl
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
-def _flush_once(ctx: AppContext) -> None:
-    with ctx.engine.begin() as conn:
-        ctx.log_buffer.persist_due(conn, ctx.storage)
-        ctx.scalar_buffer.persist_due(conn, ctx.storage)
-        ctx.log_buffer.flush_inactive(conn, ctx.storage)
-        ctx.scalar_buffer.flush_inactive(conn, ctx.storage)
-
-
 async def _flush_loop(ctx: AppContext) -> None:
     interval = config.buffer.flush_interval_ms / 1000
     try:
         while True:
             await asyncio.sleep(interval)
             try:
-                await asyncio.to_thread(_flush_once, ctx)
+                await asyncio.to_thread(ctx.buffer.compact_due, ctx.engine, ctx.storage)
             except Exception:
                 logger.exception("Buffer flush error")
     except asyncio.CancelledError:
@@ -74,7 +66,7 @@ def _validate_config() -> None:
 def _init_context(app: FastAPI) -> AppContext:
     if not (ctx := getattr(app.state, "ctx", None)):
         engine = ensure_local_cache_schema() if config.backfill.enabled else build_engine()
-        ctx = AppContext(engine=engine, storage=build_storage(), log_buffer=LogBuffer(), scalar_buffer=ScalarBuffer())
+        ctx = AppContext(engine=engine, storage=build_storage(), buffer=BufferStore())
     if not config.auth_enabled:
         with ctx.engine.begin() as conn:
             accounts_repo.get_or_create_local(conn)
@@ -90,9 +82,8 @@ async def _init_backfill(ctx: AppContext) -> BackfillService | None:
 
 
 def _shutdown_context(ctx: AppContext) -> None:
-    with ctx.engine.begin() as conn:
-        ctx.log_buffer.flush_all(conn, ctx.storage)
-        ctx.scalar_buffer.flush_all(conn, ctx.storage)
+    if not config.backfill.enabled:
+        ctx.buffer.flush_all(ctx.engine, ctx.storage)
     ctx.engine.dispose()
 
 
@@ -102,11 +93,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ctx = _init_context(app)
     app.state.ctx = ctx
     backfill = await _init_backfill(ctx)
-    flush_task = asyncio.create_task(_flush_loop(ctx))
+    flush_task = asyncio.create_task(_flush_loop(ctx)) if not config.backfill.enabled else None
     yield
-    flush_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await flush_task
+    if flush_task is not None:
+        flush_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await flush_task
     if backfill is not None:
         await backfill.stop()
     _shutdown_context(ctx)

@@ -30,8 +30,8 @@ def test_write_and_read_scalars(client: TestClient, owner_headers: Headers, work
     assert reduced.json()["resolution"] == 10
     assert reduced.json()["pointCount"] == 2
     reduced_again = client.get(scalars_url, headers=owner_headers, params={"targetPoints": 1}).json()
-    assert reduced_again["resolution"] == 10
-    assert reduced_again["pointCount"] == 2
+    assert reduced_again["resolution"] == 100
+    assert reduced_again["pointCount"] == 1
 
 
 def test_scalar_ingest_validation(client: TestClient, owner_headers: Headers, worker_headers: Headers) -> None:
@@ -51,8 +51,6 @@ def test_scalar_ingest_validation(client: TestClient, owner_headers: Headers, wo
 
     invalid_query = client.get(scalars_url, headers=owner_headers, params={"resolution": 1, "targetPoints": 10})
     assert invalid_query.status_code == 400
-    missing_resolution = client.get(scalars_url, headers=owner_headers, params={"resolution": 10})
-    assert missing_resolution.status_code == 404
 
 
 def test_read_scalars_from_storage(
@@ -66,8 +64,7 @@ def test_read_scalars_from_storage(
     assert client.post(
         "/api/v1/ingest/scalars", headers=worker_headers, json={"start_line": 0, "scalars": points},
     ).status_code == 200
-    with engine.begin() as conn:
-        app.state.ctx.scalar_buffer.flush_all(conn, storage)
+    app.state.ctx.buffer.flush_all(engine, storage)
     assert client.get(scalars_url, headers=owner_headers).json()["pointCount"] == 20
     reduced = client.get(scalars_url, headers=owner_headers, params={"resolution": 10}).json()
     assert reduced["resolution"] == 10

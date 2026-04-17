@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy import Connection
 
-from underfit_api.config import config
 from underfit_api.helpers import utcnow
 from underfit_api.models import Worker
 from underfit_api.schema import run_workers, runs
@@ -52,13 +50,3 @@ def touch(conn: Connection, worker_id: UUID) -> bool:
     return conn.execute(
         run_workers.update().where(run_workers.c.id == worker_id).values(last_heartbeat=utcnow()),
     ).rowcount > 0
-
-
-def get_inactive_ids(conn: Connection, worker_ids: set[UUID]) -> set[UUID]:
-    if not worker_ids:
-        return set()
-    cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
-    rows = conn.execute(
-        sa.select(run_workers.c.id).where(run_workers.c.id.in_(worker_ids), run_workers.c.last_heartbeat < cutoff),
-    ).all()
-    return {row.id for row in rows}

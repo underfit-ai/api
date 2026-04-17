@@ -56,9 +56,8 @@ class S3StorageConfig(BaseModel):
 
 
 class BufferConfig(BaseModel):
-    max_segment_bytes: int = 256 * 1024
-    flush_interval_ms: int = 10_000
-    persist_interval_ms: int = 600_000
+    flush_interval_ms: int = 5_000
+    log_segment_bytes: int = 256 * 1024
     worker_timeout_s: int = 15
     scalar_resolutions: list[int] = [1, 10, 100, 1000]
 
