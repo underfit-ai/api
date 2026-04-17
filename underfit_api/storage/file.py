@@ -71,23 +71,28 @@ class FileStorage:
             raise
         return total
 
-    def read(self, key: str, byte_offset: int = 0, byte_count: int | None = None) -> bytes:
+    def read(self, key: str) -> bytes:
         path = self._resolve(key)
         if not path.exists():
             raise FileNotFoundError(f"File not found: {key}")
+        return path.read_bytes()
+
+    def read_stream(
+        self, key: str, chunk_size: int = 262144, byte_offset: int = 0, byte_count: int | None = None,
+    ) -> Iterator[bytes]:
+        path = self._resolve(key)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {key}")
+        remaining = byte_count
         with path.open("rb") as f:
             f.seek(byte_offset)
-            if byte_count is not None:
-                return f.read(byte_count)
-            return f.read()
-
-    def read_stream(self, key: str, chunk_size: int = 262144) -> Iterator[bytes]:
-        path = self._resolve(key)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {key}")
-        with path.open("rb") as f:
-            while chunk := f.read(chunk_size):
+            while remaining is None or remaining > 0:
+                chunk = f.read(chunk_size if remaining is None else min(chunk_size, remaining))
+                if not chunk:
+                    break
                 yield chunk
+                if remaining is not None:
+                    remaining -= len(chunk)
 
     def delete(self, key: str) -> None:
         path = self._resolve(key)

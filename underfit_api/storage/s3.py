@@ -92,22 +92,24 @@ class S3Storage:
                 await asyncio.to_thread(self._client.abort_multipart_upload, **kwargs, UploadId=upload_id)
             raise
 
-    def read(self, key: str, byte_offset: int = 0, byte_count: int | None = None) -> bytes:
-        kwargs: dict[str, object] = {"Bucket": self._bucket, "Key": self._key(key)}
-        if byte_offset or byte_count is not None:
-            end = "" if byte_count is None else str(byte_offset + byte_count - 1)
-            kwargs["Range"] = f"bytes={byte_offset}-{end}"
+    def read(self, key: str) -> bytes:
         try:
-            resp = self._client.get_object(**kwargs)
+            resp = self._client.get_object(Bucket=self._bucket, Key=self._key(key))
         except ClientError as e:
             if e.response["Error"]["Code"] in {"404", "NoSuchKey", "NotFound"}:
                 raise FileNotFoundError(f"File not found: {key}") from e
             raise
         return resp["Body"].read()  # type: ignore[no-any-return]
 
-    def read_stream(self, key: str, chunk_size: int = 262144) -> Iterator[bytes]:
+    def read_stream(
+        self, key: str, chunk_size: int = 262144, byte_offset: int = 0, byte_count: int | None = None,
+    ) -> Iterator[bytes]:
+        kwargs: dict[str, object] = {"Bucket": self._bucket, "Key": self._key(key)}
+        if byte_offset or byte_count is not None:
+            end = "" if byte_count is None else str(byte_offset + byte_count - 1)
+            kwargs["Range"] = f"bytes={byte_offset}-{end}"
         try:
-            body = self._client.get_object(Bucket=self._bucket, Key=self._key(key))["Body"]
+            body = self._client.get_object(**kwargs)["Body"]
         except ClientError as e:
             if e.response["Error"]["Code"] in {"404", "NoSuchKey", "NotFound"}:
                 raise FileNotFoundError(f"File not found: {key}") from e

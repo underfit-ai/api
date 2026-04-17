@@ -67,6 +67,22 @@ def _artifact_prefix(conn: Conn, artifact: Artifact) -> str:
     return f"{_storage_root(conn, artifact)}/{artifact.storage_key}"
 
 
+def _parse_range(header: str, size: int) -> tuple[int, int]:
+    if not header.startswith("bytes=") or "," in header:
+        raise HTTPException(416, "Invalid range")
+    try:
+        start_str, _, end_str = header[6:].partition("-")
+        if not start_str:
+            start, end = max(0, size - int(end_str)), size - 1
+        else:
+            start, end = int(start_str), int(end_str) if end_str else size - 1
+    except ValueError as e:
+        raise HTTPException(416, "Invalid range") from e
+    if start > end or start >= size:
+        raise HTTPException(416, "Invalid range")
+    return start, min(end, size - 1)
+
+
 @router.get("/accounts/{handle}/projects/{project_name}/artifacts")
 def list_artifacts(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> list[Artifact]:
     project = resolve_project(conn, handle, project_name, user)
@@ -133,14 +149,25 @@ def head_file(artifact_id: UUID, file_path: str, conn: Conn, ctx: Ctx, user: May
 
 
 @router.get("/artifacts/{artifact_id}/files/{file_path:path}")
-def download_file(artifact_id: UUID, file_path: str, ctx: Ctx, auth: Auth) -> Response:
+def download_file(artifact_id: UUID, file_path: str, request: Request, ctx: Ctx, auth: Auth) -> Response:
     with ctx.engine.begin() as conn:
         user = auth.maybe_user(conn)
         artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
         key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
-    if not ctx.storage.exists(key):
-        raise HTTPException(404, "File not found")
-    return StreamingResponse(ctx.storage.read_stream(key), media_type="application/octet-stream")
+    try:
+        size = ctx.storage.size(key)
+    except FileNotFoundError as e:
+        raise HTTPException(404, "File not found") from e
+    headers = {"Accept-Ranges": "bytes"}
+    range_header = request.headers.get("range")
+    if range_header is None:
+        return StreamingResponse(ctx.storage.read_stream(key), media_type="application/octet-stream", headers=headers)
+    start, end = _parse_range(range_header, size)
+    length = end - start + 1
+    headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    headers["Content-Length"] = str(length)
+    stream = ctx.storage.read_stream(key, byte_offset=start, byte_count=length)
+    return StreamingResponse(stream, status_code=206, media_type="application/octet-stream", headers=headers)
 
 
 @router.delete("/artifacts/{artifact_id}/files/{file_path:path}")

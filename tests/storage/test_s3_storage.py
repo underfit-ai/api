@@ -25,7 +25,7 @@ def test_s3_storage_reads_and_streams(storage: S3Storage, monkeypatch: pytest.Mo
     data = b"x" * (MULTIPART_PART_SIZE + 1024)
     storage.write("plain.txt", data)
     assert storage.read("plain.txt") == data
-    assert storage.read("plain.txt", byte_offset=100, byte_count=20) == data[100:120]
+    assert b"".join(storage.read_stream("plain.txt", byte_offset=100, byte_count=20)) == data[100:120]
     upload_part_calls = 0
     client = vars(storage)["_client"]
     upload_part = client.upload_part

@@ -38,6 +38,20 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
 
     downloaded = client.get(file_base + "/weights.bin", headers=owner_headers)
     assert (downloaded.status_code, downloaded.content) == (200, b"weights")
+    assert downloaded.headers["accept-ranges"] == "bytes"
+
+    ranged = client.get(file_base + "/weights.bin", headers={**owner_headers, "Range": "bytes=2-4"})
+    assert (ranged.status_code, ranged.content) == (206, b"igh")
+    assert ranged.headers["content-range"] == "bytes 2-4/7" and ranged.headers["content-length"] == "3"
+
+    suffix = client.get(file_base + "/weights.bin", headers={**owner_headers, "Range": "bytes=-3"})
+    assert (suffix.status_code, suffix.content) == (206, b"hts")
+
+    open_end = client.get(file_base + "/weights.bin", headers={**owner_headers, "Range": "bytes=4-"})
+    assert (open_end.status_code, open_end.content) == (206, b"hts")
+
+    bad = client.get(file_base + "/weights.bin", headers={**owner_headers, "Range": "bytes=10-20"})
+    assert bad.status_code == 416
 
     payload_3 = {"manifest": {"files": ["weights.bin", "dir/config.json"]}}
     missing = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=payload_3)
