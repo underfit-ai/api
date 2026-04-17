@@ -163,5 +163,6 @@ class S3Storage:
                 files.append(self._relative_key(obj["Key"]))
         return sorted(files)
 
+
 def _format_dt(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).replace(tzinfo=None).isoformat() + "Z"

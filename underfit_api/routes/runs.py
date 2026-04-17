@@ -107,9 +107,7 @@ def update_run(
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
-def delete_run(
-    handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: RequireUser,
-) -> OkResponse:
+def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: RequireUser) -> OkResponse:
     run = resolve_run(conn, handle, project_name, run_name, user)
     if run.user != user.handle:
         require_account_admin(conn, run.project_owner_id, run.project_owner_type, user.id)
@@ -121,8 +119,7 @@ def delete_run(
 
 @router.put("/accounts/{handle}/projects/{project_name}/runs/{run_name}/ui-state")
 def update_run_ui_state(
-    handle: str, project_name: str, run_name: str, body: UpdateRunUIStateBody,
-    conn: Conn, ctx: Ctx, user: RequireUser,
+    handle: str, project_name: str, run_name: str, body: UpdateRunUIStateBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Run:
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)

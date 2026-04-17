@@ -25,8 +25,7 @@ def upsert(
     start_at: datetime, end_at: datetime, storage_key: str,
 ) -> None:
     updated = conn.execute(scalar_segments.update().where(
-        scalar_segments.c.worker_id == worker_id,
-        scalar_segments.c.resolution == resolution,
+        scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution,
         scalar_segments.c.start_line == start_line,
     ).values(end_line=end_line, end_step=end_step, end_at=end_at, storage_key=storage_key)).rowcount
     if updated == 0:

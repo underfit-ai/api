@@ -14,9 +14,7 @@ def get_by_id(conn: Connection, media_id: UUID) -> Media | None:
     return Media.model_validate(row) if row else None
 
 
-def list_by_run(
-    conn: Connection, run_id: UUID, key: str | None = None, step: int | None = None,
-) -> list[Media]:
+def list_by_run(conn: Connection, run_id: UUID, key: str | None = None, step: int | None = None) -> list[Media]:
     query = media.select().where(media.c.run_id == run_id)
     if key is not None:
         query = query.where(media.c.key == key)
@@ -25,6 +23,7 @@ def list_by_run(
     query = query.where(media.c.finalized.is_(True))
     rows = conn.execute(query.order_by(media.c.created_at.asc(), media.c.index.asc())).all()
     return [Media.model_validate(row) for row in rows]
+
 
 def create(
     conn: Connection, run_id: UUID, key: str, step: int, media_type: str,

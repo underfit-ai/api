@@ -32,9 +32,7 @@ def add_collaborator(
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}/collaborators/{user_handle}")
-def remove_collaborator(
-    handle: str, project_name: str, user_handle: str, conn: Conn, user: RequireUser,
-) -> OkResponse:
+def remove_collaborator(handle: str, project_name: str, user_handle: str, conn: Conn, user: RequireUser) -> OkResponse:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
     if not (target := users_repo.get_by_handle(conn, user_handle)):

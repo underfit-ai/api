@@ -113,8 +113,7 @@ def _ingest_scalar_segment(
         return False, []
     end_line = start_line + len(points)
     existing = conn.execute(sa.select(scalar_segments.c.end_line).where(
-        scalar_segments.c.worker_id == worker_id,
-        scalar_segments.c.resolution == resolution,
+        scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution,
         scalar_segments.c.start_line == start_line,
     )).scalar()
     if existing == end_line:

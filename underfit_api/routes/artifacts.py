@@ -53,6 +53,7 @@ def _create_artifact(conn: Conn, project_id: UUID, body: CreateArtifactBody, run
         f"artifacts/{artifact_id}", body.metadata,
     )
 
+
 def _storage_root(conn: Conn, artifact: Artifact) -> str:
     if artifact.run_id:
         run = runs_repo.get_by_id(conn, artifact.run_id)

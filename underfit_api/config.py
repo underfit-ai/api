@@ -87,7 +87,7 @@ StorageConfig = Annotated[Union[FileStorageConfig, S3StorageConfig], Field(discr
 
 class Config(BaseModel):
     auth_enabled: bool = True
-    static_dir: str = 'static'
+    static_dir: str = "static"
     frontend_url: str | None = None
     secure_cookies: bool | None = None
     database: DatabaseConfig = SqliteDatabaseConfig()

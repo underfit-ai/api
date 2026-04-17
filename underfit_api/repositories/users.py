@@ -58,8 +58,9 @@ def search(conn: Connection, query: str) -> list[User]:
         ).all()
         return [User.model_validate(row) for row in rows]
 
-    name_rows = conn.execute(base.where(sa.func.lower(users.c.name) == query.lower())
-        .order_by(accounts.c.handle).limit(SEARCH_LIMIT)).all()
+    name_rows = conn.execute(
+        base.where(sa.func.lower(users.c.name) == query.lower()).order_by(accounts.c.handle).limit(SEARCH_LIMIT),
+    ).all()
     seen_ids = {row.id for row in name_rows}
     handle_query = base.where(accounts.c.handle.istartswith(query))
     if seen_ids:

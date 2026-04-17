@@ -43,8 +43,7 @@ def write_logs(body: WriteLogsBody, conn: Conn, ctx: Ctx, worker: CurrentWorker)
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/logs/{worker_label}")
 def read_logs(
     handle: str, project_name: str, run_name: str, worker_label: str, conn: Conn, ctx: Ctx, user: MaybeUser,
-    cursor: Annotated[int, Query()] = 0,
-    count: Annotated[int, Query()] = 10000,
+    cursor: Annotated[int, Query()] = 0, count: Annotated[int, Query()] = 10000,
 ) -> LogEntriesResponse:
     run = resolve_run(conn, handle, project_name, run_name, user)
     if not (worker := workers_repo.get(conn, run.id, worker_label)):
