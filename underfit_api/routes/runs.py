@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from underfit_api.auth import create_worker_token
 from underfit_api.backfill import sync_run_ui_sidecar
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, validate_json_size
@@ -51,8 +52,8 @@ class UpdateRunUIStateBody(BaseModel):
     is_baseline: bool | None = None
 
 
-def _launch_response(run: Run, worker_id: object) -> LaunchResponse:
-    data = {**run.__dict__, "is_active": True, "worker_token": create_worker_token(worker_id)}
+def _launch_response(run: Run, worker_id: UUID) -> LaunchResponse:
+    data = {**run.__dict__, "is_active": True, "worker_token": str(worker_id)}
     return LaunchResponse.model_validate(data)
 
 

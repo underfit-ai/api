@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import Cookie, Depends, Header, HTTPException, Request
 from sqlalchemy import Connection, Engine
 
-from underfit_api.auth import hash_token, verify_signed_token
+from underfit_api.auth import hash_token
 from underfit_api.buffer import LogBuffer, ScalarBuffer
 from underfit_api.config import config
 from underfit_api.models import User
@@ -83,13 +83,8 @@ def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Unauthorized")
     try:
-        if not config.auth_enabled:
-            return UUID(authorization[7:])
-        token = verify_signed_token(authorization[7:], "worker")
-        if not token:
-            raise HTTPException(401, "Unauthorized")
-        return UUID(token["worker_id"])
-    except (KeyError, ValueError, TypeError):
+        return UUID(authorization[7:])
+    except ValueError:
         raise HTTPException(401, "Unauthorized") from None
 
 

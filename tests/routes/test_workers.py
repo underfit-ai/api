@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from datetime import timedelta
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import Headers
-from underfit_api.auth import create_signed_token, get_app_secret
+from underfit_api.auth import get_app_secret
 from underfit_api.config import config
 from underfit_api.main import app
 
@@ -42,7 +41,6 @@ def test_worker_auth_without_app_secret(monkeypatch: pytest.MonkeyPatch) -> None
     ("put", "/api/v1/runs/summary", {"summary": {}}),
 ])
 def test_worker_endpoints_reject_invalid_tokens(client: TestClient, method: str, url: str, body: object) -> None:
-    unknown = create_signed_token({"worker_id": str(UUID(int=0))}, timedelta(minutes=1), "worker")
-    for token in ["bogus", unknown]:
+    for token in ["bogus", str(UUID(int=0))]:
         response = getattr(client, method)(url, headers={"Authorization": f"Bearer {token}"}, json=body)
         assert response.status_code == 401

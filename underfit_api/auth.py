@@ -9,8 +9,6 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any, NamedTuple
 
-from underfit_api.config import config
-
 PBKDF2_ITERATIONS = 310_000
 PBKDF2_DIGEST = "sha256"
 
@@ -62,12 +60,6 @@ def create_signed_token(payload: dict[str, Any], expires_in: timedelta, kind: st
     data = base64.urlsafe_b64encode(json.dumps(data_payload).encode()).decode()
     sig = hmac.new(get_app_secret(), data.encode(), hashlib.sha256).hexdigest()
     return f"{data}.{sig}"
-
-
-def create_worker_token(worker_id: object) -> str:
-    if not config.auth_enabled:
-        return str(worker_id)
-    return create_signed_token({"worker_id": str(worker_id)}, timedelta(days=3650), "worker")
 
 
 def verify_signed_token(token: str, kind: str) -> dict[str, Any] | None:

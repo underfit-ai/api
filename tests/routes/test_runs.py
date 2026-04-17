@@ -11,7 +11,6 @@ from sqlalchemy import Engine
 
 import underfit_api.routes.runs as runs_route
 from tests.conftest import AddCollaborator, CreateOrg, CreateOrgMember, CreateProject, Headers
-from underfit_api.auth import verify_signed_token
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
 from underfit_api.repositories import runs as runs_repo
@@ -68,9 +67,8 @@ def test_launch_join_and_retry(client: TestClient, owner_headers: Headers, creat
     payload = {"runName": "my-run", "launchId": "abc-123", "workerLabel": "0"}
     first = client.post(LAUNCH, headers=owner_headers, json=payload).json()
     retry = client.post(LAUNCH, headers=owner_headers, json=payload).json()
-    assert (first_token := verify_signed_token(str(first["workerToken"]), "worker"))
-    assert (retry_token := verify_signed_token(str(retry["workerToken"]), "worker"))
-    assert first_token["worker_id"] == retry_token["worker_id"]
+    assert first["workerToken"] == retry["workerToken"]
+    UUID(first["workerToken"])
 
     payload = {"runName": "ignored", "launchId": "abc-123", "workerLabel": "1"}
     joined = client.post(LAUNCH, headers=owner_headers, json=payload)

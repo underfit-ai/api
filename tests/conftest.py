@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import Engine
 
-from underfit_api.auth import create_worker_token
 from underfit_api.buffer import LogBuffer, ScalarBuffer
 from underfit_api.config import (
     FileStorageConfig,
@@ -231,7 +230,7 @@ def worker_headers(engine: Engine, create_run: CreateRun) -> Headers:
     run = create_run(handle="owner", project_name="underfit", name="r", launch_id="1")
     with engine.begin() as conn:
         assert (worker := run_workers_repo.get(conn, run.id, "0")) is not None
-    return {"Authorization": f"Bearer {create_worker_token(worker.id)}"}
+    return {"Authorization": f"Bearer {worker.id}"}
 
 
 @pytest.fixture
