@@ -64,7 +64,7 @@ def test_read_scalars_from_storage(
     assert client.post(
         "/api/v1/ingest/scalars", headers=worker_headers, json={"start_line": 0, "scalars": points},
     ).status_code == 200
-    app.state.ctx.buffer.flush_all(engine, storage)
+    app.state.ctx.buffer.compact(engine, storage, include_partial=True)
     assert client.get(scalars_url, headers=owner_headers).json()["pointCount"] == 20
     reduced = client.get(scalars_url, headers=owner_headers, params={"resolution": 10}).json()
     assert reduced["resolution"] == 10

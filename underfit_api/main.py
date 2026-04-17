@@ -49,7 +49,7 @@ async def _flush_loop(ctx: AppContext) -> None:
         while True:
             await asyncio.sleep(interval)
             try:
-                await asyncio.to_thread(ctx.buffer.compact_due, ctx.engine, ctx.storage)
+                await asyncio.to_thread(ctx.buffer.compact, ctx.engine, ctx.storage)
             except Exception:
                 logger.exception("Buffer flush error")
     except asyncio.CancelledError:
@@ -83,7 +83,7 @@ async def _init_backfill(ctx: AppContext) -> BackfillService | None:
 
 def _shutdown_context(ctx: AppContext) -> None:
     if not config.backfill.enabled:
-        ctx.buffer.flush_all(ctx.engine, ctx.storage)
+        ctx.buffer.compact(ctx.engine, ctx.storage, include_partial=True)
     ctx.engine.dispose()
 
 

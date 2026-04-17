@@ -62,7 +62,7 @@ def test_log_compaction_writes_segment_and_clears_chunks(engine: Engine, tmp_pat
     with engine.begin() as conn:
         buffer.append_logs(conn, rwid, 0, [LogLine(timestamp=T0, content="a")])
         buffer.append_logs(conn, rwid, 1, [LogLine(timestamp=T0, content="b")])
-    buffer.flush_all(engine, storage)
+    buffer.compact(engine, storage, include_partial=True)
     with engine.begin() as conn:
         segments = conn.execute(select(log_segments).where(log_segments.c.worker_id == rwid)).all()
         assert conn.execute(select(log_chunks).where(log_chunks.c.worker_id == rwid)).all() == []
@@ -77,13 +77,13 @@ def test_log_compaction_skips_below_byte_threshold_until_partial(engine: Engine,
     config.buffer.log_segment_bytes = 100
     with engine.begin() as conn:
         buffer.append_logs(conn, rwid, 0, [LogLine(timestamp=T0, content="x")])
-    buffer.compact_due(engine, storage)
+    buffer.compact(engine, storage)
     with engine.begin() as conn:
         assert conn.execute(select(log_segments).where(log_segments.c.worker_id == rwid)).all() == []
         conn.execute(run_workers.update().where(run_workers.c.id == rwid).values(
             last_heartbeat=T0 - timedelta(seconds=config.buffer.worker_timeout_s + 1),
         ))
-    buffer.compact_due(engine, storage)
+    buffer.compact(engine, storage)
     with engine.begin() as conn:
         rows = conn.execute(select(log_segments).where(log_segments.c.worker_id == rwid)).all()
     assert len(rows) == 1 and rows[0].end_line == 1
@@ -121,7 +121,7 @@ def test_scalar_compaction_full_chunk_emits_all_resolutions(engine: Engine, tmp_
     config.buffer.scalar_resolutions = [1, 10]
     with engine.begin() as conn:
         buffer.append_scalars(conn, rwid, 0, _scalars(0, 25))
-    buffer.compact_due(engine, storage)
+    buffer.compact(engine, storage)
     with engine.begin() as conn:
         rows = {r.resolution: r for r in conn.execute(
             select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
@@ -141,7 +141,7 @@ def test_scalar_partial_compaction_on_inactive_worker(engine: Engine, tmp_path: 
         conn.execute(run_workers.update().where(run_workers.c.id == rwid).values(
             last_heartbeat=T0 - timedelta(seconds=config.buffer.worker_timeout_s + 1),
         ))
-    buffer.compact_due(engine, storage)
+    buffer.compact(engine, storage)
     with engine.begin() as conn:
         rows = {r.resolution: r for r in conn.execute(
             select(scalar_segments).where(scalar_segments.c.worker_id == rwid),

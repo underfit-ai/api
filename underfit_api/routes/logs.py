@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from underfit_api.buffer import BadStartLineError, LogLine
+from underfit_api.buffer import BadStartLineError, LogLine, clip_log_lines
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry
 from underfit_api.repositories import log_segments as log_seg_repo
@@ -50,15 +50,7 @@ def read_logs(
     entries: list[LogEntry] = []
     for seg in log_seg_repo.list_for_range(conn, worker.id, cursor, count):
         data = ctx.storage.read(f"{run.storage_key}/{seg.storage_key}")
-        all_lines = data.decode().splitlines()
-        seg_start = max(cursor, seg.start_line)
-        seg_end = min(cursor + count, seg.end_line)
-        offset = seg_start - seg.start_line
-        clipped = all_lines[offset:offset + (seg_end - seg_start)]
-        entries.append(LogEntry(
-            start_line=seg_start, end_line=seg_end, content="\n".join(clipped),
-            start_at=seg.start_at, end_at=seg.end_at,
-        ))
+        entries.append(clip_log_lines(seg.start_line, data.decode(), seg.start_at, seg.end_at, cursor, count))
     last_seg_end = entries[-1].end_line if entries else cursor
     if last_seg_end < cursor + count:
         entries.extend(ctx.buffer.read_buffered_logs(

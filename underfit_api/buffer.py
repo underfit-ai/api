@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
 
 import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import Connection, Engine
-from sqlalchemy.engine import Row
 from sqlalchemy.exc import IntegrityError
 
 from underfit_api.config import config
@@ -39,33 +37,40 @@ def _scalar_storage_key(worker_label: str, resolution: int, start_line: int) -> 
     return f"scalars/{worker_label}/r{resolution}/{start_line}.jsonl"
 
 
-def _group_scalar_rows(rows: Sequence[Row]) -> list[tuple[int, Scalar]]:
+def _read_downsampled(
+    conn: Connection, worker_id: UUID, resolution: int, line_lte: int | None = None,
+) -> list[Scalar]:
+    bucket = (scalar_points.c.line - scalar_points.c.line.op("%")(resolution)).label("bucket")
+    conditions = [scalar_points.c.worker_id == worker_id]
+    if line_lte is not None:
+        conditions.append(scalar_points.c.line <= line_lte)
+    rows = conn.execute(sa.select(
+        bucket,
+        scalar_points.c.key,
+        sa.func.avg(scalar_points.c.value).label("value"),
+        sa.func.max(scalar_points.c.step).label("step"),
+        sa.func.max(scalar_points.c.timestamp).label("timestamp"),
+    ).where(*conditions).group_by(bucket, scalar_points.c.key).order_by(bucket)).all()
     grouped: dict[int, tuple[int, dict[str, float], datetime]] = {}
     for row in rows:
-        step, values, timestamp = grouped.get(row.line, (row.step, {}, row.timestamp))
-        values[row.key] = row.value
-        grouped[row.line] = (step, values, max(timestamp, row.timestamp))
-    return [
-        (line, Scalar(step=step, values=values, timestamp=timestamp))
-        for line, (step, values, timestamp) in sorted(grouped.items())
-    ]
+        step, values, timestamp = grouped.get(row.bucket, (row.step, {}, row.timestamp))
+        values[row.key] = float(row.value)
+        grouped[row.bucket] = (max(step, row.step), values, max(timestamp, row.timestamp))
+    return [Scalar(step=step, values=values, timestamp=ts) for _, (step, values, ts) in sorted(grouped.items())]
 
 
-def _downsample(scalars: list[Scalar], resolution: int) -> list[Scalar]:
-    if resolution == 1:
-        return list(scalars)
-    output: list[Scalar] = []
-    for i in range(0, len(scalars), resolution):
-        chunk = scalars[i:i + resolution]
-        sums: dict[str, float] = {}
-        counts: dict[str, int] = {}
-        for s in chunk:
-            for k, v in s.values.items():
-                sums[k] = sums.get(k, 0.0) + v
-                counts[k] = counts.get(k, 0) + 1
-        averaged = {k: sums[k] / counts[k] for k in sums}
-        output.append(Scalar(step=chunk[-1].step, values=averaged, timestamp=chunk[-1].timestamp))
-    return output
+def clip_log_lines(
+    start_line: int, content: str, start_at: datetime, end_at: datetime, cursor: int, count: int,
+) -> LogEntry:
+    lines = content.splitlines()
+    end_line = start_line + len(lines)
+    sub_start = max(cursor, start_line)
+    sub_end = min(cursor + count, end_line)
+    clipped = lines[sub_start - start_line:sub_end - start_line]
+    return LogEntry(
+        start_line=sub_start, end_line=sub_end, content="\n".join(clipped),
+        start_at=start_at, end_at=end_at,
+    )
 
 
 class BadStartLineError(Exception):
@@ -88,15 +93,10 @@ class BufferStore:
 
     def scalar_end_line(self, conn: Connection, worker_id: UUID, resolution: int = 1) -> int:
         seg_end = scalar_seg_repo.get_end_line(conn, worker_id, resolution)
-        staged = self._staged_scalar_count(conn, worker_id)
-        if staged == 0:
-            return seg_end
-        return seg_end + (staged + resolution - 1) // resolution
-
-    def _staged_scalar_count(self, conn: Connection, worker_id: UUID) -> int:
-        return conn.execute(sa.select(sa.func.count(sa.distinct(scalar_points.c.line))).where(
+        staged = conn.execute(sa.select(sa.func.count(sa.distinct(scalar_points.c.line))).where(
             scalar_points.c.worker_id == worker_id,
         )).scalar() or 0
+        return seg_end + (staged + resolution - 1) // resolution
 
     def _scalar_last_step(self, conn: Connection, worker_id: UUID) -> int | None:
         staged = conn.execute(sa.select(sa.func.max(scalar_points.c.step)).where(
@@ -123,17 +123,13 @@ class BufferStore:
         if not rows:
             return
         try:
-            conn.execute(sa.insert(scalar_points), rows)
+            with conn.begin_nested():
+                conn.execute(sa.insert(scalar_points), rows)
         except IntegrityError:
-            conn.rollback()
             raise BadStartLineError(self.scalar_end_line(conn, worker_id, 1)) from None
 
     def read_buffered_scalars(self, conn: Connection, worker_id: UUID, resolution: int) -> list[Scalar]:
-        rows = conn.execute(sa.select(scalar_points).where(
-            scalar_points.c.worker_id == worker_id,
-        ).order_by(scalar_points.c.line)).all()
-        scalars = [s for _, s in _group_scalar_rows(rows)]
-        return _downsample(scalars, resolution)
+        return _read_downsampled(conn, worker_id, resolution)
 
     # --- logs ---
 
@@ -153,13 +149,13 @@ class BufferStore:
             return
         content = "".join(f"{line.content}\n" for line in lines)
         try:
-            conn.execute(log_chunks.insert().values(
-                worker_id=worker_id, start_line=start_line, line_count=len(lines),
-                byte_count=len(content.encode()), content=content,
-                start_at=lines[0].timestamp, end_at=lines[-1].timestamp,
-            ))
+            with conn.begin_nested():
+                conn.execute(log_chunks.insert().values(
+                    worker_id=worker_id, start_line=start_line, line_count=len(lines),
+                    byte_count=len(content.encode()), content=content,
+                    start_at=lines[0].timestamp, end_at=lines[-1].timestamp,
+                ))
         except IntegrityError:
-            conn.rollback()
             raise BadStartLineError(self.log_end_line(conn, worker_id)) from None
 
     def read_buffered_logs(self, conn: Connection, worker_id: UUID, cursor: int, count: int) -> list[LogEntry]:
@@ -168,70 +164,52 @@ class BufferStore:
             log_chunks.c.start_line < cursor + count,
             log_chunks.c.start_line + log_chunks.c.line_count > cursor,
         ).order_by(log_chunks.c.start_line)).all()
-        entries: list[LogEntry] = []
-        for row in rows:
-            end_line = row.start_line + row.line_count
-            sub_start = max(cursor, row.start_line)
-            sub_end = min(cursor + count, end_line)
-            lines = row.content.splitlines()
-            clipped = lines[sub_start - row.start_line:sub_end - row.start_line]
-            entries.append(LogEntry(
-                start_line=sub_start, end_line=sub_end, content="\n".join(clipped),
-                start_at=row.start_at, end_at=row.end_at,
-            ))
-        return entries
+        return [clip_log_lines(r.start_line, r.content, r.start_at, r.end_at, cursor, count) for r in rows]
 
     # --- compaction ---
 
-    def compact_due(self, engine: Engine, storage: Storage) -> None:
-        self._run_compaction(engine, storage, force_partial=False)
-
-    def flush_all(self, engine: Engine, storage: Storage) -> None:
-        self._run_compaction(engine, storage, force_partial=True)
-
-    def _run_compaction(self, engine: Engine, storage: Storage, *, force_partial: bool) -> None:
+    def compact(self, engine: Engine, storage: Storage, *, include_partial: bool = False) -> None:
         with engine.connect() as conn:
             worker_ids = self._workers_with_staging(conn)
         for worker_id in worker_ids:
             try:
                 with engine.begin() as conn:
-                    self._compact_worker(conn, storage, worker_id, force_partial=force_partial)
+                    self._compact_worker(conn, storage, worker_id, include_partial=include_partial)
             except Exception:
                 logger.exception("Compaction failed for worker %s", worker_id)
 
     def _workers_with_staging(self, conn: Connection) -> set[UUID]:
-        scalar_ids = {r.worker_id for r in conn.execute(sa.select(scalar_points.c.worker_id).distinct())}
-        log_ids = {r.worker_id for r in conn.execute(sa.select(log_chunks.c.worker_id).distinct())}
-        return scalar_ids | log_ids
+        scalar_q = sa.select(scalar_points.c.worker_id).distinct()
+        log_q = sa.select(log_chunks.c.worker_id).distinct()
+        return {r.worker_id for r in conn.execute(sa.union(scalar_q, log_q))}
 
     def _compact_worker(
-        self, conn: Connection, storage: Storage, worker_id: UUID, *, force_partial: bool,
+        self, conn: Connection, storage: Storage, worker_id: UUID, *, include_partial: bool,
     ) -> None:
         worker = workers_repo.get_by_id(conn, worker_id)
         if worker is None:
             return
         cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
-        partial = force_partial or worker.last_heartbeat < cutoff
+        partial = include_partial or worker.last_heartbeat < cutoff
         self._compact_scalars(conn, storage, worker, partial=partial)
         self._compact_logs(conn, storage, worker, partial=partial)
 
     def _compact_scalars(self, conn: Connection, storage: Storage, worker: Worker, *, partial: bool) -> None:
-        rows = conn.execute(sa.select(scalar_points).where(
+        base_at_1 = scalar_seg_repo.get_end_line(conn, worker.id, 1)
+        max_line = conn.execute(sa.select(sa.func.max(scalar_points.c.line)).where(
             scalar_points.c.worker_id == worker.id,
-        ).order_by(scalar_points.c.line)).all()
-        if not rows:
+        )).scalar()
+        if max_line is None:
             return
-        grouped = _group_scalar_rows(rows)
+        staged = max_line + 1 - base_at_1
         max_res = _scalar_max_resolution()
-        take = len(grouped) if partial else (len(grouped) // max_res) * max_res
+        take = staged if partial else (staged // max_res) * max_res
         if take == 0:
             return
-        chunk = grouped[:take]
-        scalars = [s for _, s in chunk]
-        last_line = chunk[-1][0]
+        cutoff_line = base_at_1 + take - 1
         for resolution in _scalar_resolutions():
             base = scalar_seg_repo.get_end_line(conn, worker.id, resolution)
-            downsampled = _downsample(scalars, resolution)
+            downsampled = _read_downsampled(conn, worker.id, resolution, line_lte=cutoff_line)
             if not downsampled:
                 continue
             storage_key = _scalar_storage_key(worker.worker_label, resolution, base)
@@ -243,7 +221,7 @@ class BufferStore:
                 start_at=downsampled[0].timestamp, end_at=downsampled[-1].timestamp, storage_key=storage_key,
             )
         conn.execute(scalar_points.delete().where(
-            scalar_points.c.worker_id == worker.id, scalar_points.c.line <= last_line,
+            scalar_points.c.worker_id == worker.id, scalar_points.c.line <= cutoff_line,
         ))
 
     def _compact_logs(self, conn: Connection, storage: Storage, worker: Worker, *, partial: bool) -> None:
