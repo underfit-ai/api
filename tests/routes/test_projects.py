@@ -60,7 +60,7 @@ def test_update_project_ui_state(
     resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"charts": "all"}})
     assert resp.json()["uiState"] == {"charts": "all"}
 
-    config.storage.backfill.enabled = True
+    config.backfill.enabled = True
     resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"charts": "loss"}})
     assert resp.status_code == 200
     assert client.put(f"{BASE}/underfit", headers=owner_headers, json={"description": "x"}).status_code == 409

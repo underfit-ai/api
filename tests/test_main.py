@@ -27,13 +27,13 @@ def test_unknown_route_returns_json_404(client: TestClient) -> None:
 
 
 def test_backfill_with_auth_enabled_rejected() -> None:
-    config.storage.backfill.enabled = True
+    config.backfill.enabled = True
     with pytest.raises(RuntimeError, match="auth_enabled = false"), TestClient(app):
         pass
 
 
 def test_backfill_blocks_api_write_methods_but_not_get(client: TestClient) -> None:
-    config.storage.backfill.enabled = True
+    config.backfill.enabled = True
 
     health = client.get("/api/v1/health")
     register = client.post("/api/v1/auth/register", json={

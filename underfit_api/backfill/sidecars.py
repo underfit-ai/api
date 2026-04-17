@@ -28,14 +28,14 @@ class ProjectUISidecar(BaseModel):
 
 
 def sync_project_ui_sidecar(storage: Storage, project: Project) -> None:
-    if config.storage.backfill.enabled:
+    if config.backfill.enabled:
         sidecar = ProjectUISidecar(ui_state=project.ui_state)
         storage_key = f".projects/{project.owner}/{project.name}/ui.json"
         storage.write(storage_key, sidecar.model_dump_json(by_alias=True).encode())
 
 
 def sync_run_ui_sidecar(storage: Storage, run: Run) -> None:
-    if config.storage.backfill.enabled:
+    if config.backfill.enabled:
         sidecar = RunUISidecar(ui_state=run.ui_state, is_pinned=run.is_pinned, is_baseline=run.is_baseline)
         storage.write(f"{run.storage_key}/ui.json", sidecar.model_dump_json(by_alias=True).encode())
 

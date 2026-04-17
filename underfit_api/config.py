@@ -45,7 +45,6 @@ class BackfillConfig(BaseModel):
 class FileStorageConfig(BaseModel):
     type: Literal["file"] = "file"
     base: str = ".underfit/storage"
-    backfill: BackfillConfig = Field(default_factory=BackfillConfig)
 
 
 class S3StorageConfig(BaseModel):
@@ -54,7 +53,6 @@ class S3StorageConfig(BaseModel):
     prefix: str = ""
     region: str = ""
     endpoint_url: str = ""
-    backfill: BackfillConfig = Field(default_factory=lambda: BackfillConfig(scan_interval_s=60))
 
 
 class BufferConfig(BaseModel):
@@ -94,6 +92,7 @@ class Config(BaseModel):
     secure_cookies: bool | None = None
     database: DatabaseConfig = SqliteDatabaseConfig()
     storage: StorageConfig = FileStorageConfig()
+    backfill: BackfillConfig = BackfillConfig()
     buffer: BufferConfig = BufferConfig()
     email: EmailConfig | None = None
 

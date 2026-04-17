@@ -168,7 +168,7 @@ def test_update_run_ui_state(
     project = client.get("/api/v1/accounts/owner/projects/underfit", headers=owner_headers).json()
     assert project["baselineRunId"] == run["id"]
 
-    config.storage.backfill.enabled = True
+    config.backfill.enabled = True
     resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"layout": "list"}, "isPinned": True})
     assert resp.status_code == 200
     assert client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"metadata": {}}).status_code == 409

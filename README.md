@@ -24,7 +24,7 @@ Underfit loads settings from `underfit.toml` (or set `UNDERFIT_CONFIG` to a cust
 
 **Storage** — Experiment data (logs, scalars, media) is stored on the local filesystem by default. Install `underfit-api[s3]` and set `[storage] type` to `"s3"` for S3-compatible object storage.
 
-**Local mode** — To use Underfit as a single-user experiment viewer (similar to TensorBoard), set `auth_enabled = false`, `[storage.backfill] enabled = true`, and use SQLite. In this mode the database is a disposable cache: the server recreates it automatically when the local cache schema changes, then backfills from storage.
+**Local mode** — To use Underfit as a single-user experiment viewer (similar to TensorBoard), set `auth_enabled = false`, `[backfill] enabled = true`, and use SQLite. In this mode the database is a disposable cache: the server recreates it automatically when the local cache schema changes, then backfills from storage.
 
 ## Development
 

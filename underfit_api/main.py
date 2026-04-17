@@ -68,7 +68,7 @@ async def _flush_loop(ctx: AppContext) -> None:
 
 
 def _validate_config() -> None:
-    if config.storage.backfill.enabled and config.auth_enabled:
+    if config.backfill.enabled and config.auth_enabled:
         raise RuntimeError("Backfill mode requires auth_enabled = false")
     if config.auth_enabled:
         get_app_secret()
@@ -76,7 +76,7 @@ def _validate_config() -> None:
 
 def _init_context(app: FastAPI) -> AppContext:
     if not (ctx := getattr(app.state, "ctx", None)):
-        engine = ensure_local_cache_schema() if config.storage.backfill.enabled else build_engine()
+        engine = ensure_local_cache_schema() if config.backfill.enabled else build_engine()
         ctx = AppContext(engine=engine, storage=build_storage(), log_buffer=LogBuffer(), scalar_buffer=ScalarBuffer())
     if not config.auth_enabled:
         with ctx.engine.begin() as conn:
@@ -85,9 +85,9 @@ def _init_context(app: FastAPI) -> AppContext:
 
 
 async def _init_backfill(ctx: AppContext) -> BackfillService | None:
-    if not config.storage.backfill.enabled:
+    if not config.backfill.enabled:
         return None
-    backfill = BackfillService(ctx.storage, ctx.engine, config.storage.backfill)
+    backfill = BackfillService(ctx.storage, ctx.engine, config.backfill)
     await backfill.start()
     return backfill
 
@@ -133,7 +133,7 @@ app.add_middleware(
 @app.middleware("http")
 async def block_api_writes_during_backfill(request: Request, call_next: RequestResponseEndpoint) -> Response:
     if (
-        config.storage.backfill.enabled
+        config.backfill.enabled
         and request.url.path.startswith("/api/v1")
         and request.method in WRITE_METHODS
         and not request.url.path.endswith("/ui-state")
