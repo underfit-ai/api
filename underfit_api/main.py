@@ -26,7 +26,6 @@ from underfit_api.routes.accounts import router as accounts_router
 from underfit_api.routes.api_keys import router as api_keys_router
 from underfit_api.routes.artifacts import router as artifacts_router
 from underfit_api.routes.auth import router as auth_router
-from underfit_api.routes.files import router as files_router
 from underfit_api.routes.logs import router as logs_router
 from underfit_api.routes.media import router as media_router
 from underfit_api.routes.organization_members import router as org_members_router
@@ -171,7 +170,6 @@ api_router.include_router(auth_router)
 api_router.include_router(account_avatars_router)
 api_router.include_router(org_members_router)
 api_router.include_router(project_collaborators_router)
-api_router.include_router(files_router)
 api_router.include_router(logs_router)
 api_router.include_router(media_router)
 api_router.include_router(orgs_router)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from underfit_api.config import FileStorageConfig, S3StorageConfig, config
-from underfit_api.storage.types import DirEntry, FileStat, Storage
+from underfit_api.storage.types import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -34,4 +34,4 @@ def delete_prefix(storage: Storage, prefix: str) -> None:
             logger.exception("Failed to delete storage key: %s", key)
 
 
-__all__ = ["DirEntry", "FileStat", "Storage", "build_storage", "delete_prefix"]
+__all__ = ["Storage", "build_storage", "delete_prefix"]
