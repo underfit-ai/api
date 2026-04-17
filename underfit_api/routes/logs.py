@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from underfit_api.buffer import BadStartLineError, LogLine, clip_log_lines
+from underfit_api import buffer
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry
 from underfit_api.repositories import log_segments as log_seg_repo
@@ -19,12 +19,12 @@ router = APIRouter()
 class WriteLogsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     start_line: int
-    lines: list[LogLine]
+    lines: list[buffer.LogLine]
 
 
 @router.post("/ingest/logs")
-def write_logs(body: WriteLogsBody, conn: Conn, ctx: Ctx, worker: CurrentWorker) -> BufferedResponse:
-    if not workers_repo.touch(conn, worker):
+def write_logs(body: WriteLogsBody, conn: Conn, worker_id: CurrentWorker) -> BufferedResponse:
+    if not workers_repo.touch(conn, worker_id):
         raise HTTPException(401, "Unauthorized")
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
@@ -33,8 +33,8 @@ def write_logs(body: WriteLogsBody, conn: Conn, ctx: Ctx, worker: CurrentWorker)
     if not body.lines:
         return BufferedResponse(next_start_line=body.start_line)
     try:
-        ctx.buffer.append_logs(conn, worker, body.start_line, body.lines)
-    except BadStartLineError as e:
+        buffer.append_logs(conn, worker_id, body.start_line, body.lines)
+    except buffer.BadStartLineError as e:
         raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
     return BufferedResponse(next_start_line=body.start_line + len(body.lines))
 
@@ -50,12 +50,12 @@ def read_logs(
     entries: list[LogEntry] = []
     for seg in log_seg_repo.list_for_range(conn, worker.id, cursor, count):
         data = ctx.storage.read(f"{run.storage_key}/{seg.storage_key}")
-        entries.append(clip_log_lines(seg.start_line, data.decode(), seg.start_at, seg.end_at, cursor, count))
+        entries.append(buffer.clip_log_lines(seg.start_line, data.decode(), seg.start_at, seg.end_at, cursor, count))
     last_seg_end = entries[-1].end_line if entries else cursor
     if last_seg_end < cursor + count:
-        entries.extend(ctx.buffer.read_buffered_logs(
+        entries.extend(buffer.read_buffered_logs(
             conn, worker.id, max(cursor, last_seg_end), cursor + count - last_seg_end,
         ))
     next_cursor = entries[-1].end_line if entries else cursor
-    has_more = bool(entries) and next_cursor < ctx.buffer.log_end_line(conn, worker.id)
+    has_more = bool(entries) and next_cursor < buffer.log_end_line(conn, worker.id)
     return LogEntriesResponse(entries=entries, next_cursor=next_cursor, has_more=has_more)

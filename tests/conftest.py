@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import Engine
 
-from underfit_api.buffer import BufferStore
 from underfit_api.config import (
     FileStorageConfig,
     MysqlDatabaseConfig,
@@ -110,7 +109,7 @@ def _reset_state(request: pytest.FixtureRequest, tmp_path: Path, db_backend: str
     snapshot = config.model_copy(deep=True)
     config.database = _database_config(request, db_backend, tmp_path)
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
-    ctx = AppContext(engine=build_engine(), storage=build_storage(), buffer=BufferStore())
+    ctx = AppContext(engine=build_engine(), storage=build_storage())
     app.state.ctx = ctx
     metadata.drop_all(ctx.engine)
     metadata.create_all(ctx.engine)

@@ -15,7 +15,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from underfit_api.auth import get_app_secret
 from underfit_api.backfill import BackfillService
-from underfit_api.buffer import BufferStore
+from underfit_api.buffer import compact as buffer_compact
 from underfit_api.config import config
 from underfit_api.db import build_engine, ensure_local_cache_schema
 from underfit_api.dependencies import AppContext
@@ -49,7 +49,7 @@ async def _flush_loop(ctx: AppContext) -> None:
         while True:
             await asyncio.sleep(interval)
             try:
-                await asyncio.to_thread(ctx.buffer.compact, ctx.engine, ctx.storage)
+                await asyncio.to_thread(buffer_compact, ctx.engine, ctx.storage)
             except Exception:
                 logger.exception("Buffer flush error")
     except asyncio.CancelledError:
@@ -66,7 +66,7 @@ def _validate_config() -> None:
 def _init_context(app: FastAPI) -> AppContext:
     if not (ctx := getattr(app.state, "ctx", None)):
         engine = ensure_local_cache_schema() if config.backfill.enabled else build_engine()
-        ctx = AppContext(engine=engine, storage=build_storage(), buffer=BufferStore())
+        ctx = AppContext(engine=engine, storage=build_storage())
     if not config.auth_enabled:
         with ctx.engine.begin() as conn:
             accounts_repo.get_or_create_local(conn)
@@ -83,7 +83,7 @@ async def _init_backfill(ctx: AppContext) -> BackfillService | None:
 
 def _shutdown_context(ctx: AppContext) -> None:
     if not config.backfill.enabled:
-        ctx.buffer.compact(ctx.engine, ctx.storage, include_partial=True)
+        buffer_compact(ctx.engine, ctx.storage, include_partial=True)
     ctx.engine.dispose()
 
 

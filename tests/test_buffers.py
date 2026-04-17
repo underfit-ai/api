@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import Engine, select
 
-from underfit_api.buffer import BadStartLineError, BadStepError, BufferStore, LogLine
+from underfit_api import buffer
 from underfit_api.config import FileStorageConfig, config
 from underfit_api.models import Scalar
 from underfit_api.repositories import projects as projects_repo
@@ -44,12 +44,12 @@ def _scalars(start: int, count: int, *, t: datetime = T0) -> list[Scalar]:
 
 def test_log_ingest_validates_start_line_and_round_trips_buffered(engine: Engine) -> None:
     rwid = _create_worker(engine)
-    buffer = BufferStore()
     with engine.begin() as conn:
-        buffer.append_logs(conn, rwid, 0, [LogLine(timestamp=T0, content="a"), LogLine(timestamp=T0, content="b")])
+        buffer.append_logs(conn, rwid, 0, [buffer.LogLine(timestamp=T0, content="a"),
+                                           buffer.LogLine(timestamp=T0, content="b")])
         assert buffer.log_end_line(conn, rwid) == 2
-        with pytest.raises(BadStartLineError) as exc:
-            buffer.append_logs(conn, rwid, 1, [LogLine(timestamp=T0, content="late")])
+        with pytest.raises(buffer.BadStartLineError) as exc:
+            buffer.append_logs(conn, rwid, 1, [buffer.LogLine(timestamp=T0, content="late")])
         assert exc.value.expected == 2
         entries = buffer.read_buffered_logs(conn, rwid, cursor=0, count=10)
         assert [(e.start_line, e.end_line, e.content) for e in entries] == [(0, 2, "a\nb")]
@@ -57,11 +57,10 @@ def test_log_ingest_validates_start_line_and_round_trips_buffered(engine: Engine
 
 def test_log_compaction_writes_segment_and_clears_chunks(engine: Engine, tmp_path: Path) -> None:
     rwid = _create_worker(engine)
-    buffer = BufferStore()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     with engine.begin() as conn:
-        buffer.append_logs(conn, rwid, 0, [LogLine(timestamp=T0, content="a")])
-        buffer.append_logs(conn, rwid, 1, [LogLine(timestamp=T0, content="b")])
+        buffer.append_logs(conn, rwid, 0, [buffer.LogLine(timestamp=T0, content="a")])
+        buffer.append_logs(conn, rwid, 1, [buffer.LogLine(timestamp=T0, content="b")])
     buffer.compact(engine, storage, include_partial=True)
     with engine.begin() as conn:
         segments = conn.execute(select(log_segments).where(log_segments.c.worker_id == rwid)).all()
@@ -72,11 +71,10 @@ def test_log_compaction_writes_segment_and_clears_chunks(engine: Engine, tmp_pat
 
 def test_log_compaction_skips_below_byte_threshold_until_partial(engine: Engine, tmp_path: Path) -> None:
     rwid = _create_worker(engine)
-    buffer = BufferStore()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     config.buffer.log_segment_bytes = 100
     with engine.begin() as conn:
-        buffer.append_logs(conn, rwid, 0, [LogLine(timestamp=T0, content="x")])
+        buffer.append_logs(conn, rwid, 0, [buffer.LogLine(timestamp=T0, content="x")])
     buffer.compact(engine, storage)
     with engine.begin() as conn:
         assert conn.execute(select(log_segments).where(log_segments.c.worker_id == rwid)).all() == []
@@ -91,20 +89,18 @@ def test_log_compaction_skips_below_byte_threshold_until_partial(engine: Engine,
 
 def test_scalar_ingest_validates_step_and_start_line(engine: Engine) -> None:
     rwid = _create_worker(engine)
-    buffer = BufferStore()
     with engine.begin() as conn:
         buffer.append_scalars(conn, rwid, 0, _scalars(0, 3))
-        with pytest.raises(BadStartLineError) as exc:
+        with pytest.raises(buffer.BadStartLineError) as exc:
             buffer.append_scalars(conn, rwid, 0, _scalars(10, 1))
         assert exc.value.expected == 3
-        with pytest.raises(BadStepError) as step_exc:
+        with pytest.raises(buffer.BadStepError) as step_exc:
             buffer.append_scalars(conn, rwid, 3, [Scalar(step=2, values={"loss": 0.0}, timestamp=T0)])
         assert step_exc.value.last_step == 2
 
 
 def test_scalar_buffered_read_downsamples_live_tail(engine: Engine) -> None:
     rwid = _create_worker(engine)
-    buffer = BufferStore()
     with engine.begin() as conn:
         buffer.append_scalars(conn, rwid, 0, _scalars(0, 10))
         r1 = buffer.read_buffered_scalars(conn, rwid, 1)
@@ -116,7 +112,6 @@ def test_scalar_buffered_read_downsamples_live_tail(engine: Engine) -> None:
 
 def test_scalar_compaction_full_chunk_emits_all_resolutions(engine: Engine, tmp_path: Path) -> None:
     rwid = _create_worker(engine)
-    buffer = BufferStore()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     config.buffer.scalar_resolutions = [1, 10]
     with engine.begin() as conn:
@@ -133,7 +128,6 @@ def test_scalar_compaction_full_chunk_emits_all_resolutions(engine: Engine, tmp_
 
 def test_scalar_partial_compaction_on_inactive_worker(engine: Engine, tmp_path: Path) -> None:
     rwid = _create_worker(engine)
-    buffer = BufferStore()
     storage = FileStorage(FileStorageConfig(base=str(tmp_path / "storage")))
     config.buffer.scalar_resolutions = [1, 10]
     with engine.begin() as conn:
