@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from contextlib import suppress
 from uuid import UUID, uuid4
-from zipfile import BadZipFile, ZipFile
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict
-from pydantic.alias_generators import to_camel
+from pydantic import BaseModel
 
 from underfit_api.dependencies import Auth, Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import validate_json_size, validate_path
@@ -17,7 +15,6 @@ from underfit_api.repositories import artifacts as artifacts_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.routes.resolvers import resolve_artifact, resolve_project, resolve_run
-from underfit_api.storage.types import Storage
 
 router = APIRouter()
 
@@ -44,52 +41,6 @@ class CreateArtifactBody(BaseModel):
 
 class FinalizeArtifactBody(BaseModel):
     manifest: Manifest
-
-
-class ZipEntry(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    path: str
-    size: int
-    compressed_size: int
-
-
-class _ZipStorageFile:
-    def __init__(self, storage: Storage, key: str) -> None:
-        self._storage = storage
-        self._key = key
-        self._size = storage.size(key)
-        self._pos = 0
-
-    def seek(self, offset: int, whence: int = 0) -> int:
-        base = [0, self._pos, self._size][whence]
-        self._pos = base + offset
-        return self._pos
-
-    def tell(self) -> int:
-        return self._pos
-
-    def read(self, n: int = -1) -> bytes:
-        remaining = self._size - self._pos
-        count = remaining if n < 0 else min(n, remaining)
-        if count <= 0:
-            return b""
-        data = self._storage.read(self._key, self._pos, count)
-        self._pos += len(data)
-        return data
-
-    def seekable(self) -> bool:
-        return True
-
-
-def _open_zip(artifact_id: UUID, zip_path: str, conn: Conn, storage: Storage, user: MaybeUser) -> ZipFile:
-    artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
-    key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(zip_path)}"
-    if not storage.exists(key):
-        raise HTTPException(404, "File not found")
-    try:
-        return ZipFile(_ZipStorageFile(storage, key))
-    except BadZipFile as e:
-        raise HTTPException(400, "Not a zip file") from e
 
 
 def _create_artifact(conn: Conn, project_id: UUID, body: CreateArtifactBody, run_id: UUID | None = None) -> Artifact:
@@ -203,25 +154,6 @@ def delete_file(artifact_id: UUID, file_path: str, conn: Conn, ctx: Ctx, user: R
     except FileNotFoundError as e:
         raise HTTPException(404, "File not found") from e
     return artifact
-
-
-@router.get("/artifacts/{artifact_id}/zip/entries/{zip_path:path}", response_model=list[ZipEntry])
-def list_zip_entries(artifact_id: UUID, zip_path: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> list[ZipEntry]:
-    return [
-        ZipEntry(path=info.filename, size=info.file_size, compressed_size=info.compress_size)
-        for info in _open_zip(artifact_id, zip_path, conn, ctx.storage, user).infolist() if not info.is_dir()
-    ]
-
-
-@router.get("/artifacts/{artifact_id}/zip/entry/{zip_path:path}")
-def read_zip_entry(
-    artifact_id: UUID, zip_path: str, entry: str, conn: Conn, ctx: Ctx, user: MaybeUser,
-) -> Response:
-    try:
-        content = _open_zip(artifact_id, zip_path, conn, ctx.storage, user).read(entry)
-        return Response(content=content, media_type="application/octet-stream")
-    except KeyError as e:
-        raise HTTPException(404, "Entry not found") from e
 
 
 @router.post("/artifacts/{artifact_id}/finalize")
