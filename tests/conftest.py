@@ -20,7 +20,7 @@ from underfit_api.config import (
 from underfit_api.db import build_engine
 from underfit_api.dependencies import AppContext
 from underfit_api.main import app
-from underfit_api.models import Project, ProjectCollaborator, Run, User
+from underfit_api.models import Project, ProjectCollaborator, Run, User, Worker
 from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
@@ -41,6 +41,7 @@ SessionForUser = Callable[[User], Headers]
 AddCollaborator = Callable[..., ProjectCollaborator]
 CreateProject = Callable[..., Project]
 CreateRun = Callable[..., Run]
+CreateWorker = Callable[..., Worker]
 CreateOrg = Callable[..., dict[str, object]]
 CreateOrgMember = Callable[..., Headers]
 
@@ -209,6 +210,18 @@ def create_project(engine: Engine) -> CreateProject:
 
 
 @pytest.fixture
+def add_collaborator(engine: Engine) -> AddCollaborator:
+    def _add(handle: str, project_name: str, user_handle: str) -> ProjectCollaborator:
+        with engine.begin() as conn:
+            assert (account := accounts_repo.get_by_handle(conn, handle)) is not None
+            assert (project := projects_repo.get_by_account_and_name(conn, account.id, project_name)) is not None
+            assert (user := users_repo.get_by_handle(conn, user_handle)) is not None
+            return project_collaborators_repo.add(conn, project.id, user.id)
+
+    return _add
+
+
+@pytest.fixture
 def create_run(engine: Engine, create_project: CreateProject) -> CreateRun:
     def _create(handle: str, project_name: str, name: str = "test-run", launch_id: str = "test-launch-id") -> Run:
         project = create_project(handle=handle, name=project_name)
@@ -222,20 +235,26 @@ def create_run(engine: Engine, create_project: CreateProject) -> CreateRun:
 
 
 @pytest.fixture
-def worker_headers(engine: Engine, create_run: CreateRun) -> Headers:
-    run = create_run(handle="owner", project_name="underfit", name="r", launch_id="1")
-    with engine.begin() as conn:
-        assert (worker := run_workers_repo.get(conn, run.id, "0")) is not None
-    return {"Authorization": f"Bearer {worker.id}"}
+def run(create_run: CreateRun) -> Run:
+    return create_run(handle="owner", project_name="underfit", name="r", launch_id="1")
 
 
 @pytest.fixture
-def add_collaborator(engine: Engine) -> AddCollaborator:
-    def _add(handle: str, project_name: str, user_handle: str) -> ProjectCollaborator:
+def create_worker(engine: Engine, run: Run) -> CreateWorker:
+    def _create(label: str = "0") -> Worker:
         with engine.begin() as conn:
-            assert (account := accounts_repo.get_by_handle(conn, handle)) is not None
-            assert (project := projects_repo.get_by_account_and_name(conn, account.id, project_name)) is not None
-            assert (user := users_repo.get_by_handle(conn, user_handle)) is not None
-            return project_collaborators_repo.add(conn, project.id, user.id)
+            if (existing := run_workers_repo.get(conn, run.id, label)) is not None:
+                return existing
+            return run_workers_repo.create(conn, run.id, label)
 
-    return _add
+    return _create
+
+
+@pytest.fixture
+def worker(create_worker: CreateWorker) -> Worker:
+    return create_worker()
+
+
+@pytest.fixture
+def worker_headers(worker: Worker) -> Headers:
+    return {"Authorization": f"Bearer {worker.id}"}
