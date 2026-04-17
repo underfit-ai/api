@@ -3,11 +3,11 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
-from sqlalchemy import Connection, Row, func
+from sqlalchemy import Connection, func
 
 from underfit_api.helpers import utcnow
 from underfit_api.models import Project
-from underfit_api.schema import accounts, organization_members, project_aliases, project_collaborators, projects, runs
+from underfit_api.schema import accounts, organization_members, project_collaborators, projects, runs
 
 _join = projects.join(accounts, projects.c.account_id == accounts.c.id)
 _columns = [
@@ -143,18 +143,6 @@ def transfer(conn: Connection, project_id: UUID, new_account_id: UUID, new_name:
     result = get_by_id(conn, project_id)
     assert result is not None
     return result
-
-
-def create_alias(conn: Connection, project_id: UUID, account_id: UUID, name: str) -> None:
-    conn.execute(project_aliases.insert().values(
-        id=uuid4(), project_id=project_id, account_id=account_id, name=name, created_at=utcnow(),
-    ))
-
-
-def get_alias_by_account_and_name(conn: Connection, account_id: UUID, name: str) -> Row | None:
-    return conn.execute(project_aliases.select().where(
-        project_aliases.c.account_id == account_id, project_aliases.c.name == name.lower(),
-    )).first()
 
 
 def delete(conn: Connection, project_id: UUID) -> None:

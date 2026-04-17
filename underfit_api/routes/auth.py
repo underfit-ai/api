@@ -13,7 +13,6 @@ from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
 from underfit_api.models import AuthResponse, OkResponse, Session
-from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import user_auth as user_auth_repo
 from underfit_api.repositories import users as users_repo
@@ -83,10 +82,8 @@ class ResetTokenPayload(BaseModel):
 
 @router.post("/register")
 def register(body: RegisterBody, response: Response, request: Request, conn: Conn) -> AuthResponse:
-    handle_lower = body.handle.lower()
     with as_conflict(conn, "Email or handle already exists"):
-        user = users_repo.create(conn, body.email, handle_lower, body.handle)
-        accounts_repo.create_alias(conn, user.id, handle_lower)
+        user = users_repo.create(conn, body.email, body.handle.lower(), body.handle)
         user_auth_repo.create(conn, user.id, hash_password(body.password))
         session = sessions_repo.create(conn, user.id)
     _set_session_cookie(response, request, session)

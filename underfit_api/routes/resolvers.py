@@ -13,59 +13,27 @@ from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 
 
-class AccountAliasRedirectError(Exception):
-    def __init__(self, new_handle: str) -> None:
-        self.new_handle = new_handle
-
-
-class ProjectAliasRedirectError(Exception):
-    def __init__(self, new_account_handle: str, new_project_name: str) -> None:
-        self.new_account_handle = new_account_handle
-        self.new_project_name = new_project_name
-
-
 def resolve_account(conn: Conn, handle: str) -> Account:
-    alias = accounts_repo.get_alias_by_handle(conn, handle)
-    if not alias:
+    if not (account := accounts_repo.get_by_handle(conn, handle)):
         raise HTTPException(404, "Account not found")
-    account = accounts_repo.get_by_id(conn, alias.account_id)
-    if not account:
-        raise HTTPException(404, "Account not found")
-    if handle.lower() != account.handle:
-        raise AccountAliasRedirectError(account.handle)
     return account
 
 
 def resolve_organization(conn: Conn, handle: str) -> Organization:
-    alias = accounts_repo.get_alias_by_handle(conn, handle)
-    if not alias:
-        raise HTTPException(404, "Organization not found")
-    account = accounts_repo.get_by_id(conn, alias.account_id)
+    account = accounts_repo.get_by_handle(conn, handle)
     if not account or account.type != "ORGANIZATION":
         raise HTTPException(404, "Organization not found")
-    if handle.lower() != account.handle:
-        raise AccountAliasRedirectError(account.handle)
     assert isinstance(account, Organization)
     return account
-
-
-def resolve_account_and_project_path(conn: Conn, handle: str, project_name: str) -> tuple[Account, Project]:
-    account = resolve_account(conn, handle)
-    alias = projects_repo.get_alias_by_account_and_name(conn, account.id, project_name)
-    if not alias:
-        raise HTTPException(404, "Project not found")
-    project = projects_repo.get_by_id(conn, alias.project_id)
-    if not project:
-        raise HTTPException(404, "Project not found")
-    if handle.lower() != project.owner or project_name.lower() != project.name:
-        raise ProjectAliasRedirectError(project.owner, project.name)
-    return account, project
 
 
 def resolve_account_and_project(
     conn: Conn, handle: str, project_name: str, user: User | None = None,
 ) -> tuple[Account, Project]:
-    account, project = resolve_account_and_project_path(conn, handle, project_name)
+    account = resolve_account(conn, handle)
+    project = projects_repo.get_by_account_and_name(conn, account.id, project_name)
+    if not project:
+        raise HTTPException(404, "Project not found")
     require_project_viewer(conn, project, user.id if user else None)
     return account, project
 

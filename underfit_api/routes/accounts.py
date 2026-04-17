@@ -21,7 +21,7 @@ class RenameAccountBody(BaseModel):
 
 @router.get("/{handle}/exists")
 def account_exists(handle: str, conn: Conn) -> ExistsResponse:
-    return ExistsResponse(exists=accounts_repo.get_alias_by_handle(conn, handle) is not None)
+    return ExistsResponse(exists=accounts_repo.get_by_handle(conn, handle) is not None)
 
 
 @router.get("/{handle}")
@@ -33,10 +33,8 @@ def get_account(handle: str, conn: Conn) -> Account:
 def rename_account(handle: str, body: RenameAccountBody, conn: Conn, user: RequireUser) -> Account:
     account = resolve_account(conn, handle)
     require_account_admin(conn, account.id, account.type, user.id)
-    new_handle = body.handle.lower()
     with as_conflict(conn, "Handle already exists"):
-        accounts_repo.rename(conn, account.id, new_handle)
-        accounts_repo.create_alias(conn, account.id, new_handle)
+        accounts_repo.rename(conn, account.id, body.handle.lower())
         result = accounts_repo.get_by_id(conn, account.id)
     assert result is not None
     return result

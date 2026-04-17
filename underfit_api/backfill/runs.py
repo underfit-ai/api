@@ -71,10 +71,6 @@ def _sync_baseline(conn: Connection, project_id: UUID, run_uuid: UUID, is_baseli
 
 
 def resolve_user(conn: Connection, handle: str) -> UUID | None:
-    if alias := accounts_repo.get_alias_by_handle(conn, handle):
-        if user := users_repo.get_by_id(conn, alias.account_id):
-            return user.id
-        return None
     if user := users_repo.get_by_handle(conn, handle):
         return user.id
     if handle.lower() != accounts_repo.LOCAL_USER_HANDLE:
@@ -84,8 +80,6 @@ def resolve_user(conn: Connection, handle: str) -> UUID | None:
 
 def resolve_project(conn: Connection, account_id: UUID, name: str) -> UUID:
     name = name.lower()
-    if alias := projects_repo.get_alias_by_account_and_name(conn, account_id, name):
-        return alias.project_id
     if row := conn.execute(projects.select().where(
         projects.c.account_id == account_id, projects.c.name == name,
     )).first():
@@ -96,7 +90,6 @@ def resolve_project(conn: Connection, account_id: UUID, name: str) -> UUID:
         id=project_id, account_id=account_id, name=name, storage_key=str(project_id),
         metadata={}, ui_state={}, visibility="private", created_at=now, updated_at=now,
     ))
-    projects_repo.create_alias(conn, project_id, account_id, name)
     return project_id
 
 

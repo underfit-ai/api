@@ -77,11 +77,10 @@ def list_account_projects(handle: str, conn: Conn, user: MaybeUser) -> list[Proj
 def create_project(handle: str, body: CreateProjectBody, conn: Conn, user: RequireUser) -> Project:
     account = resolve_account(conn, handle)
     require_account_admin(conn, account.id, account.type, user.id)
-    name_lower = body.name.lower()
     with as_conflict(conn, "Project already exists"):
-        project = projects_repo.create(conn, account.id, name_lower, body.description, body.visibility, body.metadata)
-        projects_repo.create_alias(conn, project.id, account.id, name_lower)
-    return project
+        return projects_repo.create(
+            conn, account.id, body.name.lower(), body.description, body.visibility, body.metadata,
+        )
 
 
 @router.get("/accounts/{handle}/projects/{project_name}")
@@ -126,10 +125,8 @@ def update_project_ui_state(
 def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn: Conn, user: RequireUser) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
-    new_name = body.name.lower()
     with as_conflict(conn, "Project already exists"):
-        projects_repo.create_alias(conn, project.id, account.id, new_name)
-        return projects_repo.rename(conn, project.id, new_name)
+        return projects_repo.rename(conn, project.id, body.name.lower())
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/transfer")
@@ -190,9 +187,6 @@ def accept_transfer(body: AcceptTransferBody, conn: Conn, user: RequireUser) -> 
 
     new_name = (body.new_name or project.name).lower()
     with as_conflict(conn, "Project already exists"):
-        if not projects_repo.get_alias_by_account_and_name(conn, project.account_id, project.name):
-            projects_repo.create_alias(conn, project.id, project.account_id, project.name)
-        projects_repo.create_alias(conn, project.id, payload.to_account_id, new_name)
         if project_collaborators_repo.get(conn, project.id, user.id):
             project_collaborators_repo.remove(conn, project.id, user.id)
         return projects_repo.transfer(conn, payload.project_id, payload.to_account_id, new_name)

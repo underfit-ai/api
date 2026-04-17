@@ -120,16 +120,6 @@ def test_transfer_with_name_conflict(
     assert response.json()["name"] == "renamed"
 
 
-def test_transfer_redirects_old_owner_and_name(client: TestClient, transfer_setup: TransferSetup) -> None:
-    owner_headers, recipient_headers = transfer_setup
-    token = _initiate(client, owner_headers)
-    response = client.post(TRANSFER, headers=recipient_headers, json={"token": token, "new_name": "renamed"})
-    assert response.status_code == 200
-    redirect = client.get(OWNER_PROJECT, headers=recipient_headers, follow_redirects=False)
-    assert redirect.status_code == 307
-    assert redirect.headers["location"] == "/api/v1/accounts/recipient/projects/renamed"
-
-
 def test_transfer_removes_collaborator(client: TestClient, transfer_setup: TransferSetup) -> None:
     owner_headers, recipient_headers = transfer_setup
     client.put(f"{OWNER_PROJECT}/collaborators/recipient", headers=owner_headers)

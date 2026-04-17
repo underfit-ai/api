@@ -14,19 +14,9 @@ from watchdog.events import FileMovedEvent
 
 from underfit_api.backfill import BackfillService
 from underfit_api.config import BackfillConfig, FileStorageConfig, S3StorageConfig
-from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
-from underfit_api.schema import (
-    artifacts,
-    log_segments,
-    media,
-    project_aliases,
-    projects,
-    run_workers,
-    runs,
-    scalar_segments,
-)
+from underfit_api.schema import artifacts, log_segments, media, projects, run_workers, runs, scalar_segments
 from underfit_api.storage.file import FileStorage, _StorageHandler
 from underfit_api.storage.s3 import S3Storage
 from underfit_api.storage.types import Storage
@@ -124,7 +114,6 @@ def test_backfill_ingests_segment_files(
 
     with engine.begin() as conn:
         project_row = conn.execute(select(projects)).first()
-        alias_row = conn.execute(select(project_aliases)).first()
         run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
         log_worker_row = conn.execute(select(run_workers).where(
             run_workers.c.run_id == run_id, run_workers.c.worker_label == "worker-1",
@@ -139,7 +128,6 @@ def test_backfill_ingests_segment_files(
         )).first()
 
     assert project_row is not None and project_row.name == "vision"
-    assert alias_row is not None and alias_row.name == "vision"
     assert run_row is not None
     assert run_row.name == "trial a" and run_row.storage_key == str(run_id)
     assert run_row.terminal_state is None and run_row.config == {"lr": 0.01, "seed": 7}
@@ -215,7 +203,6 @@ def test_backfill_updates_artifact_and_media_records(
     artifact_id = uuid4()
     with engine.begin() as conn:
         user = users_repo.create(conn, "sam@example.com", "sam", "Sam")
-        accounts_repo.create_alias(conn, user.id, "sam")
 
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial C"})
     _write_json(storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {"name": "base", "metadata": {"tag": "v1"}})

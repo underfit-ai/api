@@ -153,9 +153,7 @@ def register_user(client: TestClient) -> RegisterUser:
 def create_user(engine: Engine) -> CreateUser:
     def _create_user(email: str, handle: str, name: str = "Test User") -> User:
         with engine.begin() as conn:
-            user = users_repo.create(conn, email, handle, name)
-            accounts_repo.create_alias(conn, user.id, handle)
-            return user
+            return users_repo.create(conn, email, handle, name)
 
     return _create_user
 
@@ -207,13 +205,10 @@ def create_org_member(
 def create_project(engine: Engine) -> CreateProject:
     def _create(handle: str, name: str, description: str = "tracking", visibility: str = "private") -> Project:
         with engine.begin() as conn:
-            if accounts_repo.get_by_handle(conn, handle) is None:
-                user = users_repo.create(conn, f"{handle}@example.com", handle, handle)
-                accounts_repo.create_alias(conn, user.id, handle)
-            assert (account := accounts_repo.get_by_handle(conn, handle)) is not None
-            project = projects_repo.create(conn, account.id, name.lower(), description, visibility, {})
-            projects_repo.create_alias(conn, project.id, account.id, name.lower())
-            return project
+            account = accounts_repo.get_by_handle(conn, handle) or users_repo.create(
+                conn, f"{handle}@example.com", handle, handle,
+            )
+            return projects_repo.create(conn, account.id, name.lower(), description, visibility, {})
 
     return _create
 

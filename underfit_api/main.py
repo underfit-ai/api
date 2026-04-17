@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -10,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
 
@@ -34,7 +33,6 @@ from underfit_api.routes.organization_members import router as org_members_route
 from underfit_api.routes.organizations import router as orgs_router
 from underfit_api.routes.project_collaborators import router as project_collaborators_router
 from underfit_api.routes.projects import router as projects_router
-from underfit_api.routes.resolvers import AccountAliasRedirectError, ProjectAliasRedirectError
 from underfit_api.routes.run_workers import router as workers_router
 from underfit_api.routes.runs import router as runs_router
 from underfit_api.routes.scalars import router as scalars_router
@@ -156,27 +154,6 @@ def http_exception_handler(_request: Request, exc: HTTPException) -> JSONRespons
 @app.exception_handler(RequestValidationError)
 def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
     return JSONResponse(status_code=400, content={"error": "Validation error"})
-
-
-def _redirect(request: Request, new_path: str) -> RedirectResponse:
-    query = str(request.url.query)
-    return RedirectResponse(url=new_path + (f"?{query}" if query else ""), status_code=307)
-
-
-@app.exception_handler(AccountAliasRedirectError)
-def account_alias_redirect_handler(request: Request, exc: AccountAliasRedirectError) -> RedirectResponse:
-    return _redirect(request, re.sub(
-        r"/(accounts|users|organizations)/[^/]+", rf"/\1/{exc.new_handle}", request.url.path, count=1,
-    ))
-
-
-@app.exception_handler(ProjectAliasRedirectError)
-def project_alias_redirect_handler(request: Request, exc: ProjectAliasRedirectError) -> RedirectResponse:
-    return _redirect(request, re.sub(
-        r"/accounts/[^/]+/projects/[^/]+",
-        f"/accounts/{exc.new_account_handle}/projects/{exc.new_project_name}",
-        request.url.path, count=1,
-    ))
 
 
 api_router = APIRouter(prefix="/api/v1")

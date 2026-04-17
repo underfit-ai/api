@@ -160,22 +160,13 @@ def test_rename_project(client: TestClient, owner_headers: Headers, create_proje
 
     fetched = client.get("/api/v1/accounts/owner/projects/new-project", headers=owner_headers)
     assert fetched.status_code == 200 and fetched.json()["name"] == "new-project"
-
-    response = client.get("/api/v1/accounts/owner/projects/underfit", headers=owner_headers, follow_redirects=False)
-    assert response.status_code == 307
-    assert "/projects/new-project" in response.headers["location"]
+    assert client.get("/api/v1/accounts/owner/projects/underfit", headers=owner_headers).status_code == 404
 
 
 def test_rename_project_conflicts(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
     create_project(handle="owner", name="project1")
     create_project(handle="owner", name="project2")
     assert client.post(f"{BASE}/project1/rename", headers=owner_headers, json={"name": "project2"}).status_code == 409
-
-    create_project(handle="owner", name="original")
-    create_project(handle="owner", name="other")
-    client.post(f"{BASE}/original/rename", headers=owner_headers, json={"name": "renamed"})
-    assert client.post(f"{BASE}/other/rename", headers=owner_headers, json={"name": "original"}).status_code == 409
-    assert client.post(BASE, headers=owner_headers, json={"name": "original"}).status_code == 409
 
 
 def test_delete_project(

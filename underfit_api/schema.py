@@ -19,15 +19,6 @@ accounts = sa.Table(
     sa.CheckConstraint("type IN ('USER', 'ORGANIZATION')"),
 )
 
-account_aliases = sa.Table(
-    "account_aliases",
-    metadata,
-    sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("handle", sa.String(HANDLE_LENGTH), nullable=False, unique=True),
-    sa.Column("created_at", sa.DateTime, nullable=False),
-)
-
 account_avatars = sa.Table(
     "account_avatars",
     metadata,
@@ -128,17 +119,6 @@ projects = sa.Table(
     ),
     sa.CheckConstraint("baseline_project_id IS NULL OR baseline_project_id = id"),
     sa.CheckConstraint("visibility IN ('private', 'public')"),
-)
-
-project_aliases = sa.Table(
-    "project_aliases",
-    metadata,
-    sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("project_id", sa.Uuid, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("account_id", sa.Uuid, sa.ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("name", sa.String(NAME_LENGTH), nullable=False),
-    sa.Column("created_at", sa.DateTime, nullable=False),
-    sa.UniqueConstraint("account_id", "name"),
 )
 
 project_collaborators = sa.Table(
