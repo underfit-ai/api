@@ -75,13 +75,8 @@ def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, artifact_
     finalized = uploaded_paths == declared_paths
     stored_size_bytes = sum(storage.size(f"{files_dir}/{path}") for path in uploaded_paths)
     conn.execute(artifacts.update().where(artifacts.c.id == artifact_id).values(
-        project_id=run_row.project_id,
-        step=metadata.get("step"),
-        name=metadata.get("name", str(artifact_id)),
-        type=metadata.get("type", "dataset"),
-        finalized_at=now if finalized else None,
-        stored_size_bytes=stored_size_bytes if finalized else None,
-        metadata=metadata.get("metadata"),
-        updated_at=now,
+        project_id=run_row.project_id, step=metadata.get("step"), name=metadata.get("name", str(artifact_id)),
+        type=metadata.get("type", "dataset"), finalized_at=now if finalized else None,
+        stored_size_bytes=stored_size_bytes if finalized else None, metadata=metadata.get("metadata"), updated_at=now,
     ))
     return True

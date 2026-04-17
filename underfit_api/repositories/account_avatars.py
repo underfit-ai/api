@@ -9,9 +9,7 @@ from underfit_api.schema import account_avatars
 
 
 def get(conn: Connection, account_id: UUID) -> bytes | None:
-    row = conn.execute(
-        account_avatars.select().where(account_avatars.c.account_id == account_id),
-    ).first()
+    row = conn.execute(account_avatars.select().where(account_avatars.c.account_id == account_id)).first()
     return row.image if row else None
 
 

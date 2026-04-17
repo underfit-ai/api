@@ -62,19 +62,14 @@ def read_logs(
         offset = seg_start - seg.start_line
         clipped = all_lines[offset:offset + (seg_end - seg_start)]
         entries.append(LogEntry(
-            start_line=seg_start,
-            end_line=seg_end,
-            content="\n".join(clipped),
-            start_at=seg.start_at,
-            end_at=seg.end_at,
+            start_line=seg_start, end_line=seg_end, content="\n".join(clipped),
+            start_at=seg.start_at, end_at=seg.end_at,
         ))
     if not entries and (buffered := ctx.log_buffer.read_buffered(worker.id, cursor, count)):
         entries.append(LogEntry(
-            start_line=cursor,
-            end_line=cursor + len(buffered),
+            start_line=cursor, end_line=cursor + len(buffered),
             content="\n".join(line.content for line in buffered),
-            start_at=buffered[0].timestamp,
-            end_at=buffered[-1].timestamp,
+            start_at=buffered[0].timestamp, end_at=buffered[-1].timestamp,
         ))
     next_cursor = entries[-1].end_line if entries else cursor
     has_more = bool(entries) and next_cursor < ctx.log_buffer.get_end_line(conn, worker.id)

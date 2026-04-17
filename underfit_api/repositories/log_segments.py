@@ -13,10 +13,8 @@ from underfit_api.schema import log_segments
 
 def get_end_line(conn: Connection, worker_id: UUID) -> int:
     row = conn.execute(
-        log_segments.select()
-        .where(log_segments.c.worker_id == worker_id)
-        .order_by(log_segments.c.end_line.desc())
-        .limit(1),
+        log_segments.select().where(log_segments.c.worker_id == worker_id)
+        .order_by(log_segments.c.end_line.desc()).limit(1),
     ).first()
     return row.end_line if row else 0
 
@@ -37,11 +35,8 @@ def upsert(
 
 def list_for_range(conn: Connection, worker_id: UUID, cursor: int, count: int) -> Sequence[Row]:
     return conn.execute(
-        log_segments.select()
-        .where(
-            log_segments.c.worker_id == worker_id,
-            log_segments.c.end_line > cursor,
+        log_segments.select().where(
+            log_segments.c.worker_id == worker_id, log_segments.c.end_line > cursor,
             log_segments.c.start_line < cursor + count,
-        )
-        .order_by(log_segments.c.start_line),
+        ).order_by(log_segments.c.start_line),
     ).all()

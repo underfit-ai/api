@@ -31,24 +31,20 @@ def create(conn: Connection, run_id: UUID, worker_label: str) -> Worker:
 
 def list_by_run(conn: Connection, run_id: UUID) -> list[Worker]:
     rows = conn.execute(
-        sa.select(*_columns).select_from(_join)
-        .where(run_workers.c.run_id == run_id).order_by(run_workers.c.joined_at),
+        sa.select(*_columns).select_from(_join).where(run_workers.c.run_id == run_id).order_by(run_workers.c.joined_at),
     ).all()
     return [Worker.model_validate(r) for r in rows]
 
 
 def get(conn: Connection, run_id: UUID, worker_label: str) -> Worker | None:
-    row = conn.execute(
-        sa.select(*_columns).select_from(_join)
-        .where(run_workers.c.run_id == run_id, run_workers.c.worker_label == worker_label),
-    ).first()
+    row = conn.execute(sa.select(*_columns).select_from(_join).where(
+        run_workers.c.run_id == run_id, run_workers.c.worker_label == worker_label,
+    )).first()
     return Worker.model_validate(row) if row else None
 
 
 def get_by_id(conn: Connection, worker_id: UUID) -> Worker | None:
-    row = conn.execute(
-        sa.select(*_columns).select_from(_join).where(run_workers.c.id == worker_id),
-    ).first()
+    row = conn.execute(sa.select(*_columns).select_from(_join).where(run_workers.c.id == worker_id)).first()
     return Worker.model_validate(row) if row else None
 
 

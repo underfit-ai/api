@@ -166,10 +166,8 @@ class LogBuffer(_BaseBuffer[UUID, LogLine]):
             storage_key = _log_storage_key(worker.worker_label, buf.start_line)
             storage.write(f"{worker.run_storage_key}/{storage_key}", content.encode())
             log_seg_repo.upsert(
-                conn, worker_id,
-                start_line=buf.start_line, end_line=buf.end_line,
-                start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
-                storage_key=storage_key,
+                conn, worker_id, start_line=buf.start_line, end_line=buf.end_line,
+                start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp, storage_key=storage_key,
             )
             buf.last_persisted_at = utcnow()
             if clear:
@@ -296,10 +294,8 @@ class ScalarBuffer(_BaseBuffer[tuple[UUID, int], Scalar]):
         storage_key = _scalar_storage_key(worker.worker_label, resolution, buf.start_line)
         storage.write(f"{worker.run_storage_key}/{storage_key}", content.encode())
         scalar_seg_repo.upsert(
-            conn, worker_id, resolution,
-            start_line=buf.start_line, end_line=buf.end_line, end_step=buf.lines[-1].step,
-            start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp,
-            storage_key=storage_key,
+            conn, worker_id, resolution, start_line=buf.start_line, end_line=buf.end_line, end_step=buf.lines[-1].step,
+            start_at=buf.lines[0].timestamp, end_at=buf.lines[-1].timestamp, storage_key=storage_key,
         )
         buf.last_persisted_at = utcnow()
         if clear:

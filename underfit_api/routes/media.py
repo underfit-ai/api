@@ -34,8 +34,7 @@ MediaFiles = Annotated[list[UploadFile], File()]
 def _content_type_is_valid(media_type: str, content_type: str) -> bool:
     if media_type == "html":
         return content_type in {"text/html", "application/xhtml+xml"}
-    else:
-        return content_type.startswith(f"{media_type}/")
+    return content_type.startswith(f"{media_type}/")
 
 
 @router.post("/ingest/media")

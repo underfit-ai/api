@@ -17,9 +17,9 @@ SESSION_TTL_DAYS = 30
 
 def get_user_id_by_token_hash(conn: Connection, token_hash: str) -> UUID | None:
     now = utcnow()
-    row = conn.execute(
-        sessions.select().where(sessions.c.token_hash == token_hash, sessions.c.expires_at > now),
-    ).first()
+    row = conn.execute(sessions.select().where(
+        sessions.c.token_hash == token_hash, sessions.c.expires_at > now,
+    )).first()
     return row.user_id if row else None
 
 
@@ -30,11 +30,7 @@ def create(conn: Connection, user_id: UUID) -> Session:
     expires = now + timedelta(days=SESSION_TTL_DAYS)
     session_id = uuid4()
     conn.execute(sessions.insert().values(
-        id=session_id,
-        user_id=user_id,
-        token_hash=token_hash,
-        created_at=now,
-        expires_at=expires,
+        id=session_id, user_id=user_id, token_hash=token_hash, created_at=now, expires_at=expires,
     ))
     return Session(token=token, created_at=now, expires_at=expires)
 

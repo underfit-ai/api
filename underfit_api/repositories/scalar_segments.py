@@ -15,8 +15,7 @@ def get_end_line(conn: Connection, worker_id: UUID, resolution: int) -> int:
     row = conn.execute(
         scalar_segments.select()
         .where(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution)
-        .order_by(scalar_segments.c.end_line.desc())
-        .limit(1),
+        .order_by(scalar_segments.c.end_line.desc()).limit(1),
     ).first()
     return row.end_line if row else 0
 
@@ -49,7 +48,6 @@ def get_last_step(conn: Connection, worker_id: UUID) -> int | None:
     row = conn.execute(
         scalar_segments.select()
         .where(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == 1)
-        .order_by(scalar_segments.c.end_line.desc())
-        .limit(1),
+        .order_by(scalar_segments.c.end_line.desc()).limit(1),
     ).first()
     return row.end_step if row else None

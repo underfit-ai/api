@@ -88,8 +88,7 @@ def read_scalars(
                 if line:
                     parsed = json.loads(line)
                     scalars.append(Scalar(
-                        step=parsed["step"],
-                        values=parsed["values"],
+                        step=parsed["step"], values=parsed["values"],
                         timestamp=datetime.fromisoformat(parsed["timestamp"].replace("Z", "+00:00")),
                     ))
         for point in ctx.scalar_buffer.read_buffered(worker.id, selected_resolution):

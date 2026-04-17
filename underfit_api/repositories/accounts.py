@@ -41,9 +41,7 @@ def create_alias(conn: Connection, account_id: UUID, handle: str) -> None:
 
 
 def get_alias_by_handle(conn: Connection, handle: str) -> Row | None:
-    return conn.execute(
-        account_aliases.select().where(account_aliases.c.handle == handle.lower()),
-    ).first()
+    return conn.execute(account_aliases.select().where(account_aliases.c.handle == handle.lower())).first()
 
 
 def get_or_create_local(conn: Connection) -> User:

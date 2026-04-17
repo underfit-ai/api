@@ -47,7 +47,6 @@ def download_file(
         raise HTTPException(404, "File not found")
     filename = quote(path.rsplit("/", 1)[-1])
     return StreamingResponse(
-        ctx.storage.read_stream(key),
-        media_type="application/octet-stream",
+        ctx.storage.read_stream(key), media_type="application/octet-stream",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )

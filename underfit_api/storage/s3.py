@@ -147,10 +147,7 @@ class S3Storage:
                 name = obj["Key"][len(full_prefix):]
                 if name and "/" not in name:
                     entries.append(DirEntry(
-                        name=name,
-                        is_directory=False,
-                        size=obj["Size"],
-                        last_modified=_format_dt(obj["LastModified"]),
+                        name=name, is_directory=False, size=obj["Size"], last_modified=_format_dt(obj["LastModified"]),
                     ))
         entries.sort(key=lambda e: (not e.is_directory, e.name))
         return entries

@@ -142,8 +142,7 @@ def test_list_project_runs_ordering(
     with engine.begin() as conn:
         conn.execute(runs.update().where(runs.c.id == UUID(cast(str, pinned["id"]))).values(is_pinned=True))
         conn.execute(projects.update().where(projects.c.id == project.id).values(
-            baseline_project_id=project.id,
-            baseline_run_id=UUID(cast(str, baseline["id"])),
+            baseline_project_id=project.id, baseline_run_id=UUID(cast(str, baseline["id"])),
         ))
     runs_list = client.get(RUNS, headers=owner_headers).json()
     assert [run["name"] for run in runs_list] == ["baseline", "pinned", "newest"]

@@ -49,11 +49,9 @@ def get_by_id(conn: Connection, project_id: UUID) -> Project | None:
 
 
 def get_by_account_and_name(conn: Connection, account_id: UUID, name: str) -> Project | None:
-    row = conn.execute(
-        sa.select(*_columns).select_from(_join).where(
-            projects.c.account_id == account_id, projects.c.name == name.lower(),
-        ),
-    ).first()
+    row = conn.execute(sa.select(*_columns).select_from(_join).where(
+        projects.c.account_id == account_id, projects.c.name == name.lower(),
+    )).first()
     return Project.model_validate(row) if row else None
 
 
@@ -120,9 +118,7 @@ def update(
 
 def set_baseline_run(conn: Connection, project_id: UUID, run_id: UUID | None) -> None:
     conn.execute(projects.update().where(projects.c.id == project_id).values(
-        baseline_project_id=project_id if run_id is not None else None,
-        baseline_run_id=run_id,
-        updated_at=utcnow(),
+        baseline_project_id=project_id if run_id is not None else None, baseline_run_id=run_id, updated_at=utcnow(),
     ))
 
 
@@ -141,12 +137,9 @@ def set_pending_transfer(conn: Connection, project_id: UUID, to_account_id: UUID
 
 
 def transfer(conn: Connection, project_id: UUID, new_account_id: UUID, new_name: str) -> Project:
-    now = utcnow()
-    conn.execute(
-        projects.update().where(projects.c.id == project_id).values(
-            account_id=new_account_id, name=new_name, pending_transfer_to=None, updated_at=now,
-        ),
-    )
+    conn.execute(projects.update().where(projects.c.id == project_id).values(
+        account_id=new_account_id, name=new_name, pending_transfer_to=None, updated_at=utcnow(),
+    ))
     result = get_by_id(conn, project_id)
     assert result is not None
     return result
@@ -159,11 +152,9 @@ def create_alias(conn: Connection, project_id: UUID, account_id: UUID, name: str
 
 
 def get_alias_by_account_and_name(conn: Connection, account_id: UUID, name: str) -> Row | None:
-    return conn.execute(
-        project_aliases.select().where(
-            project_aliases.c.account_id == account_id, project_aliases.c.name == name.lower(),
-        ),
-    ).first()
+    return conn.execute(project_aliases.select().where(
+        project_aliases.c.account_id == account_id, project_aliases.c.name == name.lower(),
+    )).first()
 
 
 def delete(conn: Connection, project_id: UUID) -> None:

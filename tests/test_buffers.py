@@ -69,9 +69,7 @@ def test_log_buffer_flushes_to_segment_and_tracks_byte_offsets(engine: Engine, t
         buffer.flush(conn, storage, rwid)
 
         segments = conn.execute(
-            select(log_segments)
-            .where(log_segments.c.worker_id == rwid)
-            .order_by(log_segments.c.start_line),
+            select(log_segments).where(log_segments.c.worker_id == rwid).order_by(log_segments.c.start_line),
         ).all()
 
     assert [(s.start_line, s.end_line) for s in segments] == [(0, 1), (1, 2)]
@@ -171,30 +169,20 @@ def test_scalar_flush_if_needed_keeps_partial_higher_tiers_until_explicit_flush(
 
     with engine.begin() as conn:
         assert buffer.append(conn, rwid, 0, [
-            Scalar(
-                step=0,
-                values={"loss": 1.0},
-                timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
-            ),
+            Scalar(step=0, values={"loss": 1.0}, timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc)),
         ]) is None
         buffer.flush_if_needed(conn, storage, rwid)
 
-        by_res = {
-            row.resolution: row
-            for row in conn.execute(
-                select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
-            ).all()
-        }
+        by_res = {row.resolution: row for row in conn.execute(
+            select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
+        ).all()}
         assert 1 in by_res
         assert 2 not in by_res
 
         buffer.flush(conn, storage, rwid)
-        by_res_after = {
-            row.resolution: row
-            for row in conn.execute(
-                select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
-            ).all()
-        }
+        by_res_after = {row.resolution: row for row in conn.execute(
+            select(scalar_segments).where(scalar_segments.c.worker_id == rwid),
+        ).all()}
         assert 2 in by_res_after
         buffer = ScalarBuffer()
         assert buffer.append(conn, rwid, 1, [

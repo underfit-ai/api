@@ -32,16 +32,8 @@ def create(
 ) -> Media:
     media_id = uuid4()
     conn.execute(media.insert().values(
-        id=media_id,
-        run_id=run_id,
-        key=key,
-        step=step,
-        type=media_type,
-        index=index,
-        finalized=False,
-        storage_key=storage_key,
-        metadata=metadata,
-        created_at=utcnow(),
+        id=media_id, run_id=run_id, key=key, step=step, type=media_type,
+        index=index, finalized=False, storage_key=storage_key, metadata=metadata, created_at=utcnow(),
     ))
     return Media.model_validate(conn.execute(media.select().where(media.c.id == media_id)).first())
 

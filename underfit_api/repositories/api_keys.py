@@ -29,12 +29,7 @@ def create(conn: Connection, user_id: UUID, label: str | None) -> ApiKeyWithToke
     token_hash = hash_token(token)
     now = utcnow()
     conn.execute(api_keys.insert().values(
-        id=key_id,
-        user_id=user_id,
-        label=label,
-        token_prefix=prefix,
-        token_hash=token_hash,
-        created_at=now,
+        id=key_id, user_id=user_id, label=label, token_prefix=prefix, token_hash=token_hash, created_at=now,
     ))
     return ApiKeyWithToken(id=key_id, user_id=user_id, label=label, token_prefix=prefix, token=token, created_at=now)
 

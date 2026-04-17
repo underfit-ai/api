@@ -31,18 +31,9 @@ def create(
 ) -> Artifact:
     now = utcnow()
     conn.execute(artifacts.insert().values(
-        id=artifact_id,
-        project_id=project_id,
-        run_id=run_id,
-        step=step,
-        name=name,
-        type=artifact_type,
-        storage_key=storage_key,
-        stored_size_bytes=None,
-        active_uploads=0,
-        created_at=now,
-        updated_at=now,
-        metadata=metadata,
+        id=artifact_id, project_id=project_id, run_id=run_id, step=step, name=name,
+        type=artifact_type, storage_key=storage_key, stored_size_bytes=None,
+        active_uploads=0, created_at=now, updated_at=now, metadata=metadata,
     ))
     result = get_by_id(conn, artifact_id)
     assert result is not None
@@ -51,45 +42,32 @@ def create(
 
 def finalize(conn: Connection, artifact_id: UUID, stored_size_bytes: int) -> Artifact | None:
     now = utcnow()
-    conn.execute(
-        artifacts.update()
-        .where(artifacts.c.id == artifact_id)
-        .values(finalized_at=now, stored_size_bytes=stored_size_bytes, active_uploads=0, updated_at=now),
-    )
+    conn.execute(artifacts.update().where(artifacts.c.id == artifact_id).values(
+        finalized_at=now, stored_size_bytes=stored_size_bytes, active_uploads=0, updated_at=now,
+    ))
     return get_by_id(conn, artifact_id)
 
 
 def begin_upload(conn: Connection, artifact_id: UUID) -> bool:
-    return conn.execute(
-        artifacts.update()
-        .where(artifacts.c.id == artifact_id, artifacts.c.finalized_at.is_(None), artifacts.c.active_uploads >= 0)
-        .values(active_uploads=artifacts.c.active_uploads + 1, updated_at=utcnow()),
-    ).rowcount > 0
+    return conn.execute(artifacts.update().where(
+        artifacts.c.id == artifact_id, artifacts.c.finalized_at.is_(None), artifacts.c.active_uploads >= 0,
+    ).values(active_uploads=artifacts.c.active_uploads + 1, updated_at=utcnow())).rowcount > 0
 
 
 def finish_upload(conn: Connection, artifact_id: UUID) -> None:
-    conn.execute(
-        artifacts.update()
-        .where(artifacts.c.id == artifact_id, artifacts.c.finalized_at.is_(None), artifacts.c.active_uploads > 0)
-        .values(active_uploads=artifacts.c.active_uploads - 1, updated_at=utcnow()),
-    )
+    conn.execute(artifacts.update().where(
+        artifacts.c.id == artifact_id, artifacts.c.finalized_at.is_(None), artifacts.c.active_uploads > 0,
+    ).values(active_uploads=artifacts.c.active_uploads - 1, updated_at=utcnow()))
 
 
 def begin_finalize(conn: Connection, artifact_id: UUID) -> bool:
-    return conn.execute(
-        artifacts.update()
-        .where(artifacts.c.id == artifact_id, artifacts.c.finalized_at.is_(None), artifacts.c.active_uploads == 0)
-        .values(active_uploads=ARTIFACT_FINALIZING, updated_at=utcnow()),
-    ).rowcount > 0
+    return conn.execute(artifacts.update().where(
+        artifacts.c.id == artifact_id, artifacts.c.finalized_at.is_(None), artifacts.c.active_uploads == 0,
+    ).values(active_uploads=ARTIFACT_FINALIZING, updated_at=utcnow())).rowcount > 0
 
 
 def cancel_finalize(conn: Connection, artifact_id: UUID) -> None:
-    conn.execute(
-        artifacts.update()
-        .where(
-            artifacts.c.id == artifact_id,
-            artifacts.c.finalized_at.is_(None),
-            artifacts.c.active_uploads == ARTIFACT_FINALIZING,
-        )
-        .values(active_uploads=0, updated_at=utcnow()),
-    )
+    conn.execute(artifacts.update().where(
+        artifacts.c.id == artifact_id, artifacts.c.finalized_at.is_(None),
+        artifacts.c.active_uploads == ARTIFACT_FINALIZING,
+    ).values(active_uploads=0, updated_at=utcnow()))

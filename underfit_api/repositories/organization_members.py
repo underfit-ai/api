@@ -24,8 +24,7 @@ _select = select(
 
 def _has_other_admin(org_id: UUID, user_id: UUID) -> Exists:
     admins = select(organization_members.c.id).where(
-        organization_members.c.organization_id == org_id,
-        organization_members.c.role == "ADMIN",
+        organization_members.c.organization_id == org_id, organization_members.c.role == "ADMIN",
         organization_members.c.user_id != user_id,
     ).subquery()
     return select(1).select_from(admins).exists()
@@ -39,23 +38,17 @@ def add_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> None
 
 
 def is_admin(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
-    row = conn.execute(
-        organization_members.select().where(
-            organization_members.c.organization_id == org_id,
-            organization_members.c.user_id == user_id,
-            organization_members.c.role == "ADMIN",
-        ),
-    ).first()
+    row = conn.execute(organization_members.select().where(
+        organization_members.c.organization_id == org_id, organization_members.c.user_id == user_id,
+        organization_members.c.role == "ADMIN",
+    )).first()
     return row is not None
 
 
 def get_member_role(conn: Connection, org_id: UUID, user_id: UUID) -> str | None:
-    row = conn.execute(
-        organization_members.select().where(
-            organization_members.c.organization_id == org_id,
-            organization_members.c.user_id == user_id,
-        ),
-    ).first()
+    row = conn.execute(organization_members.select().where(
+        organization_members.c.organization_id == org_id, organization_members.c.user_id == user_id,
+    )).first()
     return row.role if row else None
 
 
@@ -86,13 +79,10 @@ def update_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> b
 
 
 def remove_member(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
-    result = conn.execute(
-        organization_members.delete().where(
-            organization_members.c.organization_id == org_id,
-            organization_members.c.user_id == user_id,
-            (organization_members.c.role != "ADMIN") | _has_other_admin(org_id, user_id),
-        ),
-    )
+    result = conn.execute(organization_members.delete().where(
+        organization_members.c.organization_id == org_id, organization_members.c.user_id == user_id,
+        (organization_members.c.role != "ADMIN") | _has_other_admin(org_id, user_id),
+    ))
     return result.rowcount > 0
 
 

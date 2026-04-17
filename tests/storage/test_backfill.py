@@ -112,9 +112,7 @@ def test_backfill_ingests_segment_files(
 ) -> None:
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {
-        "project": "Vision",
-        "name": "Trial A",
-        "config": {"lr": 0.01, "seed": 7},
+        "project": "Vision", "name": "Trial A", "config": {"lr": 0.01, "seed": 7},
         "metadata": {"summary": {"loss": 0.6}},
     })
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\nworld\n")

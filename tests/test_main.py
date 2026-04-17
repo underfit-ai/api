@@ -37,9 +37,7 @@ def test_backfill_blocks_api_write_methods_but_not_get(client: TestClient) -> No
 
     health = client.get("/api/v1/health")
     register = client.post("/api/v1/auth/register", json={
-        "email": "sam@example.com",
-        "handle": "sam",
-        "password": "password123",
+        "email": "sam@example.com", "handle": "sam", "password": "password123",
     })
 
     assert health.status_code == 200

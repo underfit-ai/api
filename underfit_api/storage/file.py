@@ -117,10 +117,8 @@ class FileStorage:
         for item in path.iterdir():
             stat = item.stat()
             entries.append(DirEntry(
-                name=item.name,
-                is_directory=item.is_dir(),
-                size=stat.st_size if not item.is_dir() else 0,
-                last_modified=_format_mtime(stat.st_mtime),
+                name=item.name, is_directory=item.is_dir(),
+                size=stat.st_size if not item.is_dir() else 0, last_modified=_format_mtime(stat.st_mtime),
             ))
         entries.sort(key=lambda e: (not e.is_directory, e.name))
         return entries
