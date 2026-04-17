@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-import threading
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -11,6 +9,7 @@ import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import Connection, Engine
 from sqlalchemy.engine import Row
+from sqlalchemy.exc import IntegrityError
 
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
@@ -85,17 +84,6 @@ class LogLine(BaseModel):
 
 
 class BufferStore:
-    def __init__(self) -> None:
-        self._locks: dict[UUID, threading.RLock] = {}
-        self._lock_dict_lock = threading.Lock()
-
-    @contextmanager
-    def _worker_lock(self, worker_id: UUID) -> Iterator[None]:
-        with self._lock_dict_lock:
-            lock = self._locks.setdefault(worker_id, threading.RLock())
-        with lock:
-            yield
-
     # --- scalars ---
 
     def scalar_end_line(self, conn: Connection, worker_id: UUID, resolution: int = 1) -> int:
@@ -119,30 +107,33 @@ class BufferStore:
         return scalar_seg_repo.get_last_step(conn, worker_id)
 
     def append_scalars(self, conn: Connection, worker_id: UUID, start_line: int, scalars: list[Scalar]) -> None:
-        with self._worker_lock(worker_id):
-            expected = self.scalar_end_line(conn, worker_id, 1)
-            if start_line != expected:
-                raise BadStartLineError(expected)
-            last_step = self._scalar_last_step(conn, worker_id)
-            for scalar in scalars:
-                if last_step is not None and scalar.step <= last_step:
-                    raise BadStepError(last_step)
-                last_step = scalar.step
-            rows = [
-                {"worker_id": worker_id, "line": start_line + i, "step": s.step,
-                 "key": k, "value": v, "timestamp": s.timestamp}
-                for i, s in enumerate(scalars) for k, v in s.values.items()
-            ]
-            if rows:
-                conn.execute(sa.insert(scalar_points), rows)
+        expected = self.scalar_end_line(conn, worker_id, 1)
+        if start_line != expected:
+            raise BadStartLineError(expected)
+        last_step = self._scalar_last_step(conn, worker_id)
+        for scalar in scalars:
+            if last_step is not None and scalar.step <= last_step:
+                raise BadStepError(last_step)
+            last_step = scalar.step
+        rows = [
+            {"worker_id": worker_id, "line": start_line + i, "step": s.step,
+             "key": k, "value": v, "timestamp": s.timestamp}
+            for i, s in enumerate(scalars) for k, v in s.values.items()
+        ]
+        if not rows:
+            return
+        try:
+            conn.execute(sa.insert(scalar_points), rows)
+        except IntegrityError:
+            conn.rollback()
+            raise BadStartLineError(self.scalar_end_line(conn, worker_id, 1)) from None
 
     def read_buffered_scalars(self, conn: Connection, worker_id: UUID, resolution: int) -> list[Scalar]:
-        with self._worker_lock(worker_id):
-            rows = conn.execute(sa.select(scalar_points).where(
-                scalar_points.c.worker_id == worker_id,
-            ).order_by(scalar_points.c.line)).all()
-            scalars = [s for _, s in _group_scalar_rows(rows)]
-            return _downsample(scalars, resolution)
+        rows = conn.execute(sa.select(scalar_points).where(
+            scalar_points.c.worker_id == worker_id,
+        ).order_by(scalar_points.c.line)).all()
+        scalars = [s for _, s in _group_scalar_rows(rows)]
+        return _downsample(scalars, resolution)
 
     # --- logs ---
 
@@ -155,38 +146,40 @@ class BufferStore:
         return log_seg_repo.get_end_line(conn, worker_id)
 
     def append_logs(self, conn: Connection, worker_id: UUID, start_line: int, lines: list[LogLine]) -> None:
-        with self._worker_lock(worker_id):
-            expected = self.log_end_line(conn, worker_id)
-            if start_line != expected:
-                raise BadStartLineError(expected)
-            if not lines:
-                return
-            content = "".join(f"{line.content}\n" for line in lines)
+        expected = self.log_end_line(conn, worker_id)
+        if start_line != expected:
+            raise BadStartLineError(expected)
+        if not lines:
+            return
+        content = "".join(f"{line.content}\n" for line in lines)
+        try:
             conn.execute(log_chunks.insert().values(
                 worker_id=worker_id, start_line=start_line, line_count=len(lines),
                 byte_count=len(content.encode()), content=content,
                 start_at=lines[0].timestamp, end_at=lines[-1].timestamp,
             ))
+        except IntegrityError:
+            conn.rollback()
+            raise BadStartLineError(self.log_end_line(conn, worker_id)) from None
 
     def read_buffered_logs(self, conn: Connection, worker_id: UUID, cursor: int, count: int) -> list[LogEntry]:
-        with self._worker_lock(worker_id):
-            rows = conn.execute(log_chunks.select().where(
-                log_chunks.c.worker_id == worker_id,
-                log_chunks.c.start_line < cursor + count,
-                log_chunks.c.start_line + log_chunks.c.line_count > cursor,
-            ).order_by(log_chunks.c.start_line)).all()
-            entries: list[LogEntry] = []
-            for row in rows:
-                end_line = row.start_line + row.line_count
-                sub_start = max(cursor, row.start_line)
-                sub_end = min(cursor + count, end_line)
-                lines = row.content.splitlines()
-                clipped = lines[sub_start - row.start_line:sub_end - row.start_line]
-                entries.append(LogEntry(
-                    start_line=sub_start, end_line=sub_end, content="\n".join(clipped),
-                    start_at=row.start_at, end_at=row.end_at,
-                ))
-            return entries
+        rows = conn.execute(log_chunks.select().where(
+            log_chunks.c.worker_id == worker_id,
+            log_chunks.c.start_line < cursor + count,
+            log_chunks.c.start_line + log_chunks.c.line_count > cursor,
+        ).order_by(log_chunks.c.start_line)).all()
+        entries: list[LogEntry] = []
+        for row in rows:
+            end_line = row.start_line + row.line_count
+            sub_start = max(cursor, row.start_line)
+            sub_end = min(cursor + count, end_line)
+            lines = row.content.splitlines()
+            clipped = lines[sub_start - row.start_line:sub_end - row.start_line]
+            entries.append(LogEntry(
+                start_line=sub_start, end_line=sub_end, content="\n".join(clipped),
+                start_at=row.start_at, end_at=row.end_at,
+            ))
+        return entries
 
     # --- compaction ---
 
@@ -214,18 +207,13 @@ class BufferStore:
     def _compact_worker(
         self, conn: Connection, storage: Storage, worker_id: UUID, *, force_partial: bool,
     ) -> None:
-        with self._worker_lock(worker_id):
-            worker = workers_repo.get_by_id(conn, worker_id)
-            if worker is None:
-                conn.execute(scalar_points.delete().where(scalar_points.c.worker_id == worker_id))
-                conn.execute(log_chunks.delete().where(log_chunks.c.worker_id == worker_id))
-                with self._lock_dict_lock:
-                    self._locks.pop(worker_id, None)
-                return
-            cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
-            partial = force_partial or worker.last_heartbeat < cutoff
-            self._compact_scalars(conn, storage, worker, partial=partial)
-            self._compact_logs(conn, storage, worker, partial=partial)
+        worker = workers_repo.get_by_id(conn, worker_id)
+        if worker is None:
+            return
+        cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
+        partial = force_partial or worker.last_heartbeat < cutoff
+        self._compact_scalars(conn, storage, worker, partial=partial)
+        self._compact_logs(conn, storage, worker, partial=partial)
 
     def _compact_scalars(self, conn: Connection, storage: Storage, worker: Worker, *, partial: bool) -> None:
         rows = conn.execute(sa.select(scalar_points).where(

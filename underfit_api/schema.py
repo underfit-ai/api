@@ -207,6 +207,7 @@ scalar_points = sa.Table(
     sa.Column("key", sa.Text, nullable=False),
     sa.Column("value", sa.Float, nullable=False),
     sa.Column("timestamp", sa.DateTime, nullable=False),
+    sa.UniqueConstraint("worker_id", "line", "key"),
     sa.Index("ix_scalar_points_worker_line", "worker_id", "line"),
 )
 
@@ -221,6 +222,7 @@ log_chunks = sa.Table(
     sa.Column("content", sa.Text, nullable=False),
     sa.Column("start_at", sa.DateTime, nullable=False),
     sa.Column("end_at", sa.DateTime, nullable=False),
+    sa.UniqueConstraint("worker_id", "start_line"),
     sa.Index("ix_log_chunks_worker_start", "worker_id", "start_line"),
 )
 
