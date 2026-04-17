@@ -97,7 +97,6 @@ class Project(_Base):
     ui_state: dict[str, object]
     baseline_run_id: UUID | None = None
     visibility: ProjectVisibility
-    pending_transfer_to: UUID | None
     created_at: UTCDatetime
     updated_at: UTCDatetime
 

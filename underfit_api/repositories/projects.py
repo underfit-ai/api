@@ -22,7 +22,6 @@ _columns = [
     projects.c.ui_state,
     projects.c.baseline_run_id,
     projects.c.visibility,
-    projects.c.pending_transfer_to,
     projects.c.created_at,
     projects.c.updated_at,
 ]
@@ -129,16 +128,9 @@ def rename(conn: Connection, project_id: UUID, new_name: str) -> Project:
     return result
 
 
-def set_pending_transfer(conn: Connection, project_id: UUID, to_account_id: UUID | None) -> None:
-    conn.execute(
-        projects.update().where(projects.c.id == project_id)
-        .values(pending_transfer_to=to_account_id, updated_at=utcnow()),
-    )
-
-
 def transfer(conn: Connection, project_id: UUID, new_account_id: UUID, new_name: str) -> Project:
     conn.execute(projects.update().where(projects.c.id == project_id).values(
-        account_id=new_account_id, name=new_name, pending_transfer_to=None, updated_at=utcnow(),
+        account_id=new_account_id, name=new_name, updated_at=utcnow(),
     ))
     result = get_by_id(conn, project_id)
     assert result is not None

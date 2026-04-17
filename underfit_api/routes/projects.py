@@ -1,29 +1,23 @@
 from __future__ import annotations
 
-from datetime import timedelta
-from uuid import UUID
-
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from underfit_api.auth import verify_signed_token
 from underfit_api.backfill import sync_project_ui_sidecar
 from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
-from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
+from underfit_api.helpers import as_conflict
 from underfit_api.models import OkResponse, Project, ProjectVisibility
 from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
-from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
 from underfit_api.storage import delete_prefix
 
 router = APIRouter()
 
 NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
-TRANSFER_TOKEN_TTL = timedelta(days=7)
 
 
 class CreateProjectBody(BaseModel):
@@ -48,18 +42,9 @@ class UpdateProjectUIStateBody(BaseModel):
     ui_state: dict[str, object]
 
 
-class InitiateTransferBody(BaseModel):
-    email: str = Field(min_length=1)
-
-
-class AcceptTransferBody(BaseModel):
-    token: str = Field(min_length=1)
+class TransferProjectBody(BaseModel):
+    handle: str = Field(min_length=1)
     new_name: str | None = Field(default=None, pattern=NAME_PATTERN)
-
-
-class TransferTokenPayload(BaseModel):
-    project_id: UUID
-    to_account_id: UUID
 
 
 @router.get("/me/projects")
@@ -130,63 +115,19 @@ def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/transfer")
-def initiate_transfer(
-    handle: str, project_name: str, body: InitiateTransferBody, conn: Conn, user: RequireUser,
-) -> OkResponse:
-    email_cfg, frontend_url = ensure_email_configured()
+def transfer_project(
+    handle: str, project_name: str, body: TransferProjectBody, conn: Conn, user: RequireUser,
+) -> Project:
     account, project = resolve_account_and_project(conn, handle, project_name, user)
     require_account_admin(conn, account.id, account.type, user.id)
-
-    if not (recipient := users_repo.get_by_email(conn, body.email)):
-        raise HTTPException(404, "No user found with that email")
+    recipient = resolve_account(conn, body.handle)
+    if recipient.type != "USER":
+        raise HTTPException(400, "Projects can only be transferred to a user")
     if recipient.id == account.id:
         raise HTTPException(400, "Cannot transfer a project to its current owner")
-
-    projects_repo.set_pending_transfer(conn, project.id, recipient.id)
-    transfer_url = signed_link_url(
-        frontend_url, {"project_id": str(project.id), "to_account_id": str(recipient.id)},
-        TRANSFER_TOKEN_TTL, "transfer", "/transfer",
-    )
-    send_email(
-        email_cfg, to=recipient.email,
-        subject=f"Project transfer: {account.handle}/{project.name}",
-        body=(
-            f"{account.handle} wants to transfer the project \"{project.name}\" to you.\n\n"
-            f"Click the link below to accept:\n\n{transfer_url}\n\n"
-            f"This link expires in 7 days."
-        ),
-    )
-    return OkResponse()
-
-
-@router.delete("/accounts/{handle}/projects/{project_name}/transfer")
-def cancel_transfer(handle: str, project_name: str, conn: Conn, user: RequireUser) -> OkResponse:
-    account, project = resolve_account_and_project(conn, handle, project_name, user)
-    require_account_admin(conn, account.id, account.type, user.id)
-    if not project.pending_transfer_to:
-        raise HTTPException(400, "No pending transfer")
-    projects_repo.set_pending_transfer(conn, project.id, None)
-    return OkResponse()
-
-
-@router.post("/transfer")
-def accept_transfer(body: AcceptTransferBody, conn: Conn, user: RequireUser) -> Project:
-    if not (raw := verify_signed_token(body.token, "transfer")):
-        raise HTTPException(400, "Invalid or expired transfer token")
-    try:
-        payload = TransferTokenPayload.model_validate(raw)
-    except (ValueError, ValidationError):
-        raise HTTPException(400, "Invalid or expired transfer token") from None
-
-    if user.id != payload.to_account_id:
-        raise HTTPException(403, "This transfer is not addressed to you")
-    if not (project := projects_repo.get_by_id(conn, payload.project_id)):
-        raise HTTPException(404, "Project not found")
-    if project.pending_transfer_to != payload.to_account_id:
-        raise HTTPException(400, "Transfer has been cancelled")
-
+    if not project_collaborators_repo.get(conn, project.id, recipient.id):
+        raise HTTPException(400, "Recipient must be a collaborator on the project")
     new_name = (body.new_name or project.name).lower()
     with as_conflict(conn, "Project already exists"):
-        if project_collaborators_repo.get(conn, project.id, user.id):
-            project_collaborators_repo.remove(conn, project.id, user.id)
-        return projects_repo.transfer(conn, payload.project_id, payload.to_account_id, new_name)
+        project_collaborators_repo.remove(conn, project.id, recipient.id)
+        return projects_repo.transfer(conn, project.id, recipient.id, new_name)

@@ -52,10 +52,6 @@ def get_member_role(conn: Connection, org_id: UUID, user_id: UUID) -> str | None
     return row.role if row else None
 
 
-def is_member(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
-    return get_member_role(conn, org_id, user_id) is not None
-
-
 def list_members(conn: Connection, org_id: UUID) -> list[OrganizationMember]:
     rows = conn.execute(_select.where(organization_members.c.organization_id == org_id)).all()
     return [OrganizationMember.model_validate(row) for row in rows]
