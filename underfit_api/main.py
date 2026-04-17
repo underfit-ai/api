@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
@@ -103,7 +103,7 @@ def _shutdown_context(ctx: AppContext) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _validate_config()
     ctx = _init_context(app)
-    app.state.ctx = api.state.ctx = ctx
+    app.state.ctx = ctx
     backfill = await _init_backfill(ctx)
     flush_task = asyncio.create_task(_flush_loop(ctx))
     yield
@@ -129,13 +129,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-api = FastAPI()
 
-
-@api.middleware("http")
+@app.middleware("http")
 async def block_api_writes_during_backfill(request: Request, call_next: RequestResponseEndpoint) -> Response:
     if (
         config.storage.backfill.enabled
+        and request.url.path.startswith("/api/v1")
         and request.method in WRITE_METHODS
         and not request.url.path.endswith("/ui-state")
     ):
@@ -143,38 +142,18 @@ async def block_api_writes_during_backfill(request: Request, call_next: RequestR
     return await call_next(request)
 
 
-api.include_router(accounts_router)
-api.include_router(api_keys_router)
-api.include_router(artifacts_router)
-api.include_router(auth_router)
-api.include_router(account_avatars_router)
-api.include_router(org_members_router)
-api.include_router(project_collaborators_router)
-api.include_router(files_router)
-api.include_router(logs_router)
-api.include_router(media_router)
-api.include_router(orgs_router)
-api.include_router(projects_router)
-api.include_router(runs_router)
-api.include_router(scalars_router)
-api.include_router(users_router)
-api.include_router(workers_router)
-
-app.mount("/api/v1", api)
-
-
-@api.exception_handler(404)
+@app.exception_handler(404)
 def not_found(_request: Request, _exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=404, content={"error": "Route not found"})
 
 
-@api.exception_handler(HTTPException)
+@app.exception_handler(HTTPException)
 def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
     content = exc.detail if isinstance(exc.detail, dict) else {"error": str(exc.detail)}
     return JSONResponse(status_code=exc.status_code, content=content)
 
 
-@api.exception_handler(RequestValidationError)
+@app.exception_handler(RequestValidationError)
 def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
     return JSONResponse(status_code=400, content={"error": "Validation error"})
 
@@ -184,14 +163,14 @@ def _redirect(request: Request, new_path: str) -> RedirectResponse:
     return RedirectResponse(url=new_path + (f"?{query}" if query else ""), status_code=307)
 
 
-@api.exception_handler(AccountAliasRedirectError)
+@app.exception_handler(AccountAliasRedirectError)
 def account_alias_redirect_handler(request: Request, exc: AccountAliasRedirectError) -> RedirectResponse:
     return _redirect(request, re.sub(
         r"/(accounts|users|organizations)/[^/]+", rf"/\1/{exc.new_handle}", request.url.path, count=1,
     ))
 
 
-@api.exception_handler(ProjectAliasRedirectError)
+@app.exception_handler(ProjectAliasRedirectError)
 def project_alias_redirect_handler(request: Request, exc: ProjectAliasRedirectError) -> RedirectResponse:
     return _redirect(request, re.sub(
         r"/accounts/[^/]+/projects/[^/]+",
@@ -200,9 +179,32 @@ def project_alias_redirect_handler(request: Request, exc: ProjectAliasRedirectEr
     ))
 
 
-@api.get("/health")
+api_router = APIRouter(prefix="/api/v1")
+
+
+@api_router.get("/health")
 def health() -> HealthResponse:
     return HealthResponse()
+
+
+api_router.include_router(accounts_router)
+api_router.include_router(api_keys_router)
+api_router.include_router(artifacts_router)
+api_router.include_router(auth_router)
+api_router.include_router(account_avatars_router)
+api_router.include_router(org_members_router)
+api_router.include_router(project_collaborators_router)
+api_router.include_router(files_router)
+api_router.include_router(logs_router)
+api_router.include_router(media_router)
+api_router.include_router(orgs_router)
+api_router.include_router(projects_router)
+api_router.include_router(runs_router)
+api_router.include_router(scalars_router)
+api_router.include_router(users_router)
+api_router.include_router(workers_router)
+
+app.include_router(api_router)
 
 
 if (_static_dir := Path(__file__).parent / config.static_dir).is_dir():
