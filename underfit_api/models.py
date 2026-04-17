@@ -121,9 +121,12 @@ class Run(_Base):
     is_pinned: bool = False
     is_baseline: bool = False
     summary: dict[str, float]
-    worker_token: str | None = None
     created_at: UTCDatetime
     updated_at: UTCDatetime
+
+
+class LaunchResponse(Run):
+    worker_token: str
 
 
 class Worker(_Base):

@@ -8,7 +8,7 @@ from underfit_api.auth import create_worker_token
 from underfit_api.backfill import sync_run_ui_sidecar
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, validate_json_size
-from underfit_api.models import OkResponse, Run, RunTerminalState
+from underfit_api.models import LaunchResponse, OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -51,8 +51,9 @@ class UpdateRunUIStateBody(BaseModel):
     is_baseline: bool | None = None
 
 
-def _launch_response(run: Run, worker_id: object) -> Run:
-    return run.model_copy(update={"worker_token": create_worker_token(worker_id), "is_active": True})
+def _launch_response(run: Run, worker_id: object) -> LaunchResponse:
+    data = {**run.__dict__, "is_active": True, "worker_token": create_worker_token(worker_id)}
+    return LaunchResponse.model_validate(data)
 
 
 @router.get("/users/{handle}/runs")
@@ -69,7 +70,7 @@ def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUse
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/launch")
-def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: RequireUser) -> Run:
+def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: RequireUser) -> LaunchResponse:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project, user.id)
     validate_json_size(body.config, "Config")
