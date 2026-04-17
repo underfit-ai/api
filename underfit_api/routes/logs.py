@@ -9,7 +9,7 @@ from pydantic.alias_generators import to_camel
 from underfit_api.buffers import BadStartLineError
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
-from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry
+from underfit_api.models import BufferedResponse, LogEntriesResponse, LogEntry, LogLine
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -20,7 +20,7 @@ router = APIRouter()
 class WriteLogsBody(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     start_line: int
-    lines: list[log_buffer.LogLine]
+    lines: list[LogLine]
 
 
 @router.post("/ingest/logs")

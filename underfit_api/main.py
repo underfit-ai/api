@@ -83,13 +83,6 @@ async def _init_backfill(ctx: AppContext) -> BackfillService | None:
     return backfill
 
 
-def _shutdown_context(ctx: AppContext) -> None:
-    if not config.backfill.enabled:
-        scalar_buffer.compact(ctx.engine, ctx.storage, include_partial=True)
-        log_buffer.compact(ctx.engine, ctx.storage, include_partial=True)
-    ctx.engine.dispose()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _validate_config()
@@ -104,7 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await flush_task
     if backfill is not None:
         await backfill.stop()
-    _shutdown_context(ctx)
+    ctx.engine.dispose()
 
 
 app = FastAPI(lifespan=lifespan)

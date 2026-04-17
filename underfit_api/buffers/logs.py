@@ -5,25 +5,19 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 import sqlalchemy as sa
-from pydantic import BaseModel
 from sqlalchemy import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
 from underfit_api.buffers import BadStartLineError
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
-from underfit_api.models import LogEntry, UTCDatetime
+from underfit_api.models import LogEntry, LogLine, Worker
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.schema import log_chunks, run_workers
 from underfit_api.storage.types import Storage
 
 logger = logging.getLogger(__name__)
-
-
-class LogLine(BaseModel):
-    timestamp: UTCDatetime
-    content: str
 
 
 def clip(
@@ -82,33 +76,29 @@ def read_buffered(conn: Connection, worker_id: UUID, cursor: int, count: int) ->
 
 # Selected workers always drain fully; threshold vs heartbeat only decides whether to pick
 # them up in this cycle, not how much to flush.
-def _workers_to_flush(conn: Connection, *, include_partial: bool) -> list[UUID]:
+def _workers_to_flush(conn: Connection) -> list[Worker]:
     cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
     total_bytes = sa.func.sum(log_chunks.c.byte_count)
-    q = sa.select(log_chunks.c.worker_id, run_workers.c.last_heartbeat).select_from(
-        log_chunks.join(run_workers, run_workers.c.id == log_chunks.c.worker_id),
-    ).group_by(log_chunks.c.worker_id, run_workers.c.last_heartbeat)
-    if not include_partial:
-        q = q.having(sa.or_(total_bytes >= config.buffer.log_segment_bytes,
-                            run_workers.c.last_heartbeat < cutoff))
-    return [r.worker_id for r in conn.execute(q).all()]
+    rows = conn.execute(sa.select(*workers_repo.COLUMNS).select_from(
+        workers_repo.JOIN.join(log_chunks, log_chunks.c.worker_id == run_workers.c.id),
+    ).group_by(*workers_repo.COLUMNS).having(
+        sa.or_(total_bytes >= config.buffer.log_segment_bytes, run_workers.c.last_heartbeat < cutoff),
+    )).all()
+    return [Worker.model_validate(r) for r in rows]
 
 
-def compact(engine: Engine, storage: Storage, *, include_partial: bool = False) -> None:
+def compact(engine: Engine, storage: Storage) -> None:
     with engine.connect() as conn:
-        worker_ids = _workers_to_flush(conn, include_partial=include_partial)
-    for worker_id in worker_ids:
+        workers = _workers_to_flush(conn)
+    for worker in workers:
         try:
             with engine.begin() as conn:
-                _compact_worker(conn, storage, worker_id)
+                _compact_worker(conn, storage, worker)
         except Exception:
-            logger.exception("Log compaction failed for worker %s", worker_id)
+            logger.exception("Log compaction failed for worker %s", worker.id)
 
 
-def _compact_worker(conn: Connection, storage: Storage, worker_id: UUID) -> None:
-    worker = workers_repo.get_by_id(conn, worker_id)
-    if worker is None:
-        return
+def _compact_worker(conn: Connection, storage: Storage, worker: Worker) -> None:
     rows = conn.execute(log_chunks.select().where(
         log_chunks.c.worker_id == worker.id,
     ).order_by(log_chunks.c.start_line)).all()

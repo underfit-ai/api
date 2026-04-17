@@ -11,17 +11,14 @@ from sqlalchemy.exc import IntegrityError
 from underfit_api.buffers import BadStartLineError, BadStepError
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
-from underfit_api.models import Scalar
+from underfit_api.models import Scalar, Worker
 from underfit_api.repositories import run_workers as workers_repo
+from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
-from underfit_api.schema import run_workers, scalar_points
+from underfit_api.schema import run_workers, scalar_points, scalar_segments
 from underfit_api.storage.types import Storage
 
 logger = logging.getLogger(__name__)
-
-
-def resolutions() -> list[int]:
-    return sorted({1, *config.buffer.scalar_resolutions})
 
 
 def read_buffered(
@@ -46,9 +43,8 @@ def read_buffered(
     return [Scalar(step=step, values=values, timestamp=ts) for _, (step, values, ts) in sorted(grouped.items())]
 
 
-# Compaction advances every resolution's segments together by a multiple of max(resolutions),
-# so the staged tail always starts exactly at base_at_1 and staged_count / r gives the lines
-# that a resolution-r segment would gain if flushed now.
+# Mid-run compaction keeps every resolution aligned to seg_end(1), so staged_count / r is
+# what resolution r would gain if flushed now. Terminal drains clear staging entirely.
 def end_line(conn: Connection, worker_id: UUID, resolution: int = 1) -> int:
     seg_end = scalar_seg_repo.get_end_line(conn, worker_id, resolution)
     staged = conn.execute(sa.select(sa.func.count(sa.distinct(scalar_points.c.line))).where(
@@ -57,22 +53,36 @@ def end_line(conn: Connection, worker_id: UUID, resolution: int = 1) -> int:
     return seg_end + (staged + resolution - 1) // resolution
 
 
-# Staged points always hold the most recent steps (compaction drains oldest-first), so we
-# only fall back to segments when nothing is staged.
-def _last_step(conn: Connection, worker_id: UUID) -> int | None:
-    staged = conn.execute(sa.select(sa.func.max(scalar_points.c.step)).where(
-        scalar_points.c.worker_id == worker_id,
-    )).scalar()
-    if staged is not None:
-        return staged
-    return scalar_seg_repo.get_last_step(conn, worker_id)
+def total_line_counts(conn: Connection, worker_ids: list[UUID]) -> dict[int, int]:
+    if not worker_ids:
+        return {r: 0 for r in config.buffer.scalar_resolutions}
+    seg_rows = conn.execute(sa.select(
+        scalar_segments.c.worker_id, scalar_segments.c.resolution, sa.func.max(scalar_segments.c.end_line),
+    ).where(scalar_segments.c.worker_id.in_(worker_ids)).group_by(
+        scalar_segments.c.worker_id, scalar_segments.c.resolution,
+    )).all()
+    seg_end = {(r[0], r[1]): r[2] for r in seg_rows}
+    staged_rows = conn.execute(sa.select(
+        scalar_points.c.worker_id, sa.func.count(sa.distinct(scalar_points.c.line)),
+    ).where(scalar_points.c.worker_id.in_(worker_ids)).group_by(scalar_points.c.worker_id)).all()
+    staged = {r[0]: r[1] for r in staged_rows}
+    return {
+        res: sum(seg_end.get((wid, res), 0) + (staged.get(wid, 0) + res - 1) // res for wid in worker_ids)
+        for res in config.buffer.scalar_resolutions
+    }
 
 
 def append(conn: Connection, worker_id: UUID, start_line: int, scalars: list[Scalar]) -> None:
     expected = end_line(conn, worker_id, 1)
     if start_line != expected:
         raise BadStartLineError(expected)
-    last_step = _last_step(conn, worker_id)
+    # Staged points always hold the most recent steps (compaction drains oldest-first),
+    # so we only fall back to segments when nothing is staged.
+    last_step = conn.execute(sa.select(sa.func.max(scalar_points.c.step)).where(
+        scalar_points.c.worker_id == worker_id,
+    )).scalar()
+    if last_step is None:
+        last_step = scalar_seg_repo.get_last_step(conn, worker_id)
     for scalar in scalars:
         if last_step is not None and scalar.step <= last_step:
             raise BadStepError(last_step)
@@ -96,40 +106,41 @@ def append(conn: Connection, worker_id: UUID, start_line: int, scalars: list[Sca
 
 # --- compaction ---
 
-# Flushes must take a multiple of max_res to keep resolution segments aligned with base_at_1,
-# so we round the configured target down to the nearest multiple and clamp up to max_res.
+# Flushes must take a multiple of max_res to keep resolution segments aligned, so we round
+# the configured target down to the nearest multiple. scalar_segment_lines >= max_res is
+# enforced by config validation.
 def _flush_threshold() -> int:
-    max_res = max(resolutions())
-    return max(max_res, (config.buffer.scalar_segment_lines // max_res) * max_res)
+    max_res = max(config.buffer.scalar_resolutions)
+    return (config.buffer.scalar_segment_lines // max_res) * max_res
 
 
-def _workers_to_flush(conn: Connection, *, include_partial: bool) -> list[tuple[UUID, bool]]:
+def _workers_to_flush(conn: Connection) -> list[tuple[Worker, bool]]:
     cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
     staged = sa.func.count(sa.distinct(scalar_points.c.line))
-    q = sa.select(scalar_points.c.worker_id, run_workers.c.last_heartbeat).select_from(
-        scalar_points.join(run_workers, run_workers.c.id == scalar_points.c.worker_id),
-    ).group_by(scalar_points.c.worker_id, run_workers.c.last_heartbeat)
-    if not include_partial:
-        q = q.having(sa.or_(staged >= _flush_threshold(), run_workers.c.last_heartbeat < cutoff))
-    rows = conn.execute(q).all()
-    return [(r.worker_id, include_partial or r.last_heartbeat < cutoff) for r in rows]
+    rows = conn.execute(sa.select(*workers_repo.COLUMNS).select_from(
+        workers_repo.JOIN.join(scalar_points, scalar_points.c.worker_id == run_workers.c.id),
+    ).group_by(*workers_repo.COLUMNS).having(
+        sa.or_(staged >= _flush_threshold(), run_workers.c.last_heartbeat < cutoff),
+    )).all()
+    workers = [Worker.model_validate(r) for r in rows]
+    # Gate partial drain on the whole run being quiet, not just this worker — a briefly-stale
+    # worker that later reconnects would otherwise produce misaligned higher-resolution segments.
+    run_active = {w.run_id: runs_repo.has_active_worker(conn, w.run_id) for w in workers}
+    return [(w, not run_active[w.run_id]) for w in workers]
 
 
-def compact(engine: Engine, storage: Storage, *, include_partial: bool = False) -> None:
+def compact(engine: Engine, storage: Storage) -> None:
     with engine.connect() as conn:
-        targets = _workers_to_flush(conn, include_partial=include_partial)
-    for worker_id, partial in targets:
+        targets = _workers_to_flush(conn)
+    for worker, partial in targets:
         try:
             with engine.begin() as conn:
-                _compact_worker(conn, storage, worker_id, partial=partial)
+                _compact_worker(conn, storage, worker, partial=partial)
         except Exception:
-            logger.exception("Scalar compaction failed for worker %s", worker_id)
+            logger.exception("Scalar compaction failed for worker %s", worker.id)
 
 
-def _compact_worker(conn: Connection, storage: Storage, worker_id: UUID, *, partial: bool) -> None:
-    worker = workers_repo.get_by_id(conn, worker_id)
-    if worker is None:
-        return
+def _compact_worker(conn: Connection, storage: Storage, worker: Worker, *, partial: bool) -> None:
     base_at_1 = scalar_seg_repo.get_end_line(conn, worker.id, 1)
     max_line = conn.execute(sa.select(sa.func.max(scalar_points.c.line)).where(
         scalar_points.c.worker_id == worker.id,
@@ -137,14 +148,14 @@ def _compact_worker(conn: Connection, storage: Storage, worker_id: UUID, *, part
     if max_line is None:
         return
     staged = max_line + 1 - base_at_1
-    max_res = max(resolutions())
-    # Partial flush (shutdown / dead worker) drains everything and accepts that the final
-    # bucket at higher resolutions may average fewer points; otherwise we round to max_res.
+    max_res = max(config.buffer.scalar_resolutions)
+    # Mid-run we round to max_res to keep bucket boundaries aligned; terminal drains flush
+    # the ragged tail and accept that the final bucket may average fewer points.
     take = staged if partial else (staged // max_res) * max_res
     if take == 0:
         return
     cutoff_line = base_at_1 + take - 1
-    for resolution in resolutions():
+    for resolution in config.buffer.scalar_resolutions:
         base = scalar_seg_repo.get_end_line(conn, worker.id, resolution)
         downsampled = read_buffered(conn, worker.id, resolution, line_lte=cutoff_line)
         if not downsampled:

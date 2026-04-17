@@ -200,6 +200,11 @@ class HealthResponse(_Base):
     version: Literal["v1"] = "v1"
 
 
+class LogLine(_Base):
+    timestamp: UTCDatetime
+    content: str
+
+
 class LogEntry(_Base):
     start_line: int
     end_line: int

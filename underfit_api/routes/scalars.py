@@ -8,8 +8,9 @@ from pydantic.alias_generators import to_camel
 
 from underfit_api.buffers import BadStartLineError, BadStepError
 from underfit_api.buffers import scalars as scalar_buffer
+from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
-from underfit_api.models import BufferedResponse, Scalar, ScalarSeriesResponse, Worker
+from underfit_api.models import BufferedResponse, Scalar, ScalarSeriesResponse
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -23,15 +24,11 @@ class WriteScalarsBody(BaseModel):
     scalars: list[Scalar]
 
 
-def _total_line_count(conn: Conn, workers: list[Worker], resolution: int) -> int:
-    return sum(scalar_buffer.end_line(conn, w.id, resolution) for w in workers)
-
-
 def _select_resolution(counts: dict[int, int], target_points: int) -> int:
-    for resolution in scalar_buffer.resolutions():
+    for resolution in config.buffer.scalar_resolutions:
         if 0 < counts[resolution] <= target_points:
             return resolution
-    for resolution in reversed(scalar_buffer.resolutions()):
+    for resolution in reversed(config.buffer.scalar_resolutions):
         if counts[resolution] > 0:
             return resolution
     return 1
@@ -64,7 +61,7 @@ def read_scalars(
     if resolution is not None and target_points is not None:
         raise HTTPException(400, "Cannot specify both resolution and targetPoints")
     workers = workers_repo.list_by_run(conn, run.id)
-    counts = {res: _total_line_count(conn, workers, res) for res in scalar_buffer.resolutions()}
+    counts = scalar_buffer.total_line_counts(conn, [w.id for w in workers])
     selected_resolution = resolution if resolution is not None else 1
     if target_points is not None:
         selected_resolution = _select_resolution(counts, target_points)

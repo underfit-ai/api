@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -67,7 +67,13 @@ class BufferConfig(BaseModel):
     def _validate_scalar_resolutions(cls, values: list[int]) -> list[int]:
         if any(value < 1 for value in values):
             raise ValueError("scalar_resolutions must be >= 1")
-        return list(dict.fromkeys(values))
+        return sorted({1, *values})
+
+    @model_validator(mode="after")
+    def _validate_segment_lines(self) -> BufferConfig:
+        if self.scalar_segment_lines < max(self.scalar_resolutions):
+            raise ValueError("scalar_segment_lines must be >= max(scalar_resolutions)")
+        return self
 
 
 class EmailConfig(BaseModel):

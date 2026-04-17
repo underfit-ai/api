@@ -9,8 +9,8 @@ from underfit_api.helpers import utcnow
 from underfit_api.models import Worker
 from underfit_api.schema import run_workers, runs
 
-_join = run_workers.join(runs, run_workers.c.run_id == runs.c.id)
-_columns = [
+JOIN = run_workers.join(runs, run_workers.c.run_id == runs.c.id)
+COLUMNS = [
     run_workers.c.id, run_workers.c.run_id, runs.c.storage_key.label("run_storage_key"),
     run_workers.c.worker_label, run_workers.c.last_heartbeat, run_workers.c.joined_at,
 ]
@@ -29,20 +29,20 @@ def create(conn: Connection, run_id: UUID, worker_label: str) -> Worker:
 
 def list_by_run(conn: Connection, run_id: UUID) -> list[Worker]:
     rows = conn.execute(
-        sa.select(*_columns).select_from(_join).where(run_workers.c.run_id == run_id).order_by(run_workers.c.joined_at),
+        sa.select(*COLUMNS).select_from(JOIN).where(run_workers.c.run_id == run_id).order_by(run_workers.c.joined_at),
     ).all()
     return [Worker.model_validate(r) for r in rows]
 
 
 def get(conn: Connection, run_id: UUID, worker_label: str) -> Worker | None:
-    row = conn.execute(sa.select(*_columns).select_from(_join).where(
+    row = conn.execute(sa.select(*COLUMNS).select_from(JOIN).where(
         run_workers.c.run_id == run_id, run_workers.c.worker_label == worker_label,
     )).first()
     return Worker.model_validate(row) if row else None
 
 
 def get_by_id(conn: Connection, worker_id: UUID) -> Worker | None:
-    row = conn.execute(sa.select(*_columns).select_from(_join).where(run_workers.c.id == worker_id)).first()
+    row = conn.execute(sa.select(*COLUMNS).select_from(JOIN).where(run_workers.c.id == worker_id)).first()
     return Worker.model_validate(row) if row else None
 
 
