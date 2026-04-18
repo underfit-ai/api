@@ -12,7 +12,7 @@ router = APIRouter(prefix="/me/api-keys")
 
 
 class CreateApiKeyBody(Body):
-    label: str | None = None
+    label: str = ""
 
 
 @router.get("")

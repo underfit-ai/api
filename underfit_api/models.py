@@ -70,7 +70,7 @@ class Session(_Base):
 class ApiKey(_Base):
     id: UUID
     user_id: UUID
-    label: str | None
+    label: str
     token_prefix: str
     created_at: UTCDatetime
 
@@ -96,7 +96,7 @@ class Project(_Base):
     account_type: str = Field(exclude=True)
     name: str
     storage_key: str = Field(exclude=True)
-    description: str | None
+    description: str
     metadata: dict[str, object]
     ui_state: dict[str, object]
     baseline_run_id: UUID | None = None

@@ -22,7 +22,7 @@ def list_by_user(conn: Connection, user_id: UUID) -> list[ApiKey]:
     return [ApiKey.model_validate(r) for r in rows]
 
 
-def create(conn: Connection, user_id: UUID, label: str | None) -> ApiKeyWithToken:
+def create(conn: Connection, user_id: UUID, label: str) -> ApiKeyWithToken:
     key_id = uuid4()
     token = urlsafe_b64encode(os.urandom(32)).decode()
     prefix = token[:8]

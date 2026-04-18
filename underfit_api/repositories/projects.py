@@ -91,8 +91,7 @@ def list_related_to_user(conn: Connection, user_id: UUID) -> list[Project]:
 
 
 def create(
-    conn: Connection, account_id: UUID, name: str, description: str | None, visibility: str,
-    metadata: dict[str, object],
+    conn: Connection, account_id: UUID, name: str, description: str, visibility: str, metadata: dict[str, object],
 ) -> Project:
     project_id = uuid4()
     now = utcnow()
