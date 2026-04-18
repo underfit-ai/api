@@ -60,11 +60,10 @@ def _run_refresh(conn: Connection, storage: Storage, run_id: UUID) -> None:
         conn.execute(runs.delete().where(runs.c.id == run_id))
         return
     state = ui_state.load(storage)
-    if not (ensured := ensure_run(conn, storage, run_id, state)):
+    if not (project_id := ensure_run(conn, storage, run_id, state)):
         return
-    _, metadata = ensured
-    reconcile_segments(conn, storage, run_id, metadata.summary)
-    reconcile_assets(conn, storage, run_id)
+    reconcile_segments(conn, storage, run_id)
+    reconcile_assets(conn, storage, run_id, project_id)
 
 
 def _storage_run_ids(storage: Storage) -> set[UUID]:
@@ -73,9 +72,7 @@ def _storage_run_ids(storage: Storage) -> set[UUID]:
         if not entry.is_directory:
             continue
         try:
-            run_id = UUID(entry.name)
+            ids.add(UUID(entry.name))
         except ValueError:
             continue
-        if storage.list_dir(entry.name):
-            ids.add(run_id)
     return ids

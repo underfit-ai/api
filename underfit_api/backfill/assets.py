@@ -8,7 +8,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import Connection
 
 from underfit_api.helpers import utcnow
-from underfit_api.schema import artifacts, media, runs
+from underfit_api.schema import artifacts, media
 from underfit_api.storage.types import Storage
 
 logger = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _MEDIA = re.compile(r"^media/(image|video|audio|html)/(.+)_(-?\d+)_(\d+)(\.[^/]+)$")
 
 
-def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID) -> None:
+def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_id: UUID) -> None:
     for entry in storage.list_dir(f"{run_id}/artifacts"):
         if not entry.is_directory:
             continue
@@ -24,7 +24,7 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID) -> None:
             artifact_id = UUID(entry.name)
         except ValueError:
             continue
-        _ingest_artifact(conn, storage, run_id, artifact_id)
+        _ingest_artifact(conn, storage, run_id, project_id, artifact_id)
 
     prefix = f"{run_id}/"
     for key in storage.list_files(f"{run_id}/media"):
@@ -40,11 +40,11 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID) -> None:
             ))
 
 
-def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, artifact_id: UUID) -> None:
-    if not (run_row := conn.execute(runs.select().where(runs.c.id == run_id)).first()):
-        return
+def _ingest_artifact(
+    conn: Connection, storage: Storage, run_id: UUID, project_id: UUID, artifact_id: UUID,
+) -> None:
     storage_prefix = f"artifacts/{artifact_id}"
-    base = f"{run_row.storage_key}/{storage_prefix}"
+    base = f"{run_id}/{storage_prefix}"
     metadata_key = f"{base}/artifact.json"
     try:
         manifest = json.loads(storage.read(f"{base}/manifest.json"))
@@ -59,7 +59,7 @@ def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, artifact_
     stored_size_bytes = sum(storage.size(f"{files_dir}/{path}") for path in uploaded_paths)
     now = utcnow()
     values = dict(
-        project_id=run_row.project_id, step=metadata.get("step"),
+        project_id=project_id, step=metadata.get("step"),
         name=metadata.get("name", str(artifact_id)), type=metadata.get("type", "dataset"),
         storage_key=storage_prefix, finalized_at=now if finalized else None,
         stored_size_bytes=stored_size_bytes if finalized else None, metadata=metadata.get("metadata"),

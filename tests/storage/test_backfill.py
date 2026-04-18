@@ -83,7 +83,7 @@ def test_backfill_ingests_segment_files(storage: Storage, engine: Engine) -> Non
     assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
     assert scalar_row is not None and (scalar_row.resolution, scalar_row.start_line, scalar_row.end_line) == (1, 0, 2)
     assert scalar_row.end_at.isoformat() == "2025-01-01T00:00:01"
-    assert run_row.summary == {"loss": 0.6}
+    assert run_row.summary == {}
 
     _write_json(storage, f"{run_id}/run.json", {
         "project": "Vision", "name": "Trial A", "summary": {"loss": 0.1, "best": 1.0},

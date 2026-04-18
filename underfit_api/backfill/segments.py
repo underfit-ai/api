@@ -4,6 +4,7 @@ import logging
 import re
 from uuid import UUID
 
+import sqlalchemy as sa
 from pydantic import ValidationError
 from sqlalchemy import Connection
 
@@ -11,8 +12,8 @@ from underfit_api.helpers import utcnow
 from underfit_api.models import Scalar
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
-from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
+from underfit_api.schema import log_segments, scalar_segments
 from underfit_api.storage.types import Storage
 
 logger = logging.getLogger(__name__)
@@ -21,9 +22,7 @@ _LOG = re.compile(r"^logs/([^/]+)/segments/(\d+)\.log$")
 _SCALAR = re.compile(r"^scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 
 
-def reconcile_segments(
-    conn: Connection, storage: Storage, run_id: UUID, explicit_summary: dict[str, float] | None,
-) -> None:
+def reconcile_segments(conn: Connection, storage: Storage, run_id: UUID) -> None:
     prefix = f"{run_id}/"
     for key in storage.list_files(f"{run_id}/logs"):
         rel = key[len(prefix):]
@@ -31,17 +30,11 @@ def reconcile_segments(
             worker_id = _ensure_worker(conn, run_id, m.group(1))
             _ingest_log_segment(conn, storage, worker_id, key, rel, int(m.group(2)))
 
-    last_point: Scalar | None = None
     for key in storage.list_files(f"{run_id}/scalars"):
         rel = key[len(prefix):]
         if m := _SCALAR.match(rel):
             worker_id = _ensure_worker(conn, run_id, m.group(1))
-            resolution = int(m.group(2))
-            new_points = _ingest_scalar_segment(conn, storage, worker_id, key, rel, resolution, int(m.group(3)))
-            if resolution == 1 and new_points and (last_point is None or new_points[-1].step > last_point.step):
-                last_point = new_points[-1]
-    summary = explicit_summary if explicit_summary is not None else (last_point.values if last_point else {})
-    runs_repo.update_summary(conn, run_id, summary)
+            _ingest_scalar_segment(conn, storage, worker_id, key, rel, int(m.group(2)), int(m.group(3)))
 
 
 def _ensure_worker(conn: Connection, run_id: UUID, worker_label: str) -> UUID:
@@ -57,6 +50,11 @@ def _ingest_log_segment(
     if not lines:
         return
     end_line = start_line + len(lines)
+    existing = conn.execute(sa.select(log_segments.c.end_line).where(
+        log_segments.c.worker_id == worker_id, log_segments.c.start_line == start_line,
+    )).scalar()
+    if existing == end_line:
+        return
     now = utcnow()
     log_seg_repo.upsert(
         conn, worker_id, start_line=start_line, end_line=end_line,
@@ -68,7 +66,7 @@ def _ingest_log_segment(
 def _ingest_scalar_segment(
     conn: Connection, storage: Storage, worker_id: UUID, full_key: str, storage_key: str,
     resolution: int, start_line: int,
-) -> list[Scalar]:
+) -> None:
     points: list[Scalar] = []
     for raw_line in storage.read(full_key).decode().splitlines():
         if not raw_line:
@@ -79,11 +77,17 @@ def _ingest_scalar_segment(
             logger.warning("Stopping scalar ingest at invalid line in %s", full_key)
             break
     if not points:
-        return []
+        return
+    end_line = start_line + len(points)
+    existing = conn.execute(sa.select(scalar_segments.c.end_line).where(
+        scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution,
+        scalar_segments.c.start_line == start_line,
+    )).scalar()
+    if existing == end_line:
+        return
     scalar_seg_repo.upsert(
-        conn, worker_id, resolution, start_line=start_line, end_line=start_line + len(points),
+        conn, worker_id, resolution, start_line=start_line, end_line=end_line,
         end_step=points[-1].step, start_at=points[0].timestamp, end_at=points[-1].timestamp,
         storage_key=storage_key,
     )
     workers_repo.touch(conn, worker_id)
-    return points

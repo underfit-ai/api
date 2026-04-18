@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import Connection
+from sqlalchemy.engine import Row
 
 from underfit_api.backfill import ui_state
 from underfit_api.helpers import utcnow
@@ -32,7 +33,7 @@ class RunMetadata(BaseModel):
 
 def ensure_run(
     conn: Connection, storage: Storage, run_uuid: UUID, state: ui_state.UIState,
-) -> tuple[UUID, RunMetadata] | None:
+) -> UUID | None:
     try:
         metadata = RunMetadata.model_validate_json(storage.read(f"{run_uuid}/run.json"))
     except (ValidationError, json.JSONDecodeError, FileNotFoundError):
@@ -42,12 +43,12 @@ def ensure_run(
         return None
     user_id, user_handle = resolved
     project_name = metadata.project.lower()
-    project_id = _resolve_project(conn, user_id, project_name)
+    project_row = _resolve_project(conn, user_id, project_name)
     run_ui = ui_state.lookup_run(state, run_uuid)
     project_ui = ui_state.lookup_project(state, user_handle, project_name)
     existing = conn.execute(runs.select().where(runs.c.id == run_uuid)).first()
     values = dict(
-        project_id=project_id, user_id=user_id, name=(metadata.name or str(run_uuid)).lower(),
+        project_id=project_row.id, user_id=user_id, name=(metadata.name or str(run_uuid)).lower(),
         storage_key=str(run_uuid), terminal_state=metadata.terminal_state,
         config=metadata.config, metadata=metadata.metadata,
         ui_state=run_ui.ui_state or {}, is_pinned=bool(run_ui.is_pinned),
@@ -59,19 +60,17 @@ def ensure_run(
             id=run_uuid, launch_id=str(run_uuid), created_at=now, updated_at=now, **values,
         ))
     elif any(getattr(existing, k) != v for k, v in values.items()):
-        if existing.project_id != project_id:
+        if existing.project_id != project_row.id:
             conn.execute(artifacts.delete().where(artifacts.c.run_id == run_uuid))
         conn.execute(runs.update().where(runs.c.id == run_uuid).values(updated_at=utcnow(), **values))
-    project_row = conn.execute(projects.select().where(projects.c.id == project_id)).first()
-    assert project_row is not None
     if project_row.ui_state != project_ui.ui_state:
-        projects_repo.update_ui_state(conn, project_id, project_ui.ui_state)
+        projects_repo.update_ui_state(conn, project_row.id, project_ui.ui_state)
     target_baseline = project_ui.baseline_run_id
     if target_baseline == run_uuid and project_row.baseline_run_id != run_uuid:
-        projects_repo.set_baseline_run(conn, project_id, run_uuid)
+        projects_repo.set_baseline_run(conn, project_row.id, run_uuid)
     elif target_baseline != run_uuid and project_row.baseline_run_id == run_uuid:
-        projects_repo.set_baseline_run(conn, project_id, None)
-    return project_id, metadata
+        projects_repo.set_baseline_run(conn, project_row.id, None)
+    return project_row.id
 
 
 def _resolve_user(conn: Connection, handle: str) -> tuple[UUID, str] | None:
@@ -83,17 +82,17 @@ def _resolve_user(conn: Connection, handle: str) -> tuple[UUID, str] | None:
     return local.id, local.handle
 
 
-def _resolve_project(conn: Connection, account_id: UUID, name: str) -> UUID:
+def _resolve_project(conn: Connection, account_id: UUID, name: str) -> Row:
     if row := conn.execute(projects.select().where(
         projects.c.account_id == account_id, projects.c.name == name,
     )).first():
-        return row.id
+        return row
     project_id = uuid4()
     now = utcnow()
     conn.execute(projects.insert().values(
         id=project_id, account_id=account_id, name=name, storage_key=str(project_id),
         metadata={}, ui_state={}, visibility="private", created_at=now, updated_at=now,
     ))
-    return project_id
-
-
+    row = conn.execute(projects.select().where(projects.c.id == project_id)).first()
+    assert row is not None
+    return row
