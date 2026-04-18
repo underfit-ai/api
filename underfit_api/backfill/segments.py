@@ -4,7 +4,6 @@ import logging
 import re
 from uuid import UUID
 
-import sqlalchemy as sa
 from pydantic import ValidationError
 from sqlalchemy import Connection
 
@@ -14,7 +13,6 @@ from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
-from underfit_api.schema import log_segments, run_workers, scalar_segments
 from underfit_api.storage.types import Storage
 
 logger = logging.getLogger(__name__)
@@ -25,39 +23,20 @@ _SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 
 def reconcile_segments(
     conn: Connection, storage: Storage, run_id: UUID, run_keys: list[str],
-    explicit_summary: dict[str, float] | None, sizes: dict[str, int],
+    explicit_summary: dict[str, float] | None,
 ) -> None:
-    seen_logs: set[str] = set()
-    seen_scalars: set[str] = set()
     last_point: Scalar | None = None
     for key in sorted(run_keys):
         rel = key[len(f"{run_id}/"):]
         if m := _LOG.match(key):
-            rwid = _ensure_worker(conn, run_id, m.group(2))
-            if _ingest_log_segment(conn, storage, rwid, key, rel, int(m.group(3)), sizes):
-                seen_logs.add(rel)
+            worker_id = _ensure_worker(conn, run_id, m.group(2))
+            _ingest_log_segment(conn, storage, worker_id, key, rel, int(m.group(3)))
         elif m := _SCALAR.match(key):
-            rwid = _ensure_worker(conn, run_id, m.group(2))
+            worker_id = _ensure_worker(conn, run_id, m.group(2))
             resolution = int(m.group(3))
-            seen, new_points = _ingest_scalar_segment(
-                conn, storage, rwid, key, rel, resolution, int(m.group(4)), sizes,
-            )
-            if seen:
-                seen_scalars.add(rel)
-                if resolution == 1 and new_points and (last_point is None or new_points[-1].step > last_point.step):
-                    last_point = new_points[-1]
-    worker_ids = sa.select(run_workers.c.id).where(run_workers.c.run_id == run_id).scalar_subquery()
-    conn.execute(log_segments.delete().where(
-        log_segments.c.worker_id.in_(worker_ids), log_segments.c.storage_key.not_in(seen_logs),
-    ))
-    conn.execute(scalar_segments.delete().where(
-        scalar_segments.c.worker_id.in_(worker_ids), scalar_segments.c.storage_key.not_in(seen_scalars),
-    ))
-    conn.execute(run_workers.delete().where(
-        run_workers.c.run_id == run_id,
-        ~sa.exists().where(log_segments.c.worker_id == run_workers.c.id),
-        ~sa.exists().where(scalar_segments.c.worker_id == run_workers.c.id),
-    ))
+            new_points = _ingest_scalar_segment(conn, storage, worker_id, key, rel, resolution, int(m.group(4)))
+            if resolution == 1 and new_points and (last_point is None or new_points[-1].step > last_point.step):
+                last_point = new_points[-1]
     summary = explicit_summary if explicit_summary is not None else (last_point.values if last_point else {})
     runs_repo.update_summary(conn, run_id, summary)
 
@@ -70,36 +49,23 @@ def _ensure_worker(conn: Connection, run_id: UUID, worker_label: str) -> UUID:
 
 def _ingest_log_segment(
     conn: Connection, storage: Storage, worker_id: UUID, full_key: str, storage_key: str, start_line: int,
-    sizes: dict[str, int],
-) -> bool:
-    size = storage.size(full_key)
-    if sizes.get(full_key) == size:
-        return True
+) -> None:
     lines = storage.read(full_key).decode().splitlines()
     if not lines:
-        return False
+        return
     end_line = start_line + len(lines)
-    existing = conn.execute(sa.select(log_segments.c.end_line).where(
-        log_segments.c.worker_id == worker_id, log_segments.c.start_line == start_line,
-    )).scalar()
-    if existing != end_line:
-        now = utcnow()
-        log_seg_repo.upsert(
-            conn, worker_id, start_line=start_line, end_line=end_line,
-            start_at=now, end_at=now, storage_key=storage_key,
-        )
-        workers_repo.touch(conn, worker_id)
-    sizes[full_key] = size
-    return True
+    now = utcnow()
+    log_seg_repo.upsert(
+        conn, worker_id, start_line=start_line, end_line=end_line,
+        start_at=now, end_at=now, storage_key=storage_key,
+    )
+    workers_repo.touch(conn, worker_id)
 
 
 def _ingest_scalar_segment(
     conn: Connection, storage: Storage, worker_id: UUID, full_key: str, storage_key: str,
-    resolution: int, start_line: int, sizes: dict[str, int],
-) -> tuple[bool, list[Scalar]]:
-    size = storage.size(full_key)
-    if sizes.get(full_key) == size:
-        return True, []
+    resolution: int, start_line: int,
+) -> list[Scalar]:
     points: list[Scalar] = []
     for raw_line in storage.read(full_key).decode().splitlines():
         if not raw_line:
@@ -110,19 +76,11 @@ def _ingest_scalar_segment(
             logger.warning("Stopping scalar ingest at invalid line in %s", full_key)
             break
     if not points:
-        return False, []
-    end_line = start_line + len(points)
-    existing = conn.execute(sa.select(scalar_segments.c.end_line).where(
-        scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution,
-        scalar_segments.c.start_line == start_line,
-    )).scalar()
-    if existing == end_line:
-        sizes[full_key] = size
-        return True, []
+        return []
     scalar_seg_repo.upsert(
-        conn, worker_id, resolution, start_line=start_line, end_line=end_line, end_step=points[-1].step,
-        start_at=points[0].timestamp, end_at=points[-1].timestamp, storage_key=storage_key,
+        conn, worker_id, resolution, start_line=start_line, end_line=start_line + len(points),
+        end_step=points[-1].step, start_at=points[0].timestamp, end_at=points[-1].timestamp,
+        storage_key=storage_key,
     )
     workers_repo.touch(conn, worker_id)
-    sizes[full_key] = size
-    return True, points[(existing - start_line) if existing is not None else 0:]
+    return points

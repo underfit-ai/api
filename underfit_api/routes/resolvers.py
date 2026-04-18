@@ -4,7 +4,9 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
-from underfit_api.dependencies import Conn
+from underfit_api import backfill
+from underfit_api.config import config
+from underfit_api.dependencies import Conn, Ctx
 from underfit_api.models import Account, Artifact, Organization, Project, Run, User
 from underfit_api.permissions import require_project_viewer
 from underfit_api.repositories import accounts as accounts_repo
@@ -42,10 +44,16 @@ def resolve_project(conn: Conn, handle: str, project_name: str, user: User | Non
     return resolve_account_and_project(conn, handle, project_name, user)[1]
 
 
-def resolve_run(conn: Conn, handle: str, project_name: str, run_name: str, user: User | None = None) -> Run:
+def resolve_run(
+    conn: Conn, ctx: Ctx, handle: str, project_name: str, run_name: str, user: User | None = None,
+) -> Run:
     project = resolve_project(conn, handle, project_name, user)
     if not (run := runs_repo.get_by_project_and_name(conn, project.id, run_name)):
         raise HTTPException(404, "Run not found")
+    if config.backfill.enabled:
+        backfill.refresh_run(ctx, conn, run.id)
+        if not (run := runs_repo.get_by_project_and_name(conn, project.id, run_name)):
+            raise HTTPException(404, "Run not found")
     return run
 
 

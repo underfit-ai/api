@@ -1,42 +1,19 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
 
-from watchdog.events import FileSystemEvent, FileSystemEventHandler
-from watchdog.observers import Observer
-from watchdog.observers.api import BaseObserver
-
 from underfit_api.config import FileStorageConfig
 from underfit_api.storage.types import DirEntry, FileStat
-
-
-class _StorageHandler(FileSystemEventHandler):
-    def __init__(self, base: Path, callback: Callable[[str], None]) -> None:
-        self._base = base.resolve()
-        self._callback = callback
-
-    def on_any_event(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
-            return
-        for path in [event.src_path, getattr(event, "dest_path", None)]:
-            if not path:
-                continue
-            try:
-                key = str(Path(str(path)).resolve().relative_to(self._base))
-            except ValueError:
-                continue
-            self._callback(key)
 
 
 class FileStorage:
     def __init__(self, config: FileStorageConfig) -> None:
         self.base = Path(config.base)
         self._tmp = self.base.parent / f".{self.base.name}.tmp"
-        self._observer: BaseObserver | None = None
 
     def _resolve(self, key: str) -> Path:
         resolved = (self.base / key).resolve()
@@ -134,20 +111,6 @@ class FileStorage:
             return []
         base = self.base.resolve()
         return sorted(str(p.resolve().relative_to(base)) for p in path.rglob("*") if p.is_file())
-
-    def watch(self, callback: Callable[[str], None]) -> None:
-        self.base.mkdir(parents=True, exist_ok=True)
-        handler = _StorageHandler(self.base, callback)
-        observer = Observer()
-        observer.schedule(handler, str(self.base), recursive=True)
-        observer.start()
-        self._observer = observer
-
-    def stop_watching(self) -> None:
-        if self._observer is not None:
-            self._observer.stop()
-            self._observer.join()
-            self._observer = None
 
 
 def _format_mtime(mtime: float) -> str:

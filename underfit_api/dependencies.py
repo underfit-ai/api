@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from typing import Annotated, NamedTuple, Optional
 from uuid import UUID
 
@@ -16,9 +18,13 @@ from underfit_api.repositories import users as users_repo
 from underfit_api.storage.types import Storage
 
 
-class AppContext(NamedTuple):
+@dataclass
+class AppContext:
     engine: Engine
     storage: Storage
+    sync_lock: threading.Lock = field(default_factory=threading.Lock)
+    last_full_sync: float = 0.0
+    last_run_sync: dict[UUID, float] = field(default_factory=dict)
 
 
 def get_ctx(request: Request) -> AppContext:

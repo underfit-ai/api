@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable, Iterator
-from typing import NamedTuple, Protocol, runtime_checkable
+from collections.abc import AsyncIterator, Iterator
+from typing import NamedTuple, Protocol
 
 
 class DirEntry(NamedTuple):
@@ -30,9 +30,3 @@ class Storage(Protocol):
     def stat(self, key: str) -> FileStat: ...
     def list_dir(self, prefix: str) -> list[DirEntry]: ...
     def list_files(self, prefix: str) -> list[str]: ...
-
-
-@runtime_checkable
-class WatchableStorage(Storage, Protocol):
-    def watch(self, callback: Callable[[str], None]) -> None: ...
-    def stop_watching(self) -> None: ...

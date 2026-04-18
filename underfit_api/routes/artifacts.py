@@ -101,9 +101,9 @@ def create_project_artifact(
 
 @router.post("/accounts/{handle}/projects/{project_name}/runs/{run_name}/artifacts")
 def create_run_artifact(
-    handle: str, project_name: str, run_name: str, body: CreateArtifactBody, conn: Conn, user: RequireUser,
+    handle: str, project_name: str, run_name: str, body: CreateArtifactBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Artifact:
-    run = resolve_run(conn, handle, project_name, run_name, user)
+    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
     return _create_artifact(conn, run.project_id, body, run.id)
 

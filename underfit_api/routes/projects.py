@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
-from underfit_api.backfill import sync_project_ui_sidecar
+from underfit_api.backfill import write_project_ui_state
+from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict
 from underfit_api.models import Body, OkResponse, Project, ProjectVisibility
@@ -93,7 +94,8 @@ def update_project_ui_state(
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project.id, user.id)
     updated = projects_repo.update_ui_state(conn, project.id, body.ui_state)
-    sync_project_ui_sidecar(ctx.storage, updated)
+    if config.backfill.enabled:
+        write_project_ui_state(ctx.storage, updated)
     return updated
 
 

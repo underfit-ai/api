@@ -13,8 +13,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
 
+from underfit_api import backfill
 from underfit_api.auth import get_app_secret
-from underfit_api.backfill import BackfillService
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
@@ -75,12 +75,12 @@ def _init_context(app: FastAPI) -> AppContext:
     return ctx
 
 
-async def _init_backfill(ctx: AppContext) -> BackfillService | None:
-    if not config.backfill.enabled:
-        return None
-    backfill = BackfillService(ctx.storage, ctx.engine, config.backfill)
-    await backfill.start()
-    return backfill
+def _sync_backfill(ctx: AppContext) -> None:
+    try:
+        with ctx.engine.begin() as conn:
+            backfill.sync(ctx, conn)
+    except Exception:
+        logger.exception("Backfill sync error")
 
 
 @asynccontextmanager
@@ -88,15 +88,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _validate_config()
     ctx = _init_context(app)
     app.state.ctx = ctx
-    backfill = await _init_backfill(ctx)
+    if config.backfill.enabled:
+        await asyncio.to_thread(_sync_backfill, ctx)
     flush_task = asyncio.create_task(_flush_loop(ctx)) if not config.backfill.enabled else None
     yield
     if flush_task is not None:
         flush_task.cancel()
         with suppress(asyncio.CancelledError):
             await flush_task
-    if backfill is not None:
-        await backfill.stop()
     ctx.engine.dispose()
 
 
@@ -116,14 +115,12 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def block_api_writes_during_backfill(request: Request, call_next: RequestResponseEndpoint) -> Response:
-    if (
-        config.backfill.enabled
-        and request.url.path.startswith("/api/v1")
-        and request.method in WRITE_METHODS
-        and not request.url.path.endswith("/ui-state")
-    ):
-        return JSONResponse(status_code=409, content={"error": BACKFILL_WRITE_ERROR})
+async def backfill_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    if config.backfill.enabled and request.url.path.startswith("/api/v1"):
+        if request.method in WRITE_METHODS and not request.url.path.endswith("/ui-state"):
+            return JSONResponse(status_code=409, content={"error": BACKFILL_WRITE_ERROR})
+        if request.method == "GET":
+            await asyncio.to_thread(_sync_backfill, request.app.state.ctx)
     return await call_next(request)
 
 

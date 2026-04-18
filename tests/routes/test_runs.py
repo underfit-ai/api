@@ -165,13 +165,17 @@ def test_update_run_ui_state(
     project = client.get("/api/v1/accounts/owner/projects/underfit", headers=owner_headers).json()
     assert project["baselineRunId"] == run["id"]
 
+    storage.write(
+        f"{run['id']}/run.json", json.dumps({"project": "underfit", "user": "owner", "name": "r"}).encode(),
+    )
     config.backfill.enabled = True
     resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"layout": "list"}, "isPinned": True})
     assert resp.status_code == 200
     assert client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"metadata": {}}).status_code == 409
 
-    assert json.loads(storage.read(f"{run['id']}/ui.json")) == {
-        "uiState": {"layout": "list"}, "isPinned": True, "isBaseline": True,
+    state = json.loads(storage.read(".ui-state.json"))
+    assert state["runs"][run["id"]] == {
+        "uiState": {"layout": "list"}, "isPinned": True, "isBaseline": False,
     }
 
 

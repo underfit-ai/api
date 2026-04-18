@@ -5,7 +5,8 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
-from underfit_api.backfill import sync_run_ui_sidecar
+from underfit_api.backfill import write_run_ui_state
+from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, validate_json_size
 from underfit_api.models import Body, LaunchResponse, OkResponse, Run, RunTerminalState
@@ -87,15 +88,15 @@ def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: R
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
-def get_run(handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser) -> Run:
-    return resolve_run(conn, handle, project_name, run_name, user)
+def get_run(handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> Run:
+    return resolve_run(conn, ctx, handle, project_name, run_name, user)
 
 
 @router.put("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
 def update_run(
-    handle: str, project_name: str, run_name: str, body: UpdateRunBody, conn: Conn, user: RequireUser,
+    handle: str, project_name: str, run_name: str, body: UpdateRunBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Run:
-    run = resolve_run(conn, handle, project_name, run_name, user)
+    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
     validate_json_size(body.metadata, "Metadata")
     if body.metadata is None:
@@ -105,7 +106,7 @@ def update_run(
 
 @router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
 def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: RequireUser) -> OkResponse:
-    run = resolve_run(conn, handle, project_name, run_name, user)
+    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
     if run.user != user.handle:
         require_account_admin(conn, run.project_owner_id, run.project_owner_type, user.id)
     with ctx.engine.begin() as write_conn:
@@ -118,14 +119,15 @@ def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, ctx: C
 def update_run_ui_state(
     handle: str, project_name: str, run_name: str, body: UpdateRunUIStateBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Run:
-    run = resolve_run(conn, handle, project_name, run_name, user)
+    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
     validate_json_size(body.ui_state, "UI state")
     if body.is_baseline is not None:
         projects_repo.set_baseline_run(conn, run.project_id, run.id if body.is_baseline else None)
     patch = RunSettings.model_validate(body.model_dump(exclude_unset=True))
     updated = runs_repo.update_settings(conn, run.id, patch)
-    sync_run_ui_sidecar(ctx.storage, updated)
+    if config.backfill.enabled:
+        write_run_ui_state(ctx.storage, updated)
     return updated
 
 

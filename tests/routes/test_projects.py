@@ -65,9 +65,8 @@ def test_update_project_ui_state(
     assert resp.status_code == 200
     assert client.put(f"{BASE}/underfit", headers=owner_headers, json={"description": "x"}).status_code == 409
 
-    assert json.loads(storage.read(".projects/owner/underfit/ui.json")) == {
-        "uiState": {"charts": "loss"},
-    }
+    state = json.loads(storage.read(".ui-state.json"))
+    assert state["projects"]["owner/underfit"]["uiState"] == {"charts": "loss"}
 
 
 def test_project_visibility_and_listing(

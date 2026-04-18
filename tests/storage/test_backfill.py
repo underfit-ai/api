@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,14 +9,14 @@ import boto3
 import pytest
 from moto import mock_aws
 from sqlalchemy import Engine, select
-from watchdog.events import FileMovedEvent
 
-from underfit_api.backfill import BackfillService
-from underfit_api.config import BackfillConfig, FileStorageConfig, S3StorageConfig
+from underfit_api import backfill
+from underfit_api.config import FileStorageConfig, S3StorageConfig
+from underfit_api.dependencies import AppContext
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import artifacts, log_segments, media, projects, run_workers, runs, scalar_segments
-from underfit_api.storage.file import FileStorage, _StorageHandler
+from underfit_api.storage.file import FileStorage
 from underfit_api.storage.s3 import S3Storage
 from underfit_api.storage.types import Storage
 
@@ -32,13 +31,12 @@ def storage(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Storage]
             yield S3Storage(S3StorageConfig(bucket="test-bucket", prefix="pfx", region="us-east-1"))
 
 
-@pytest.fixture
-def backfill_service(storage: Storage, engine: Engine) -> BackfillService:
-    return BackfillService(storage, engine, BackfillConfig(enabled=True, scan_interval_s=1, debounce_ms=1))
-
-
-def _scan(service: BackfillService) -> None:
-    service._process_batch(service._collect_pending())  # noqa: SLF001
+def _sync(engine: Engine, storage: Storage) -> None:
+    ctx = AppContext(engine=engine, storage=storage)
+    with engine.begin() as conn:
+        backfill.sync(ctx, conn)
+        for row in conn.execute(select(runs.c.id)).all():
+            backfill.refresh_run(ctx, conn, row.id)
 
 
 def _write_json(storage: Storage, key: str, data: object) -> None:
@@ -49,57 +47,7 @@ def _write_text(storage: Storage, key: str, data: str) -> None:
     storage.write(key, data.encode())
 
 
-def test_realtime_backfill_ingests_file_changes(
-    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    storage = FileStorage(FileStorageConfig(base=str(tmp_path)))
-    callbacks: list[Callable[[FileMovedEvent], None]] = []
-    monkeypatch.setattr(
-        storage, "watch", lambda callback: callbacks.append(_StorageHandler(tmp_path, callback).on_any_event),
-    )
-    monkeypatch.setattr(storage, "stop_watching", lambda: None)
-    config = BackfillConfig(enabled=True, scan_interval_s=1, debounce_ms=5)
-    service = BackfillService(storage, engine, config)
-    initial_run_id = uuid4()
-    initial_run_dir = Path(storage.base) / str(initial_run_id)
-    (initial_run_dir / "logs" / "worker-1" / "segments").mkdir(parents=True)
-    (initial_run_dir / "run.json").write_text(json.dumps({"project": "RT", "name": "initial-run"}))
-    (initial_run_dir / "logs" / "worker-1" / "segments" / "0.log").write_text("line1\n")
-
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(service.start())
-        run_id = uuid4()
-        run_dir = Path(storage.base) / str(run_id)
-        (run_dir / "logs" / "worker-1" / "segments").mkdir(parents=True)
-        (run_dir / "run.json").write_text(json.dumps({"project": "RT", "name": "rt-run"}))
-        (run_dir / "logs" / "worker-1" / "segments" / "0.log").write_text("line1\nline2\n")
-        callbacks[0](FileMovedEvent(str(tmp_path / ".tmp"), str(run_dir / "run.json")))
-        missed_run_id = uuid4()
-        missed_run_dir = Path(storage.base) / str(missed_run_id)
-        (missed_run_dir / "logs" / "worker-2" / "segments").mkdir(parents=True)
-        (missed_run_dir / "run.json").write_text(json.dumps({"project": "RT", "name": "missed-run"}))
-        (missed_run_dir / "logs" / "worker-2" / "segments" / "0.log").write_text("line1\n")
-        loop.run_until_complete(asyncio.sleep(1.1))
-        with engine.begin() as conn:
-            initial_run_row = conn.execute(select(runs).where(runs.c.id == initial_run_id)).first()
-            run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
-            missed_run_row = conn.execute(select(runs).where(runs.c.id == missed_run_id)).first()
-            worker_row = conn.execute(select(run_workers).where(run_workers.c.run_id == run_id)).first()
-            assert worker_row is not None
-            log_row = conn.execute(select(log_segments).where(log_segments.c.worker_id == worker_row.id)).first()
-        assert initial_run_row is not None and initial_run_row.name == "initial-run"
-        assert run_row is not None and run_row.name == "rt-run"
-        assert missed_run_row is not None and missed_run_row.name == "missed-run"
-        assert log_row is not None and (log_row.start_line, log_row.end_line) == (0, 2)
-    finally:
-        loop.run_until_complete(service.stop())
-        loop.close()
-
-
-def test_backfill_ingests_segment_files(
-    backfill_service: BackfillService, storage: Storage, engine: Engine,
-) -> None:
+def test_backfill_ingests_segment_files(storage: Storage, engine: Engine) -> None:
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {
         "project": "Vision", "name": "Trial A", "config": {"lr": 0.01, "seed": 7},
@@ -110,7 +58,7 @@ def test_backfill_ingests_segment_files(
         '{"step":1,"values":{"loss":0.8},"timestamp":"2025-01-01T00:00:00Z"}\n'
         '{"step":2,"values":{"loss":0.6},"timestamp":"2025-01-01T00:00:01Z"}\n'
     ))
-    _scan(backfill_service)
+    _sync(engine, storage)
 
     with engine.begin() as conn:
         project_row = conn.execute(select(projects)).first()
@@ -143,21 +91,15 @@ def test_backfill_ingests_segment_files(
     _write_text(storage, f"{run_id}/scalars/0/r1/2.jsonl", (
         '{"step":3,"values":{"loss":0.4,"acc":0.9},"timestamp":"2025-01-01T00:00:02Z"}\n'
     ))
-    _scan(backfill_service)
+    _sync(engine, storage)
     with engine.begin() as conn:
-        rescanned_log_worker = conn.execute(select(run_workers).where(run_workers.c.id == log_worker_row.id)).first()
-        rescanned_log = conn.execute(select(log_segments).where(log_segments.c.id == log_row.id)).first()
         log_segment_count = conn.execute(select(log_segments)).all()
         rescanned_run = conn.execute(select(runs).where(runs.c.id == run_id)).first()
-    assert rescanned_log_worker is not None and rescanned_log_worker.last_heartbeat == log_worker_row.last_heartbeat
-    assert rescanned_log is not None and rescanned_log.end_line == 2
     assert len(log_segment_count) == 1
     assert rescanned_run is not None and rescanned_run.summary == {"loss": 0.1, "best": 1.0}
 
 
-def test_backfill_stops_scalar_segment_at_invalid_json(
-    backfill_service: BackfillService, storage: Storage, engine: Engine,
-) -> None:
+def test_backfill_stops_scalar_segment_at_invalid_json(storage: Storage, engine: Engine) -> None:
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial B", "terminal_state": "finished"})
     _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", (
@@ -165,29 +107,23 @@ def test_backfill_stops_scalar_segment_at_invalid_json(
         '{"step":1,"values":{"loss":0.8},"timestamp":"2025-01-01T00:00:01Z"}\n'
         "{bad-json}\n"
     ))
-    _scan(backfill_service)
+    _sync(engine, storage)
 
     with engine.begin() as conn:
         scalar_row = conn.execute(select(scalar_segments)).first()
     assert scalar_row is not None and (scalar_row.start_line, scalar_row.end_line, scalar_row.end_at.isoformat()) == (
         0, 2, "2025-01-01T00:00:01",
     )
-    _write_text(storage, f"{run_id}/scalars/0/r1/0.jsonl", "{bad-json}\n")
-    _scan(backfill_service)
-    with engine.begin() as conn:
-        assert conn.execute(select(scalar_segments)).first() is None
 
 
-def test_backfill_rejects_runs_attributed_to_org_handle(
-    backfill_service: BackfillService, storage: Storage, engine: Engine,
-) -> None:
+def test_backfill_rejects_runs_attributed_to_org_handle(storage: Storage, engine: Engine) -> None:
     run_id = uuid4()
     with engine.begin() as conn:
         organizations_repo.create(conn, "core", "Core")
 
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "user": "core", "name": "Trial Org"})
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\n")
-    _scan(backfill_service)
+    _sync(engine, storage)
 
     with engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None
@@ -196,9 +132,7 @@ def test_backfill_rejects_runs_attributed_to_org_handle(
         assert conn.execute(select(projects)).first() is None
 
 
-def test_backfill_updates_artifact_and_media_records(
-    backfill_service: BackfillService, storage: Storage, engine: Engine,
-) -> None:
+def test_backfill_updates_artifact_and_media_records(storage: Storage, engine: Engine) -> None:
     run_id = uuid4()
     artifact_id = uuid4()
     with engine.begin() as conn:
@@ -211,7 +145,7 @@ def test_backfill_updates_artifact_and_media_records(
     _write_text(storage, f"{run_id}/media/image/samples_7_0.png", "m0")
     _write_text(storage, f"{run_id}/media/image/samples_7_2.png", "m2")
     _write_text(storage, f"{run_id}/media/bad-type/samples_7_1.png", "m1")
-    _scan(backfill_service)
+    _sync(engine, storage)
 
     with engine.begin() as conn:
         artifact_row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
@@ -228,7 +162,7 @@ def test_backfill_updates_artifact_and_media_records(
     )
     _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/b.bin", "b")
     _write_text(storage, f"{run_id}/media/image/samples_7_1.png", "m1")
-    _scan(backfill_service)
+    _sync(engine, storage)
 
     with engine.begin() as conn:
         run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
@@ -245,45 +179,39 @@ def test_backfill_updates_artifact_and_media_records(
     assert [r.index for r in media_rows] == [0, 1, 2]
 
 
-def test_backfill_reconciles_deletions(
-    backfill_service: BackfillService, storage: Storage, engine: Engine,
-) -> None:
+def test_backfill_deletes_runs_only_when_directory_gone(storage: Storage, engine: Engine) -> None:
     run_id = uuid4()
-    artifact_id = uuid4()
-
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial D"})
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\n")
-    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {"files": []})
-    _write_text(storage, f"{run_id}/media/image/samples_0_0.png", "m0")
-    _scan(backfill_service)
-
-    storage.delete(f"{run_id}/logs/worker-1/segments/0.log")
-    storage.delete(f"{run_id}/artifacts/{artifact_id}/manifest.json")
-    storage.delete(f"{run_id}/media/image/samples_0_0.png")
-    _scan(backfill_service)
-
+    _sync(engine, storage)
     with engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None
-        assert conn.execute(select(run_workers).where(run_workers.c.run_id == run_id)).first() is None
-        assert conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first() is None
-        assert conn.execute(select(media).where(media.c.run_id == run_id)).first() is None
 
     _write_text(storage, f"{run_id}/run.json", "{bad-json}")
-    _scan(backfill_service)
-
+    _sync(engine, storage)
     with engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None
 
+    storage.delete(f"{run_id}/run.json")
+    _sync(engine, storage)
+    with engine.begin() as conn:
+        assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None
 
-def test_backfill_reads_ui_sidecars(
-    backfill_service: BackfillService, storage: Storage, engine: Engine,
-) -> None:
+    for key in storage.list_files(str(run_id)):
+        storage.delete(key)
+    _sync(engine, storage)
+    with engine.begin() as conn:
+        assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None
+
+
+def test_backfill_reads_ui_state_file(storage: Storage, engine: Engine) -> None:
     run_id = uuid4()
-
     _write_json(storage, f"{run_id}/run.json", {"project": "vision", "name": "run-a"})
-    _write_json(storage, f"{run_id}/ui.json", {"uiState": {"layout": "grid"}, "isPinned": True, "isBaseline": True})
-    _write_json(storage, ".projects/local/vision/ui.json", {"uiState": {"charts": "all"}})
-    _scan(backfill_service)
+    _write_json(storage, ".ui-state.json", {
+        "runs": {str(run_id): {"uiState": {"layout": "grid"}, "isPinned": True, "isBaseline": True}},
+        "projects": {"local/vision": {"uiState": {"charts": "all"}}},
+    })
+    _sync(engine, storage)
 
     with engine.begin() as conn:
         run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()

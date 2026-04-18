@@ -85,10 +85,10 @@ async def create_media(
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media")
 def list_media(
-    handle: str, project_name: str, run_name: str, conn: Conn, user: MaybeUser,
+    handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: MaybeUser,
     key: Annotated[str | None, Query()] = None, step: Annotated[int | None, Query()] = None,
 ) -> list[Media]:
-    run = resolve_run(conn, handle, project_name, run_name, user)
+    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
     return media_repo.list_by_run(conn, run.id, key=key, step=step)
 
 
@@ -98,7 +98,7 @@ def get_media_file(
 ) -> Response:
     with ctx.engine.begin() as conn:
         user = auth.maybe_user(conn)
-        run = resolve_run(conn, handle, project_name, run_name, user)
+        run = resolve_run(conn, ctx, handle, project_name, run_name, user)
         record = media_repo.get_by_id(conn, media_id)
         if not record or record.run_id != run.id:
             raise HTTPException(404, "Media not found")
