@@ -29,8 +29,11 @@ def get_by_handle(conn: Connection, handle: str) -> Account | None:
     return users_repo.get_by_id(conn, account.id)
 
 
-def rename(conn: Connection, account_id: UUID, new_handle: str) -> None:
+def rename(conn: Connection, account_id: UUID, new_handle: str) -> Account:
     conn.execute(accounts.update().where(accounts.c.id == account_id).values(handle=new_handle))
+    result = get_by_id(conn, account_id)
+    assert result is not None
+    return result
 
 
 def get_or_create_local(conn: Connection) -> User:

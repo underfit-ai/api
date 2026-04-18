@@ -10,8 +10,7 @@ from underfit_api.schema import user_auth
 
 
 def verify(conn: Connection, user_id: UUID, password: str) -> bool:
-    row = conn.execute(user_auth.select().where(user_auth.c.id == user_id)).first()
-    if not row:
+    if not (row := conn.execute(user_auth.select().where(user_auth.c.id == user_id)).first()):
         return False
     return verify_password(password, PasswordHash(
         row.password_hash, row.password_salt, row.password_iterations, row.password_digest,

@@ -38,11 +38,7 @@ def add_member(conn: Connection, org_id: UUID, user_id: UUID, role: str) -> None
 
 
 def is_admin(conn: Connection, org_id: UUID, user_id: UUID) -> bool:
-    row = conn.execute(organization_members.select().where(
-        organization_members.c.organization_id == org_id, organization_members.c.user_id == user_id,
-        organization_members.c.role == "ADMIN",
-    )).first()
-    return row is not None
+    return get_member_role(conn, org_id, user_id) == "ADMIN"
 
 
 def get_member_role(conn: Connection, org_id: UUID, user_id: UUID) -> str | None:

@@ -15,7 +15,7 @@ from underfit_api.config import config
 from underfit_api.helpers import utcnow
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.schema import projects, run_workers, runs
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 RUNS = "/api/v1/accounts/owner/projects/underfit/runs"

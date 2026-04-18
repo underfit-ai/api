@@ -79,5 +79,4 @@ def ensure_email_configured() -> tuple[EmailConfig, str]:
 
 
 def signed_link_url(frontend_url: str, payload: dict[str, Any], ttl: timedelta, kind: str, path: str) -> str:
-    token = create_signed_token(payload, ttl, kind)
-    return f"{frontend_url.rstrip('/')}{path}?token={token}"
+    return f"{frontend_url.rstrip('/')}{path}?token={create_signed_token(payload, ttl, kind)}"

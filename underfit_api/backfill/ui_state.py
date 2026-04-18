@@ -8,7 +8,7 @@ from pydantic import Field, ValidationError
 from underfit_api.dependencies import AppContext
 from underfit_api.models import Body, Project, Run
 from underfit_api.repositories.runs import RunSettings
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 UI_STATE_KEY = ".ui-state.json"
 
@@ -30,24 +30,19 @@ def load(storage: Storage) -> UIState:
         return UIState()
 
 
-def _save(storage: Storage, state: UIState) -> None:
-    storage.write(UI_STATE_KEY, state.model_dump_json(by_alias=True).encode())
-
-
 def write_run(ctx: AppContext, run: Run) -> None:
     with ctx.sync_lock:
         state = load(ctx.storage)
         state.runs[str(run.id)] = RunSettings(ui_state=run.ui_state, is_pinned=run.is_pinned)
-        _save(ctx.storage, state)
+        ctx.storage.write(UI_STATE_KEY, state.model_dump_json(by_alias=True).encode())
 
 
 def write_project(ctx: AppContext, project: Project) -> None:
     with ctx.sync_lock:
+        key = f"{project.owner}/{project.name}"
         state = load(ctx.storage)
-        state.projects[f"{project.owner}/{project.name}"] = ProjectEntry(
-            ui_state=project.ui_state, baseline_run_id=project.baseline_run_id,
-        )
-        _save(ctx.storage, state)
+        state.projects[key] = ProjectEntry(ui_state=project.ui_state, baseline_run_id=project.baseline_run_id)
+        ctx.storage.write(UI_STATE_KEY, state.model_dump_json(by_alias=True).encode())
 
 
 def lookup_run(state: UIState, run_id: UUID) -> RunSettings:

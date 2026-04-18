@@ -10,7 +10,7 @@ from sqlalchemy import Engine
 from tests.conftest import AddCollaborator, CreateRun, Headers
 from underfit_api.helpers import validate_path
 from underfit_api.schema import artifacts
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 PROJECT_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/artifacts"
 RUN_ARTIFACTS = "/api/v1/accounts/owner/projects/underfit/runs/test-run/artifacts"

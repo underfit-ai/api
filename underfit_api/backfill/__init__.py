@@ -14,7 +14,7 @@ from underfit_api.backfill.ui_state import load as load_ui_state
 from underfit_api.config import config
 from underfit_api.dependencies import AppContext
 from underfit_api.schema import runs
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 __all__ = ["refresh_run", "sync"]
 

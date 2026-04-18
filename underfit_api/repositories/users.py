@@ -45,8 +45,7 @@ def create(conn: Connection, email: str, handle: str, name: str) -> User:
 
 
 def update_settings(conn: Connection, user_id: UUID, patch: UserSettings) -> User:
-    values = patch.model_dump(exclude_unset=True)
-    if values:
+    if values := patch.model_dump(exclude_unset=True):
         conn.execute(users.update().where(users.c.id == user_id).values(updated_at=utcnow(), **values))
     result = get_by_id(conn, user_id)
     assert result is not None

@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import Headers
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
 INGEST = "/api/v1/ingest/media"

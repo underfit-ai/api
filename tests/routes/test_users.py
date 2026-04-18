@@ -50,9 +50,6 @@ def test_list_user_memberships(client: TestClient, owner_headers: Headers, creat
     create_org(owner_headers)
     memberships = client.get("/api/v1/users/owner/memberships")
     assert memberships.status_code == 200
-    assert len(memberships.json()) == 1
-    assert memberships.json()[0]["handle"] == "core"
-    assert memberships.json()[0]["name"] == "Core"
-    assert memberships.json()[0]["role"] == "ADMIN"
-    assert memberships.json()[0]["type"] == "ORGANIZATION"
+    [m] = memberships.json()
+    assert (m["handle"], m["name"], m["role"], m["type"]) == ("core", "Core", "ADMIN", "ORGANIZATION")
     assert client.get("/api/v1/users/missing/memberships").status_code == 404

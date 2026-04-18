@@ -12,7 +12,7 @@ import underfit_api.routes.projects as projects_route
 from tests.conftest import CreateOrg, CreateOrgMember, CreateProject, CreateUser, Headers
 from underfit_api.config import config
 from underfit_api.repositories import projects as projects_repo
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 BASE = "/api/v1/accounts/owner/projects"
 

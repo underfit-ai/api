@@ -16,9 +16,9 @@ from underfit_api.dependencies import AppContext
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import artifacts, log_segments, media, projects, run_workers, runs, scalar_segments
+from underfit_api.storage import Storage
 from underfit_api.storage.file import FileStorage
 from underfit_api.storage.s3 import S3Storage
-from underfit_api.storage.types import Storage
 
 
 @pytest.fixture(params=["file", "s3"], ids=["file", "s3"])

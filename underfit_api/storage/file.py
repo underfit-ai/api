@@ -7,7 +7,7 @@ from email.utils import format_datetime
 from pathlib import Path
 
 from underfit_api.config import FileStorageConfig
-from underfit_api.storage.types import DirEntry, FileStat
+from underfit_api.storage import DirEntry, FileStat
 
 
 class FileStorage:
@@ -21,18 +21,20 @@ class FileStorage:
             raise ValueError("Path traversal detected")
         return resolved
 
-    def write(self, key: str, content: bytes) -> None:
-        path = self._resolve(key)
+    def _prepare_write(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._tmp.mkdir(parents=True, exist_ok=True)
+
+    def write(self, key: str, content: bytes) -> None:
+        path = self._resolve(key)
+        self._prepare_write(path)
         with tempfile.NamedTemporaryFile(dir=self._tmp, delete=False) as f:
             f.write(content)
         Path(f.name).replace(path)
 
     async def write_stream(self, key: str, stream: AsyncIterator[bytes]) -> int:
         path = self._resolve(key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._tmp.mkdir(parents=True, exist_ok=True)
+        self._prepare_write(path)
         total = 0
         tmp: Path | None = None
         try:

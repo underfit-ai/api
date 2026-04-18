@@ -15,7 +15,7 @@ from underfit_api.models import User
 from underfit_api.repositories import api_keys as api_keys_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 
 @dataclass

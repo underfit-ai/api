@@ -15,7 +15,7 @@ from underfit_api.repositories import accounts as accounts_repo
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import artifacts, runs
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,7 @@ class RunMetadata(BaseModel):
     summary: dict[str, float] | None = None
 
 
-def ensure_run(
-    conn: Connection, storage: Storage, run_uuid: UUID, state: UIState,
-) -> UUID | None:
+def ensure_run(conn: Connection, storage: Storage, run_uuid: UUID, state: UIState) -> UUID | None:
     try:
         metadata = RunMetadata.model_validate_json(storage.read(f"{run_uuid}/run.json"))
     except (ValidationError, json.JSONDecodeError):

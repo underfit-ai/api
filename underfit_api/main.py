@@ -66,7 +66,8 @@ def _validate_config() -> None:
 
 
 def _init_context(app: FastAPI) -> AppContext:
-    if not (ctx := getattr(app.state, "ctx", None)):
+    ctx = getattr(app.state, "ctx", None)
+    if not ctx:
         engine = ensure_local_cache_schema() if config.backfill.enabled else build_engine()
         ctx = AppContext(engine=engine, storage=build_storage())
     if not config.auth_enabled:

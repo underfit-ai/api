@@ -10,7 +10,7 @@ from sqlalchemy import Connection
 
 from underfit_api.helpers import utcnow
 from underfit_api.schema import artifacts, media
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +46,7 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_i
             ))
 
 
-def _ingest_artifact(
-    conn: Connection, storage: Storage, run_id: UUID, project_id: UUID, artifact_id: UUID,
-) -> None:
+def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, project_id: UUID, artifact_id: UUID) -> None:
     storage_prefix = f"artifacts/{artifact_id}"
     base = f"{run_id}/{storage_prefix}"
     metadata_key = f"{base}/artifact.json"
@@ -64,13 +62,13 @@ def _ingest_artifact(
     finalized = uploaded_paths == declared_paths
     stored_size_bytes = sum(storage.size(f"{files_dir}/{path}") for path in uploaded_paths)
     now = utcnow()
-    values = dict(
-        project_id=project_id, step=metadata.get("step"),
-        name=metadata.get("name", str(artifact_id)), type=metadata.get("type", "dataset"),
-        storage_key=storage_prefix, finalized_at=now if finalized else None,
-        stored_size_bytes=stored_size_bytes if finalized else None, metadata=metadata.get("metadata"),
-        updated_at=now,
-    )
+    values = {
+        "project_id": project_id, "step": metadata.get("step"),
+        "name": metadata.get("name", str(artifact_id)), "type": metadata.get("type", "dataset"),
+        "storage_key": storage_prefix, "finalized_at": now if finalized else None,
+        "stored_size_bytes": stored_size_bytes if finalized else None, "metadata": metadata.get("metadata"),
+        "updated_at": now,
+    }
     if conn.execute(artifacts.select().where(artifacts.c.id == artifact_id)).first() is None:
         conn.execute(artifacts.insert().values(id=artifact_id, run_id=run_id, created_at=now, **values))
     else:

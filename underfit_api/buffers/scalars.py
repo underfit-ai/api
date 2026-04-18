@@ -16,14 +16,12 @@ from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.schema import run_workers, scalar_points, scalar_segments
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 logger = logging.getLogger(__name__)
 
 
-def read_buffered(
-    conn: Connection, worker_id: UUID, resolution: int, line_lte: int | None = None,
-) -> list[Scalar]:
+def read_buffered(conn: Connection, worker_id: UUID, resolution: int, line_lte: int | None = None) -> list[Scalar]:
     bucket = (scalar_points.c.line - scalar_points.c.line.op("%")(resolution)).label("bucket")
     conditions = [scalar_points.c.worker_id == worker_id]
     if line_lte is not None:

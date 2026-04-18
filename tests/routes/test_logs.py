@@ -8,7 +8,7 @@ from sqlalchemy import Engine
 from tests.conftest import Headers
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.schema import run_workers
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 INGEST = "/api/v1/ingest/logs"
 

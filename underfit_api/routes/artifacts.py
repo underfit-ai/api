@@ -54,18 +54,14 @@ def _create_artifact(conn: Conn, project_id: UUID, body: CreateArtifactBody, run
     )
 
 
-def _storage_root(conn: Conn, artifact: Artifact) -> str:
+def _artifact_prefix(conn: Conn, artifact: Artifact) -> str:
     if artifact.run_id:
         run = runs_repo.get_by_id(conn, artifact.run_id)
         assert run is not None
-        return run.storage_key
+        return f"{run.storage_key}/{artifact.storage_key}"
     project = projects_repo.get_by_id(conn, artifact.project_id)
     assert project is not None
-    return project.storage_key
-
-
-def _artifact_prefix(conn: Conn, artifact: Artifact) -> str:
-    return f"{_storage_root(conn, artifact)}/{artifact.storage_key}"
+    return f"{project.storage_key}/{artifact.storage_key}"
 
 
 def _parse_range(header: str, size: int) -> tuple[int, int]:

@@ -8,7 +8,7 @@ from sqlalchemy import Engine
 from tests.conftest import Headers
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.schema import run_workers
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 
 def test_write_and_read_scalars(client: TestClient, owner_headers: Headers, worker_headers: Headers) -> None:

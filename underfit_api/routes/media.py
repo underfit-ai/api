@@ -38,9 +38,7 @@ def _content_type_is_valid(media_type: str, content_type: str) -> bool:
 
 
 @router.post("/ingest/media")
-async def create_media(
-    worker: CurrentWorker, ctx: Ctx, metadata: MediaMetadata, files: MediaFiles,
-) -> list[Media]:
+async def create_media(worker: CurrentWorker, ctx: Ctx, metadata: MediaMetadata, files: MediaFiles) -> list[Media]:
     if not files:
         raise HTTPException(400, "No files provided")
     if any(f.content_type and not _content_type_is_valid(metadata.type.value, f.content_type) for f in files):
@@ -65,8 +63,7 @@ async def create_media(
                     conn, run_id=run_id, key=key, step=metadata.step, media_type=metadata.type,
                     index=i, storage_key=storage_key, metadata=metadata.metadata,
                 ))
-        for i, storage_key in enumerate(storage_keys):
-            f = files[i]
+        for f, storage_key in zip(files, storage_keys):
             async def _chunks(f: UploadFile = f) -> AsyncIterator[bytes]:
                 while chunk := await f.read(262144):
                     yield chunk
@@ -93,9 +90,7 @@ def list_media(
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/media/{media_id}/file")
-def get_media_file(
-    handle: str, project_name: str, run_name: str, media_id: UUID, ctx: Ctx, auth: Auth,
-) -> Response:
+def get_media_file(handle: str, project_name: str, run_name: str, media_id: UUID, ctx: Ctx, auth: Auth) -> Response:
     with ctx.engine.begin() as conn:
         user = auth.maybe_user(conn)
         run = resolve_run(conn, ctx, handle, project_name, run_name, user)

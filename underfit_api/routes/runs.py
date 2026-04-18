@@ -50,8 +50,7 @@ class UpdateRunUIStateBody(RunSettings):
 
 
 def _launch_response(run: Run, worker_id: UUID) -> LaunchResponse:
-    data = {**run.__dict__, "is_active": True, "worker_token": str(worker_id)}
-    return LaunchResponse.model_validate(data)
+    return LaunchResponse.model_validate({**run.__dict__, "is_active": True, "worker_token": str(worker_id)})
 
 
 @router.get("/users/{handle}/runs")

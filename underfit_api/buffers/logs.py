@@ -15,22 +15,19 @@ from underfit_api.models import LogEntry, LogLine, Worker
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.schema import log_chunks, run_workers
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 logger = logging.getLogger(__name__)
 
 
-def clip(
-    start_line: int, content: str, start_at: datetime, end_at: datetime, cursor: int, count: int,
-) -> LogEntry:
+def clip(start_line: int, content: str, start_at: datetime, end_at: datetime, cursor: int, count: int) -> LogEntry:
     lines = content.splitlines()
     chunk_end = start_line + len(lines)
     sub_start = max(cursor, start_line)
     sub_end = min(cursor + count, chunk_end)
     clipped = lines[sub_start - start_line:sub_end - start_line]
     return LogEntry(
-        start_line=sub_start, end_line=sub_end, content="\n".join(clipped),
-        start_at=start_at, end_at=end_at,
+        start_line=sub_start, end_line=sub_end, content="\n".join(clipped), start_at=start_at, end_at=end_at,
     )
 
 
@@ -38,9 +35,7 @@ def end_line(conn: Connection, worker_id: UUID) -> int:
     staged = conn.execute(sa.select(sa.func.max(
         log_chunks.c.start_line + log_chunks.c.line_count,
     )).where(log_chunks.c.worker_id == worker_id)).scalar()
-    if staged is not None:
-        return staged
-    return log_seg_repo.get_end_line(conn, worker_id)
+    return staged if staged is not None else log_seg_repo.get_end_line(conn, worker_id)
 
 
 def append(conn: Connection, worker_id: UUID, start_line: int, lines: list[LogLine]) -> None:

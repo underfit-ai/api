@@ -243,9 +243,7 @@ def run(create_run: CreateRun) -> Run:
 def create_worker(engine: Engine, run: Run) -> CreateWorker:
     def _create(label: str = "0") -> Worker:
         with engine.begin() as conn:
-            if (existing := run_workers_repo.get(conn, run.id, label)) is not None:
-                return existing
-            return run_workers_repo.create(conn, run.id, label)
+            return run_workers_repo.get(conn, run.id, label) or run_workers_repo.create(conn, run.id, label)
 
     return _create
 

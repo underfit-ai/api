@@ -34,7 +34,4 @@ def rename_account(handle: str, body: RenameAccountBody, conn: Conn, user: Requi
     account = resolve_account(conn, handle)
     require_account_admin(conn, account.id, account.type, user.id)
     with as_conflict(conn, "Handle already exists"):
-        accounts_repo.rename(conn, account.id, body.handle.lower())
-        result = accounts_repo.get_by_id(conn, account.id)
-    assert result is not None
-    return result
+        return accounts_repo.rename(conn, account.id, body.handle.lower())

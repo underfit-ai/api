@@ -13,7 +13,7 @@ from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
 from underfit_api.models import LogLine, Scalar, Worker
 from underfit_api.schema import log_chunks, log_segments, run_workers, scalar_points, scalar_segments
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 T0 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 

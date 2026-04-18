@@ -20,19 +20,15 @@ class PasswordHash(NamedTuple):
     digest: str
 
 
-def _missing_app_secret_message() -> str:
-    candidate = base64.urlsafe_b64encode(os.urandom(32)).decode()
-    return (
-        "UNDERFIT_APP_SECRET is required when auth is enabled. Set it as an environment variable, for example:\n"
-        f"export UNDERFIT_APP_SECRET={candidate}"
-    )
-
-
 @lru_cache(maxsize=1)
 def get_app_secret() -> bytes:
     raw = os.getenv("UNDERFIT_APP_SECRET")
     if not raw:
-        raise RuntimeError(_missing_app_secret_message())
+        candidate = base64.urlsafe_b64encode(os.urandom(32)).decode()
+        raise RuntimeError(
+            "UNDERFIT_APP_SECRET is required when auth is enabled. Set it as an environment variable, for example:\n"
+            f"export UNDERFIT_APP_SECRET={candidate}",
+        )
     decoded = base64.urlsafe_b64decode(raw.encode())
     if len(decoded) < 32:
         raise RuntimeError("UNDERFIT_APP_SECRET must be at least 32 bytes of entropy")

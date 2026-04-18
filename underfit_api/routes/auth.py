@@ -20,7 +20,6 @@ from underfit_api.repositories.sessions import SESSION_TTL_DAYS
 
 router = APIRouter(prefix="/auth")
 
-SESSION_TTL_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60
 RESET_TOKEN_TTL = timedelta(minutes=30)
 
 
@@ -35,9 +34,7 @@ def _cookie_secure(request: Request) -> bool:
         return config.secure_cookies
     if request.url.hostname in {"localhost", "127.0.0.1", "::1"}:
         return False
-    scheme_secure = request.url.scheme == "https"
-    frontend_secure = bool(config.frontend_url and config.frontend_url.startswith("https://"))
-    return scheme_secure or frontend_secure
+    return request.url.scheme == "https" or bool(config.frontend_url and config.frontend_url.startswith("https://"))
 
 
 def _set_session_cookie(response: Response, request: Request, session: Session) -> None:
@@ -47,7 +44,7 @@ def _set_session_cookie(response: Response, request: Request, session: Session) 
         httponly=True,
         samesite="lax",
         secure=_cookie_secure(request),
-        max_age=SESSION_TTL_SECONDS,
+        max_age=SESSION_TTL_DAYS * 24 * 60 * 60,
         expires=session.expires_at.replace(tzinfo=timezone.utc),
     )
 

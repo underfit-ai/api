@@ -127,19 +127,11 @@ def set_baseline_run(conn: Connection, project_id: UUID, run_id: UUID | None) ->
 
 
 def rename(conn: Connection, project_id: UUID, new_name: str) -> Project:
-    conn.execute(projects.update().where(projects.c.id == project_id).values(name=new_name, updated_at=utcnow()))
-    result = get_by_id(conn, project_id)
-    assert result is not None
-    return result
+    return _update(conn, project_id, name=new_name)
 
 
 def transfer(conn: Connection, project_id: UUID, new_account_id: UUID, new_name: str) -> Project:
-    conn.execute(projects.update().where(projects.c.id == project_id).values(
-        account_id=new_account_id, name=new_name, updated_at=utcnow(),
-    ))
-    result = get_by_id(conn, project_id)
-    assert result is not None
-    return result
+    return _update(conn, project_id, account_id=new_account_id, name=new_name)
 
 
 def delete(conn: Connection, project_id: UUID) -> None:

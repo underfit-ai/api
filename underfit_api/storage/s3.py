@@ -10,7 +10,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from underfit_api.config import S3StorageConfig
-from underfit_api.storage.types import DirEntry, FileStat
+from underfit_api.storage import DirEntry, FileStat
 
 MULTIPART_PART_SIZE = 8 * 1024 * 1024
 

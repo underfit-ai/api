@@ -14,7 +14,7 @@ from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.schema import log_segments, scalar_segments
-from underfit_api.storage.types import Storage
+from underfit_api.storage import Storage
 
 logger = logging.getLogger(__name__)
 
