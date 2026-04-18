@@ -47,8 +47,8 @@ def _query() -> sa.Select[tuple[object, ...]]:
     ).select_from(_join)
 
 
-def get_by_id(conn: Connection, pk: UUID) -> Run | None:
-    row = conn.execute(_query().where(runs.c.id == pk)).first()
+def get_by_id(conn: Connection, run_id: UUID) -> Run | None:
+    row = conn.execute(_query().where(runs.c.id == run_id)).first()
     return Run.model_validate(row) if row else None
 
 
@@ -62,10 +62,10 @@ def get_by_project_and_launch_id(conn: Connection, project_id: UUID, launch_id: 
     return Run.model_validate(row) if row else None
 
 
-def has_active_worker(conn: Connection, pk: UUID) -> bool:
+def has_active_worker(conn: Connection, run_id: UUID) -> bool:
     cutoff = utcnow() - timedelta(seconds=config.buffer.worker_timeout_s)
     row = conn.execute(sa.select(1).where(
-        run_workers.c.run_id == pk, run_workers.c.last_heartbeat >= cutoff,
+        run_workers.c.run_id == run_id, run_workers.c.last_heartbeat >= cutoff,
     )).first()
     return row is not None
 
@@ -96,20 +96,20 @@ def create(
     conn: Connection, project_id: UUID, user_id: UUID, launch_id: str, name: str, config: dict[str, object] | None,
     metadata: dict[str, object],
 ) -> Run:
-    pk = uuid4()
+    run_id = uuid4()
     now = utcnow()
     conn.execute(runs.insert().values(
-        id=pk, project_id=project_id, user_id=user_id,
-        launch_id=launch_id, name=name.lower(), storage_key=str(pk),
+        id=run_id, project_id=project_id, user_id=user_id,
+        launch_id=launch_id, name=name.lower(), storage_key=str(run_id),
         config=config, metadata=metadata, ui_state={}, is_pinned=False, summary={}, created_at=now, updated_at=now,
     ))
-    result = get_by_id(conn, pk)
+    result = get_by_id(conn, run_id)
     assert result is not None
     return result
 
 
 def update(
-    conn: Connection, pk: UUID, *,
+    conn: Connection, run_id: UUID, *,
     metadata: dict[str, object] | None = None, terminal_state: str | None = None, is_pinned: bool | None = None,
     summary: dict[str, float] | None = None, ui_state: dict[str, object] | None = None,
 ) -> Run:
@@ -118,11 +118,11 @@ def update(
         "summary": summary, "ui_state": ui_state, "is_pinned": is_pinned,
     }
     values = {k: v for k, v in values.items() if v is not None}
-    conn.execute(runs.update().where(runs.c.id == pk).values(**values))
-    result = get_by_id(conn, pk)
+    conn.execute(runs.update().where(runs.c.id == run_id).values(**values))
+    result = get_by_id(conn, run_id)
     assert result is not None
     return result
 
 
-def delete(conn: Connection, pk: UUID) -> None:
-    conn.execute(runs.delete().where(runs.c.id == pk))
+def delete(conn: Connection, run_id: UUID) -> None:
+    conn.execute(runs.delete().where(runs.c.id == run_id))
