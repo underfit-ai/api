@@ -19,6 +19,10 @@ class _Base(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, from_attributes=True)
 
 
+class Body(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
 class ProjectVisibility(str, Enum):
     PRIVATE = "private"
     PUBLIC = "public"

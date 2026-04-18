@@ -3,18 +3,18 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic.alias_generators import to_camel
+from pydantic import Field
 
 from underfit_api.backfill import sync_run_ui_sidecar
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, validate_json_size
-from underfit_api.models import LaunchResponse, OkResponse, Run, RunTerminalState
+from underfit_api.models import Body, LaunchResponse, OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import users as users_repo
+from underfit_api.repositories.runs import RunSettings
 from underfit_api.routes.resolvers import resolve_project, resolve_run
 from underfit_api.storage import delete_prefix
 
@@ -23,8 +23,7 @@ router = APIRouter()
 RUN_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
 
-class LaunchBody(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+class LaunchBody(Body):
     run_name: str = Field(pattern=RUN_NAME_PATTERN)
     launch_id: str
     worker_label: str = "0"
@@ -32,23 +31,19 @@ class LaunchBody(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-class UpdateRunBody(BaseModel):
+class UpdateRunBody(Body):
     metadata: dict[str, object] | None = None
 
 
-class UpdateTerminalStateBody(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+class UpdateTerminalStateBody(Body):
     terminal_state: RunTerminalState
 
 
-class UpdateSummaryBody(BaseModel):
+class UpdateSummaryBody(Body):
     summary: dict[str, float]
 
 
-class UpdateRunUIStateBody(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-    ui_state: dict[str, object] | None = None
-    is_pinned: bool | None = None
+class UpdateRunUIStateBody(RunSettings):
     is_baseline: bool | None = None
 
 
@@ -103,7 +98,9 @@ def update_run(
     run = resolve_run(conn, handle, project_name, run_name, user)
     require_project_contributor(conn, run.project_id, user.id)
     validate_json_size(body.metadata, "Metadata")
-    return runs_repo.update(conn, run.id, metadata=body.metadata)
+    if body.metadata is None:
+        return run
+    return runs_repo.update_metadata(conn, run.id, body.metadata)
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
@@ -126,7 +123,8 @@ def update_run_ui_state(
     validate_json_size(body.ui_state, "UI state")
     if body.is_baseline is not None:
         projects_repo.set_baseline_run(conn, run.project_id, run.id if body.is_baseline else None)
-    updated = runs_repo.update(conn, run.id, ui_state=body.ui_state, is_pinned=body.is_pinned)
+    patch = RunSettings.model_validate(body.model_dump(exclude_unset=True))
+    updated = runs_repo.update_settings(conn, run.id, patch)
     sync_run_ui_sidecar(ctx.storage, updated)
     return updated
 
@@ -135,11 +133,11 @@ def update_run_ui_state(
 def update_terminal_state(body: UpdateTerminalStateBody, conn: Conn, worker_id: CurrentWorker) -> Run:
     if not (worker := workers_repo.get_by_id(conn, worker_id)):
         raise HTTPException(401, "Unauthorized")
-    return runs_repo.update(conn, worker.run_id, terminal_state=body.terminal_state.value)
+    return runs_repo.update_terminal_state(conn, worker.run_id, body.terminal_state.value)
 
 
 @router.put("/runs/summary")
 def update_summary(body: UpdateSummaryBody, conn: Conn, worker_id: CurrentWorker) -> Run:
     if not (worker := workers_repo.get_by_id(conn, worker_id)):
         raise HTTPException(401, "Unauthorized")
-    return runs_repo.update(conn, worker.run_id, summary=body.summary)
+    return runs_repo.update_summary(conn, worker.run_id, body.summary)

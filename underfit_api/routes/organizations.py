@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from underfit_api.dependencies import Conn, RequireUser
 from underfit_api.helpers import as_conflict
-from underfit_api.models import Organization
+from underfit_api.models import Body, Organization
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import organizations as organizations_repo
 from underfit_api.routes.resolvers import resolve_organization
@@ -13,12 +13,12 @@ from underfit_api.routes.resolvers import resolve_organization
 router = APIRouter(prefix="/organizations")
 
 
-class CreateOrgBody(BaseModel):
+class CreateOrgBody(Body):
     handle: str = Field(pattern=r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
     name: str = Field(min_length=1)
 
 
-class UpdateOrgBody(BaseModel):
+class UpdateOrgBody(Body):
     name: str | None = None
 
 
@@ -35,8 +35,8 @@ def update_organization(handle: str, body: UpdateOrgBody, conn: Conn, user: Requ
     org = resolve_organization(conn, handle)
     if not organization_members_repo.is_admin(conn, org.id, user.id):
         raise HTTPException(403, "Forbidden")
-    if body.name is not None and not body.name.strip():
+    if body.name is None:
+        return org
+    if not body.name.strip():
         raise HTTPException(400, "Name cannot be empty")
-    if not (updated := organizations_repo.update(conn, org.id, body.name)):
-        raise HTTPException(404, "Organization not found")
-    return updated
+    return organizations_repo.update_name(conn, org.id, body.name)

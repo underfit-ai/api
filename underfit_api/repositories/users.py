@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from typing import Any
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy import Connection
 
 from underfit_api.helpers import utcnow
-from underfit_api.models import User
+from underfit_api.models import Body, User
 from underfit_api.schema import accounts, users
 
 SEARCH_LIMIT = 20
 
 _base_query = users.join(accounts, users.c.id == accounts.c.id).select
+
+
+class UserSettings(Body):
+    name: str | None = None
+    bio: str | None = None
 
 
 def get_by_id(conn: Connection, user_id: UUID) -> User | None:
@@ -40,14 +44,13 @@ def create(conn: Connection, email: str, handle: str, name: str) -> User:
     return result
 
 
-def update(conn: Connection, user_id: UUID, name: str | None, bio: str | None) -> User | None:
-    updates: dict[str, Any] = {"updated_at": utcnow()}
-    if name is not None:
-        updates["name"] = name
-    if bio is not None:
-        updates["bio"] = bio
-    conn.execute(users.update().where(users.c.id == user_id).values(**updates))
-    return get_by_id(conn, user_id)
+def update_settings(conn: Connection, user_id: UUID, patch: UserSettings) -> User:
+    values = patch.model_dump(exclude_unset=True)
+    if values:
+        conn.execute(users.update().where(users.c.id == user_id).values(updated_at=utcnow(), **values))
+    result = get_by_id(conn, user_id)
+    assert result is not None
+    return result
 
 
 def search(conn: Connection, query: str) -> list[User]:

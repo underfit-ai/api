@@ -31,7 +31,8 @@ def create(conn: Connection, handle: str, name: str) -> Organization:
     return result
 
 
-def update(conn: Connection, org_id: UUID, name: str | None) -> Organization | None:
-    if name is not None:
-        conn.execute(organizations.update().where(organizations.c.id == org_id).values(name=name, updated_at=utcnow()))
-    return get_by_id(conn, org_id)
+def update_name(conn: Connection, org_id: UUID, name: str) -> Organization:
+    conn.execute(organizations.update().where(organizations.c.id == org_id).values(name=name, updated_at=utcnow()))
+    result = get_by_id(conn, org_id)
+    assert result is not None
+    return result

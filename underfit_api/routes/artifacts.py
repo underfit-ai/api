@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from underfit_api.dependencies import Auth, Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import validate_json_size, validate_path
-from underfit_api.models import Artifact, OkResponse
+from underfit_api.models import Artifact, Body, OkResponse
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import artifacts as artifacts_repo
 from underfit_api.repositories import projects as projects_repo
@@ -32,14 +32,14 @@ class Manifest(BaseModel):
     references: list[ManifestReference] = []
 
 
-class CreateArtifactBody(BaseModel):
+class CreateArtifactBody(Body):
     step: int | None = None
     name: str
     type: str
     metadata: dict[str, object] | None = None
 
 
-class FinalizeArtifactBody(BaseModel):
+class FinalizeArtifactBody(Body):
     manifest: Manifest
 
 

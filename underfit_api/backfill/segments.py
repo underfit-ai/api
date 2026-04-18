@@ -59,7 +59,7 @@ def reconcile_segments(
         ~sa.exists().where(scalar_segments.c.worker_id == run_workers.c.id),
     ))
     summary = explicit_summary if explicit_summary is not None else (last_point.values if last_point else {})
-    runs_repo.update(conn, run_id, summary=summary)
+    runs_repo.update_summary(conn, run_id, summary)
 
 
 def _ensure_worker(conn: Connection, run_id: UUID, worker_label: str) -> UUID:

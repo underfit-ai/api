@@ -3,16 +3,15 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from underfit_api.dependencies import Conn, RequireUser
-from underfit_api.models import ApiKey, ApiKeyWithToken, OkResponse
+from underfit_api.models import ApiKey, ApiKeyWithToken, Body, OkResponse
 from underfit_api.repositories import api_keys as api_keys_repo
 
 router = APIRouter(prefix="/me/api-keys")
 
 
-class CreateApiKeyBody(BaseModel):
+class CreateApiKeyBody(Body):
     label: str | None = None
 
 

@@ -8,12 +8,17 @@ from sqlalchemy import Connection
 
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
-from underfit_api.models import Run
+from underfit_api.models import Body, Run
 from underfit_api.repositories.projects import is_collaborator, is_org_admin
 from underfit_api.schema import accounts, projects, run_workers, runs
 
 _join = runs.join(projects, runs.c.project_id == projects.c.id).join(accounts, projects.c.account_id == accounts.c.id)
 _user_handle = sa.select(accounts.c.handle).where(accounts.c.id == runs.c.user_id).correlate(runs).scalar_subquery()
+
+
+class RunSettings(Body):
+    ui_state: dict[str, object] | None = None
+    is_pinned: bool | None = None
 
 
 def _query() -> sa.Select[tuple[object, ...]]:
@@ -108,20 +113,28 @@ def create(
     return result
 
 
-def update(
-    conn: Connection, run_id: UUID, *,
-    metadata: dict[str, object] | None = None, terminal_state: str | None = None, is_pinned: bool | None = None,
-    summary: dict[str, float] | None = None, ui_state: dict[str, object] | None = None,
-) -> Run:
-    values = {
-        "updated_at": utcnow(), "metadata": metadata, "terminal_state": terminal_state,
-        "summary": summary, "ui_state": ui_state, "is_pinned": is_pinned,
-    }
-    values = {k: v for k, v in values.items() if v is not None}
-    conn.execute(runs.update().where(runs.c.id == run_id).values(**values))
+def _update(conn: Connection, run_id: UUID, **values: object) -> Run:
+    if values:
+        conn.execute(runs.update().where(runs.c.id == run_id).values(updated_at=utcnow(), **values))
     result = get_by_id(conn, run_id)
     assert result is not None
     return result
+
+
+def update_metadata(conn: Connection, run_id: UUID, metadata: dict[str, object]) -> Run:
+    return _update(conn, run_id, metadata=metadata)
+
+
+def update_terminal_state(conn: Connection, run_id: UUID, terminal_state: str) -> Run:
+    return _update(conn, run_id, terminal_state=terminal_state)
+
+
+def update_summary(conn: Connection, run_id: UUID, summary: dict[str, float]) -> Run:
+    return _update(conn, run_id, summary=summary)
+
+
+def update_settings(conn: Connection, run_id: UUID, patch: RunSettings) -> Run:
+    return _update(conn, run_id, **patch.model_dump(exclude_unset=True))
 
 
 def delete(conn: Connection, run_id: UUID) -> None:

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from underfit_api.dependencies import Conn, RequireUser
-from underfit_api.models import OkResponse, OrganizationMember
+from underfit_api.models import Body, OkResponse, OrganizationMember
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.routes.resolvers import resolve_organization
@@ -12,7 +11,7 @@ from underfit_api.routes.resolvers import resolve_organization
 router = APIRouter(prefix="/organizations")
 
 
-class UpdateMemberBody(BaseModel):
+class UpdateMemberBody(Body):
     role: str = "MEMBER"
 
 

@@ -3,19 +3,14 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
 
 from underfit_api.dependencies import Conn, RequireUser
 from underfit_api.models import ExistsResponse, User, UserMembership
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import users as users_repo
+from underfit_api.repositories.users import UserSettings
 
 router = APIRouter()
-
-
-class UpdateMeBody(BaseModel):
-    name: str | None = None
-    bio: str | None = None
 
 
 @router.get("/emails/exists")
@@ -31,12 +26,10 @@ def get_me(user: RequireUser) -> User:
 
 
 @router.patch("/me")
-def update_me(body: UpdateMeBody, conn: Conn, user: RequireUser) -> User:
+def update_me(body: UserSettings, conn: Conn, user: RequireUser) -> User:
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "Name cannot be empty")
-    if not (updated := users_repo.update(conn, user.id, body.name, body.bio)):
-        raise HTTPException(404, "User not found")
-    return updated
+    return users_repo.update_settings(conn, user.id, body)
 
 
 @router.get("/users/search")

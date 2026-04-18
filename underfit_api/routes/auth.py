@@ -12,7 +12,7 @@ from underfit_api.auth import hash_password, verify_signed_token
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.helpers import as_conflict, ensure_email_configured, send_email, signed_link_url
-from underfit_api.models import AuthResponse, OkResponse, Session
+from underfit_api.models import AuthResponse, Body, OkResponse, Session
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import user_auth as user_auth_repo
 from underfit_api.repositories import users as users_repo
@@ -55,22 +55,22 @@ def _set_session_cookie(response: Response, request: Request, session: Session) 
 Password = Annotated[str, Field(min_length=8), AfterValidator(_validate_password)]
 
 
-class RegisterBody(BaseModel):
+class RegisterBody(Body):
     email: str = Field(pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
     handle: str = Field(pattern=r"^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
     password: Password
 
 
-class LoginBody(BaseModel):
+class LoginBody(Body):
     email: str = Field(min_length=1)
     password: str = Field(min_length=1)
 
 
-class ForgotPasswordBody(BaseModel):
+class ForgotPasswordBody(Body):
     email: str = Field(min_length=1)
 
 
-class ResetPasswordBody(BaseModel):
+class ResetPasswordBody(Body):
     token: str = Field(min_length=1)
     password: Password
 

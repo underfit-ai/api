@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from sqlalchemy import Connection, func
 
 from underfit_api.helpers import utcnow
-from underfit_api.models import Project
+from underfit_api.models import Body, Project, ProjectVisibility
 from underfit_api.schema import accounts, organization_members, project_collaborators, projects, runs
 
 _join = projects.join(accounts, projects.c.account_id == accounts.c.id)
@@ -25,6 +25,12 @@ _columns = [
     projects.c.created_at,
     projects.c.updated_at,
 ]
+
+
+class ProjectSettings(Body):
+    description: str | None = None
+    visibility: ProjectVisibility | None = None
+    metadata: dict[str, object] | None = None
 
 
 def is_collaborator(user_id: UUID) -> sa.Exists:
@@ -99,20 +105,20 @@ def create(
     return result
 
 
-def update(
-    conn: Connection, project_id: UUID, *,
-    description: str | None = None, visibility: str | None = None,
-    metadata: dict[str, object] | None = None, ui_state: dict[str, object] | None = None,
-) -> Project:
-    values = {
-        "updated_at": utcnow(), "description": description, "visibility": visibility,
-        "metadata": metadata, "ui_state": ui_state,
-    }
-    values = {k: v for k, v in values.items() if v is not None}
-    conn.execute(projects.update().where(projects.c.id == project_id).values(**values))
+def _update(conn: Connection, project_id: UUID, **values: object) -> Project:
+    if values:
+        conn.execute(projects.update().where(projects.c.id == project_id).values(updated_at=utcnow(), **values))
     result = get_by_id(conn, project_id)
     assert result is not None
     return result
+
+
+def update_settings(conn: Connection, project_id: UUID, patch: ProjectSettings) -> Project:
+    return _update(conn, project_id, **patch.model_dump(exclude_unset=True))
+
+
+def update_ui_state(conn: Connection, project_id: UUID, ui_state: dict[str, object]) -> Project:
+    return _update(conn, project_id, ui_state=ui_state)
 
 
 def set_baseline_run(conn: Connection, project_id: UUID, run_id: UUID | None) -> None:
