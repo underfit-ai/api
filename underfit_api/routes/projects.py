@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
-from underfit_api.backfill import write_project_ui_state
+from underfit_api import backfill
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict
@@ -42,12 +42,16 @@ class TransferProjectBody(Body):
 
 
 @router.get("/me/projects")
-def list_my_projects(conn: Conn, user: RequireUser) -> list[Project]:
+def list_my_projects(conn: Conn, ctx: Ctx, user: RequireUser) -> list[Project]:
+    if config.backfill.enabled:
+        backfill.sync(ctx, conn)
     return projects_repo.list_related_to_user(conn, user.id)
 
 
 @router.get("/accounts/{handle}/projects")
-def list_account_projects(handle: str, conn: Conn, user: MaybeUser) -> list[Project]:
+def list_account_projects(handle: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> list[Project]:
+    if config.backfill.enabled:
+        backfill.sync(ctx, conn)
     account = resolve_account(conn, handle)
     return projects_repo.list_visible_by_account(conn, account.id, user.id if user else None)
 
@@ -95,7 +99,7 @@ def update_project_ui_state(
     require_project_contributor(conn, project.id, user.id)
     updated = projects_repo.update_ui_state(conn, project.id, body.ui_state)
     if config.backfill.enabled:
-        write_project_ui_state(ctx.storage, updated)
+        backfill.ui_state.write_project(ctx.storage, updated)
     return updated
 
 

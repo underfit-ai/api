@@ -76,6 +76,14 @@ class FileStorage:
         if not path.exists():
             raise FileNotFoundError(f"File not found: {key}")
         path.unlink()
+        base = self.base.resolve()
+        parent = path.parent
+        while parent != base and parent.is_relative_to(base):
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
 
     def exists(self, key: str) -> bool:
         return self._resolve(key).exists()

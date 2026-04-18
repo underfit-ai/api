@@ -174,9 +174,7 @@ def test_update_run_ui_state(
     assert client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"metadata": {}}).status_code == 409
 
     state = json.loads(storage.read(".ui-state.json"))
-    assert state["runs"][run["id"]] == {
-        "uiState": {"layout": "list"}, "isPinned": True, "isBaseline": False,
-    }
+    assert state["runs"][run["id"]] == {"uiState": {"layout": "list"}, "isPinned": True}
 
 
 def test_delete_run(

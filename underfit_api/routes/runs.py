@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
-from underfit_api.backfill import write_run_ui_state
+from underfit_api import backfill
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, validate_json_size
@@ -54,14 +54,18 @@ def _launch_response(run: Run, worker_id: UUID) -> LaunchResponse:
 
 
 @router.get("/users/{handle}/runs")
-def list_user_runs(handle: str, conn: Conn, user: MaybeUser) -> list[Run]:
+def list_user_runs(handle: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> list[Run]:
+    if config.backfill.enabled:
+        backfill.sync(ctx, conn)
     if not (target := users_repo.get_by_handle(conn, handle)):
         raise HTTPException(404, "User not found")
     return runs_repo.list_visible_by_user(conn, target.id, user.id if user else None)
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs")
-def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> list[Run]:
+def list_project_runs(handle: str, project_name: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> list[Run]:
+    if config.backfill.enabled:
+        backfill.sync(ctx, conn)
     project = resolve_project(conn, handle, project_name, user)
     return runs_repo.list_by_project(conn, project.id)
 
@@ -127,7 +131,11 @@ def update_run_ui_state(
     patch = RunSettings.model_validate(body.model_dump(exclude_unset=True))
     updated = runs_repo.update_settings(conn, run.id, patch)
     if config.backfill.enabled:
-        write_run_ui_state(ctx.storage, updated)
+        backfill.ui_state.write_run(ctx.storage, updated)
+        if body.is_baseline is not None:
+            project = projects_repo.get_by_id(conn, run.project_id)
+            assert project is not None
+            backfill.ui_state.write_project(ctx.storage, project)
     return updated
 
 

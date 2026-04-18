@@ -13,27 +13,31 @@ from underfit_api.storage.types import Storage
 
 logger = logging.getLogger(__name__)
 
-_ARTIFACT_MANIFEST = re.compile(r"^([^/]+)/artifacts/([^/]+)/manifest\.json$")
-_MEDIA = re.compile(r"^([^/]+)/media/(image|video|audio|html)/(.+)_(-?\d+)_(\d+)(\.[^/]+)$")
+_MEDIA = re.compile(r"^media/(image|video|audio|html)/(.+)_(-?\d+)_(\d+)(\.[^/]+)$")
 
 
-def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, run_keys: list[str]) -> None:
-    for key in run_keys:
-        if m := _ARTIFACT_MANIFEST.match(key):
-            try:
-                artifact_id = UUID(m.group(2))
-            except ValueError:
-                continue
-            _ingest_artifact(conn, storage, run_id, artifact_id)
-        elif m := _MEDIA.match(key):
-            storage_key = key[len(f"{run_id}/"):]
-            media_id = uuid5(run_id, storage_key)
-            if conn.execute(media.select().where(media.c.id == media_id)).first() is None:
-                conn.execute(media.insert().values(
-                    id=media_id, run_id=run_id, type=m.group(2), key=m.group(3),
-                    step=int(m.group(4)), index=int(m.group(5)),
-                    storage_key=storage_key, metadata=None, created_at=utcnow(),
-                ))
+def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID) -> None:
+    for entry in storage.list_dir(f"{run_id}/artifacts"):
+        if not entry.is_directory:
+            continue
+        try:
+            artifact_id = UUID(entry.name)
+        except ValueError:
+            continue
+        _ingest_artifact(conn, storage, run_id, artifact_id)
+
+    prefix = f"{run_id}/"
+    for key in storage.list_files(f"{run_id}/media"):
+        rel = key[len(prefix):]
+        if not (m := _MEDIA.match(rel)):
+            continue
+        media_id = uuid5(run_id, rel)
+        if conn.execute(media.select().where(media.c.id == media_id)).first() is None:
+            conn.execute(media.insert().values(
+                id=media_id, run_id=run_id, type=m.group(1), key=m.group(2),
+                step=int(m.group(3)), index=int(m.group(4)),
+                storage_key=rel, metadata=None, created_at=utcnow(),
+            ))
 
 
 def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, artifact_id: UUID) -> None:

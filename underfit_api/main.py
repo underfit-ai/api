@@ -75,21 +75,14 @@ def _init_context(app: FastAPI) -> AppContext:
     return ctx
 
 
-def _sync_backfill(ctx: AppContext) -> None:
-    try:
-        with ctx.engine.begin() as conn:
-            backfill.sync(ctx, conn)
-    except Exception:
-        logger.exception("Backfill sync error")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _validate_config()
     ctx = _init_context(app)
     app.state.ctx = ctx
     if config.backfill.enabled:
-        await asyncio.to_thread(_sync_backfill, ctx)
+        with ctx.engine.begin() as conn:
+            backfill.sync(ctx, conn)
     flush_task = asyncio.create_task(_flush_loop(ctx)) if not config.backfill.enabled else None
     yield
     if flush_task is not None:
@@ -116,11 +109,11 @@ app.add_middleware(
 
 @app.middleware("http")
 async def backfill_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
-    if config.backfill.enabled and request.url.path.startswith("/api/v1"):
-        if request.method in WRITE_METHODS and not request.url.path.endswith("/ui-state"):
-            return JSONResponse(status_code=409, content={"error": BACKFILL_WRITE_ERROR})
-        if request.method == "GET":
-            await asyncio.to_thread(_sync_backfill, request.app.state.ctx)
+    if (
+        config.backfill.enabled and request.url.path.startswith("/api/v1")
+        and request.method in WRITE_METHODS and not request.url.path.endswith("/ui-state")
+    ):
+        return JSONResponse(status_code=409, content={"error": BACKFILL_WRITE_ERROR})
     return await call_next(request)
 
 

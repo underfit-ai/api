@@ -17,24 +17,27 @@ from underfit_api.storage.types import Storage
 
 logger = logging.getLogger(__name__)
 
-_LOG = re.compile(r"^([^/]+)/logs/([^/]+)/segments/(\d+)\.log$")
-_SCALAR = re.compile(r"^([^/]+)/scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
+_LOG = re.compile(r"^logs/([^/]+)/segments/(\d+)\.log$")
+_SCALAR = re.compile(r"^scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 
 
 def reconcile_segments(
-    conn: Connection, storage: Storage, run_id: UUID, run_keys: list[str],
-    explicit_summary: dict[str, float] | None,
+    conn: Connection, storage: Storage, run_id: UUID, explicit_summary: dict[str, float] | None,
 ) -> None:
+    prefix = f"{run_id}/"
+    for key in storage.list_files(f"{run_id}/logs"):
+        rel = key[len(prefix):]
+        if m := _LOG.match(rel):
+            worker_id = _ensure_worker(conn, run_id, m.group(1))
+            _ingest_log_segment(conn, storage, worker_id, key, rel, int(m.group(2)))
+
     last_point: Scalar | None = None
-    for key in sorted(run_keys):
-        rel = key[len(f"{run_id}/"):]
-        if m := _LOG.match(key):
-            worker_id = _ensure_worker(conn, run_id, m.group(2))
-            _ingest_log_segment(conn, storage, worker_id, key, rel, int(m.group(3)))
-        elif m := _SCALAR.match(key):
-            worker_id = _ensure_worker(conn, run_id, m.group(2))
-            resolution = int(m.group(3))
-            new_points = _ingest_scalar_segment(conn, storage, worker_id, key, rel, resolution, int(m.group(4)))
+    for key in storage.list_files(f"{run_id}/scalars"):
+        rel = key[len(prefix):]
+        if m := _SCALAR.match(rel):
+            worker_id = _ensure_worker(conn, run_id, m.group(1))
+            resolution = int(m.group(2))
+            new_points = _ingest_scalar_segment(conn, storage, worker_id, key, rel, resolution, int(m.group(3)))
             if resolution == 1 and new_points and (last_point is None or new_points[-1].step > last_point.step):
                 last_point = new_points[-1]
     summary = explicit_summary if explicit_summary is not None else (last_point.values if last_point else {})

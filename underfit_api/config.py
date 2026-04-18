@@ -38,8 +38,7 @@ class MysqlDatabaseConfig(BaseModel):
 
 class BackfillConfig(BaseModel):
     enabled: bool = False
-    scan_interval_s: int = 15
-    debounce_ms: int = 500
+    debounce_s: float = 1.0
 
 
 class FileStorageConfig(BaseModel):
