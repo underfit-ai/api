@@ -5,6 +5,7 @@ import logging
 import re
 from uuid import UUID, uuid5
 
+import sqlalchemy as sa
 from sqlalchemy import Connection
 
 from underfit_api.helpers import utcnow
@@ -17,6 +18,7 @@ _MEDIA = re.compile(r"^media/(image|video|audio|html)/(.+)_(-?\d+)_(\d+)(\.[^/]+
 
 
 def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_id: UUID) -> None:
+    storage_artifact_ids: set[UUID] = set()
     for entry in storage.list_dir(f"{run_id}/artifacts"):
         if not entry.is_directory:
             continue
@@ -24,7 +26,11 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_i
             artifact_id = UUID(entry.name)
         except ValueError:
             continue
+        storage_artifact_ids.add(artifact_id)
         _ingest_artifact(conn, storage, run_id, project_id, artifact_id)
+    conn.execute(artifacts.delete().where(
+        artifacts.c.run_id == run_id, sa.not_(artifacts.c.id.in_(storage_artifact_ids)),
+    ))
 
     prefix = f"{run_id}/"
     for key in storage.list_files(f"{run_id}/media"):

@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if config.backfill.enabled:
         with ctx.engine.begin() as conn:
             backfill.sync(ctx, conn)
-    flush_task = asyncio.create_task(_flush_loop(ctx)) if not config.backfill.enabled else None
+    flush_task = None if config.backfill.enabled else asyncio.create_task(_flush_loop(ctx))
     yield
     if flush_task is not None:
         flush_task.cancel()

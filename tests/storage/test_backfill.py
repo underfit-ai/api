@@ -179,7 +179,7 @@ def test_backfill_updates_artifact_and_media_records(storage: Storage, engine: E
     assert [r.index for r in media_rows] == [0, 1, 2]
 
 
-def test_backfill_deletes_runs_only_when_directory_gone(storage: Storage, engine: Engine) -> None:
+def test_backfill_deletes_runs_when_manifest_gone(storage: Storage, engine: Engine) -> None:
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial D"})
     _write_text(storage, f"{run_id}/logs/worker-1/segments/0.log", "hello\n")
@@ -193,12 +193,6 @@ def test_backfill_deletes_runs_only_when_directory_gone(storage: Storage, engine
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None
 
     storage.delete(f"{run_id}/run.json")
-    _sync(engine, storage)
-    with engine.begin() as conn:
-        assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is not None
-
-    for key in storage.list_files(str(run_id)):
-        storage.delete(key)
     _sync(engine, storage)
     with engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None

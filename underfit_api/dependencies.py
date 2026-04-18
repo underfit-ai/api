@@ -23,7 +23,8 @@ class AppContext:
     engine: Engine
     storage: Storage
     sync_lock: threading.Lock = field(default_factory=threading.Lock)
-    last_sync: dict[UUID | None, float] = field(default_factory=dict)
+    last_full_sync: float = 0.0
+    last_run_sync: dict[UUID, float] = field(default_factory=dict)
 
 
 def get_ctx(request: Request) -> AppContext:

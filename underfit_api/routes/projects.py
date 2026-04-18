@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
 from underfit_api import backfill
+from underfit_api.backfill.ui_state import write_project
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict
@@ -99,7 +100,7 @@ def update_project_ui_state(
     require_project_contributor(conn, project.id, user.id)
     updated = projects_repo.update_ui_state(conn, project.id, body.ui_state)
     if config.backfill.enabled:
-        backfill.ui_state.write_project(ctx.storage, updated)
+        write_project(ctx, updated)
     return updated
 
 
