@@ -33,17 +33,23 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_i
     ))
 
     prefix = f"{run_id}/"
+    storage_media_ids: set[UUID] = set()
     for key in storage.list_files(f"{run_id}/media"):
         rel = key[len(prefix):]
         if not (m := _MEDIA.match(rel)):
             continue
         media_id = uuid5(run_id, rel)
+        storage_media_ids.add(media_id)
         if conn.execute(media.select().where(media.c.id == media_id)).first() is None:
             conn.execute(media.insert().values(
                 id=media_id, run_id=run_id, type=m.group(1), key=m.group(2),
                 step=int(m.group(3)), index=int(m.group(4)),
                 storage_key=rel, metadata=None, created_at=utcnow(),
             ))
+    query = media.delete().where(media.c.run_id == run_id)
+    if storage_media_ids:
+        query = query.where(sa.not_(media.c.id.in_(storage_media_ids)))
+    conn.execute(query)
 
 
 def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, project_id: UUID, artifact_id: UUID) -> None:

@@ -97,6 +97,12 @@ def test_backfill_ingests_segment_files(storage: Storage, engine: Engine) -> Non
         rescanned_run = conn.execute(select(runs).where(runs.c.id == run_id)).first()
     assert len(log_segment_count) == 1
     assert rescanned_run is not None and rescanned_run.summary == {"loss": 0.1, "best": 1.0}
+    storage.delete(f"{run_id}/logs/worker-1/segments/0.log")
+    storage.delete(f"{run_id}/scalars/0/r1/0.jsonl")
+    storage.delete(f"{run_id}/scalars/0/r1/2.jsonl")
+    _sync(engine, storage)
+    with engine.begin() as conn:
+        assert conn.execute(select(run_workers).where(run_workers.c.run_id == run_id)).all() == []
 
 
 def test_backfill_stops_scalar_segment_at_invalid_json(storage: Storage, engine: Engine) -> None:
@@ -177,6 +183,10 @@ def test_backfill_updates_artifact_and_media_records(storage: Storage, engine: E
     assert (artifact_row.step, artifact_row.name, artifact_row.type) == (3, "best", "model")
     assert artifact_row.finalized_at is not None and artifact_row.stored_size_bytes == 2
     assert [r.index for r in media_rows] == [0, 1, 2]
+    storage.delete(f"{run_id}/media/image/samples_7_1.png")
+    _sync(engine, storage)
+    with engine.begin() as conn:
+        assert [r.index for r in conn.execute(select(media).order_by(media.c.index)).all()] == [0, 2]
 
 
 def test_backfill_deletes_runs_when_manifest_gone(storage: Storage, engine: Engine) -> None:
@@ -196,4 +206,3 @@ def test_backfill_deletes_runs_when_manifest_gone(storage: Storage, engine: Engi
     _sync(engine, storage)
     with engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None
-

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -42,6 +43,10 @@ from underfit_api.storage import build_storage
 logger = logging.getLogger(__name__)
 BACKFILL_WRITE_ERROR = "API write endpoints are disabled while backfill is enabled"
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+BACKFILL_WRITE_ROUTE_WHITELIST = (
+    re.compile(r"^/api/v1/accounts/[^/]+/projects/[^/]+/ui-state$"),
+    re.compile(r"^/api/v1/accounts/[^/]+/projects/[^/]+/runs/[^/]+/ui-state$"),
+)
 
 
 async def _flush_loop(ctx: AppContext) -> None:
@@ -112,7 +117,8 @@ app.add_middleware(
 async def backfill_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
     if (
         config.backfill.enabled and request.url.path.startswith("/api/v1")
-        and request.method in WRITE_METHODS and not request.url.path.endswith("/ui-state")
+        and request.method in WRITE_METHODS
+        and not any(pattern.fullmatch(request.url.path) for pattern in BACKFILL_WRITE_ROUTE_WHITELIST)
     ):
         return JSONResponse(status_code=409, content={"error": BACKFILL_WRITE_ERROR})
     return await call_next(request)

@@ -13,7 +13,7 @@ from underfit_api.models import Scalar
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
-from underfit_api.schema import log_segments, scalar_segments
+from underfit_api.schema import log_segments, run_workers, scalar_segments
 from underfit_api.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -23,18 +23,36 @@ _SCALAR = re.compile(r"^scalars/([^/]+)/r(\d+)/(\d+)\.jsonl$")
 
 
 def reconcile_segments(conn: Connection, storage: Storage, run_id: UUID) -> None:
+    log_keys_by_worker: dict[UUID, set[str]] = {}
+    scalar_keys_by_worker: dict[UUID, set[str]] = {}
     prefix = f"{run_id}/"
     for key in storage.list_files(f"{run_id}/logs"):
         rel = key[len(prefix):]
         if m := _LOG.match(rel):
             worker_id = _ensure_worker(conn, run_id, m.group(1))
+            log_keys_by_worker.setdefault(worker_id, set()).add(rel)
             _ingest_log_segment(conn, storage, worker_id, key, rel, int(m.group(2)))
 
     for key in storage.list_files(f"{run_id}/scalars"):
         rel = key[len(prefix):]
         if m := _SCALAR.match(rel):
             worker_id = _ensure_worker(conn, run_id, m.group(1))
+            scalar_keys_by_worker.setdefault(worker_id, set()).add(rel)
             _ingest_scalar_segment(conn, storage, worker_id, key, rel, int(m.group(2)), int(m.group(3)))
+
+    seen_workers = set(log_keys_by_worker) | set(scalar_keys_by_worker)
+    for worker in workers_repo.list_by_run(conn, run_id):
+        if worker.id not in seen_workers:
+            conn.execute(run_workers.delete().where(run_workers.c.id == worker.id))
+            continue
+        log_keys = log_keys_by_worker.get(worker.id, {""})
+        scalar_keys = scalar_keys_by_worker.get(worker.id, {""})
+        conn.execute(log_segments.delete().where(
+            log_segments.c.worker_id == worker.id, sa.not_(log_segments.c.storage_key.in_(log_keys)),
+        ))
+        conn.execute(scalar_segments.delete().where(
+            scalar_segments.c.worker_id == worker.id, sa.not_(scalar_segments.c.storage_key.in_(scalar_keys)),
+        ))
 
 
 def _ensure_worker(conn: Connection, run_id: UUID, worker_label: str) -> UUID:
