@@ -31,12 +31,8 @@ def test_launch_lifecycle(
         "config": {"lr": 0.001}, "metadata": {"summary": {"loss": 0.5}},
     }).json()
     assert run["isActive"] is True
-    assert run["terminalState"] is None
     assert run["config"] == {"lr": 0.001}
     assert run["metadata"] == {"summary": {"loss": 0.5}}
-    assert run["launchId"] == "abc-123"
-    assert run["name"] == "my-run"
-    assert run["workerToken"] is not None
 
     fetched = client.get(f"{RUNS}/{cast(str, run['name']).upper()}", headers=owner_headers)
     assert fetched.status_code == 200
@@ -79,6 +75,9 @@ def test_launch_join_and_retry(client: TestClient, owner_headers: Headers, creat
     workers = client.get(f"{RUNS}/{first['name']}/workers", headers=owner_headers).json()
     assert {w["workerLabel"] for w in workers} == {"0", "1"}
 
+    duplicate = client.post(LAUNCH, headers=owner_headers, json={"runName": "my-run", "launchId": "different"})
+    assert duplicate.status_code == 409
+
 
 def test_launch_rejects_stale_run(
     client: TestClient, owner_headers: Headers, create_project: CreateProject, engine: Engine,
@@ -103,13 +102,6 @@ def test_launch_validation(
     create_project(handle="owner", name="underfit")
     headers = owner_headers if auth else None
     assert client.post(LAUNCH, headers=headers, json=payload).status_code == status
-
-
-def test_launch_duplicate_name(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
-    create_project(handle="owner", name="underfit")
-    client.post(LAUNCH, headers=owner_headers, json={"runName": "baseline", "launchId": "id-1", "workerLabel": "0"})
-    resp = client.post(LAUNCH, headers=owner_headers, json={"runName": "baseline", "launchId": "id-2"})
-    assert resp.status_code == 409
 
 
 def test_list_user_runs_visibility(

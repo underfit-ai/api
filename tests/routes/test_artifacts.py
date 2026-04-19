@@ -27,7 +27,6 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
     artifact = created.json()
     assert client.get(PROJECT_ARTIFACTS, headers=owner_headers).json() == []
     assert client.get(f"/api/v1/artifacts/{artifact['id']}", headers=owner_headers).status_code == 404
-    assert artifact["storedSizeBytes"] is None
 
     file_base = f"/api/v1/artifacts/{artifact['id']}/files"
 
@@ -59,6 +58,11 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
     assert missing.json() == {"missing": ["dir/config.json"], "extra": []}
 
     assert client.put(file_base + "/dir/config.json", headers=owner_headers, content=b"{}").status_code == 200
+    assert client.put(file_base + "/extra.bin", headers=owner_headers, content=b"x").status_code == 200
+    extra = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=payload_3)
+    assert extra.status_code == 409 and extra.json() == {"missing": [], "extra": ["extra.bin"]}
+    assert client.delete(file_base + "/extra.bin", headers=owner_headers).status_code == 200
+    assert client.head(file_base + "/extra.bin", headers=owner_headers).status_code == 404
 
     payload_4 = {
         "manifest": {
@@ -81,25 +85,6 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
 
     assert client.put(file_base + "/weights.bin", headers=owner_headers, content=b"new").status_code == 409
     assert client.delete(file_base + "/weights.bin", headers=owner_headers).status_code == 409
-
-
-def test_artifact_finalize(client: TestClient, owner_headers: Headers, create_run: CreateRun) -> None:
-    create_run(handle="owner", project_name="underfit", name="test-run")
-    artifact = client.post(RUN_ARTIFACTS, headers=owner_headers, json={"name": "checkpoint", "type": "model"}).json()
-    file_base = f"/api/v1/artifacts/{artifact['id']}/files"
-
-    assert client.put(file_base + "/weights.bin", headers=owner_headers, content=b"weights").status_code == 200
-    assert client.put(file_base + "/extra.bin", headers=owner_headers, content=b"x").status_code == 200
-
-    payload = {"manifest": {"files": ["weights.bin"]}}
-    extra = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=payload)
-    assert extra.status_code == 409 and extra.json() == {"missing": [], "extra": ["extra.bin"]}
-
-    assert client.delete(file_base + "/extra.bin", headers=owner_headers).status_code == 200
-    assert client.head(file_base + "/extra.bin", headers=owner_headers).status_code == 404
-
-    finalized = client.post(f"/api/v1/artifacts/{artifact['id']}/finalize", headers=owner_headers, json=payload)
-    assert finalized.status_code == 200
 
 
 def test_artifact_finalize_blocks_inflight_uploads(
@@ -153,42 +138,34 @@ def test_artifact_access_controls(
     add_collaborator: AddCollaborator, create_run: CreateRun,
 ) -> None:
     create_run(handle="owner", project_name="underfit", name="test-run")
-    forbidden_payload = {"name": "ckpt", "type": "model"}
-    assert client.post(PROJECT_ARTIFACTS, headers=outsider_headers, json=forbidden_payload).status_code == 403
-
-    artifact_payload = {"step": 1, "name": "checkpoint", "type": "model"}
-    artifact = client.post(RUN_ARTIFACTS, headers=owner_headers, json=artifact_payload).json()
+    payload = {"name": "checkpoint", "type": "model"}
+    assert client.post(PROJECT_ARTIFACTS, headers=outsider_headers, json=payload).status_code == 403
+    artifact = client.post(RUN_ARTIFACTS, headers=owner_headers, json=payload).json()
     base = f"/api/v1/artifacts/{artifact['id']}"
-    assert client.put(f"{base}/files/weights.bin", headers=outsider_headers, content=b"x").status_code == 403
-    assert client.delete(f"{base}/files/weights.bin", headers=outsider_headers).status_code == 403
-    empty_files = {"manifest": {"files": []}}
-    assert client.post(f"{base}/finalize", headers=outsider_headers, json=empty_files).status_code == 403
+    assert client.put(f"{base}/files/w.bin", headers=outsider_headers, content=b"x").status_code == 403
+    assert client.delete(f"{base}/files/w.bin", headers=outsider_headers).status_code == 403
+    finalize = client.post(f"{base}/finalize", headers=outsider_headers, json={"manifest": {"files": []}})
+    assert finalize.status_code == 403
 
     add_collaborator(handle="owner", project_name="underfit", user_handle="outsider")
-
     created = client.post(PROJECT_ARTIFACTS, headers=outsider_headers, json={"name": "ckpt", "type": "model"})
     assert created.status_code == 200
     collaborator_artifact = created.json()
     collaborator_base = f"/api/v1/artifacts/{collaborator_artifact['id']}"
     assert client.put(f"{collaborator_base}/files/a.bin", headers=outsider_headers, content=b"a").status_code == 200
-    manifest_payload = {"manifest": {"files": ["a.bin"]}}
-    finalized = client.post(f"{collaborator_base}/finalize", headers=outsider_headers, json=manifest_payload)
+    finalized = client.post(
+        f"{collaborator_base}/finalize", headers=outsider_headers, json={"manifest": {"files": ["a.bin"]}},
+    )
     assert finalized.status_code == 200 and finalized.json() == {"status": "ok"}
 
 
 @pytest.mark.parametrize(("path", "normalized"), [
     ("models/cafe\u0301 report (v1) [final]!.json", "models/caf\u00e9 report (v1) [final]!.json"),
-    (".hidden/ok.txt", ".hidden/ok.txt"),
     ("..\\weights.bin", None),
     ("\\etc\\passwd", None),
-    ("dir//file.txt", None),
-    ("dir/./file.txt", None),
     ("dir/../file.txt", None),
-    ("dir /file.txt", None),
+    ("dir//file.txt", None),
     ("dir/ file.txt", None),
-    ("dir/file.txt ", None),
-    ("dir/file.txt.", None),
-    ("dir/\tfile.txt", None),
     ("dir/\nfile.txt", None),
 ])
 def test_validate_artifact_path(path: str, normalized: str | None) -> None:

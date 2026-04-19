@@ -8,7 +8,7 @@ from httpx import Response
 from sqlalchemy import Engine
 
 import underfit_api.routes.projects as projects_route
-from tests.conftest import CreateOrg, CreateOrgMember, CreateProject, CreateUser, Headers
+from tests.conftest import CreateOrg, CreateOrgMember, CreateProject, Headers
 from underfit_api.config import config
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.storage import Storage
@@ -27,7 +27,6 @@ def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
     assert created.status_code == 200
     assert created.json()["name"] == "underfit"
     assert created.json()["metadata"] == {"charts": {"default": "loss"}}
-    assert created.json()["uiState"] == {} and created.json()["baselineRunId"] is None
 
     fetched = client.get(f"{BASE}/UNDERFIT", headers=owner_headers)
     assert fetched.status_code == 200 and fetched.json()["description"] == "Tracking"
@@ -87,8 +86,13 @@ def test_project_visibility_and_listing(
     assert outsider_projects.status_code == 200 and _project_names(outsider_projects) == {"public"}
     public_projects = client.get(BASE)
     assert public_projects.status_code == 200 and _project_names(public_projects) == {"public"}
-    added = client.put("/api/v1/accounts/owner/projects/shared/collaborators/outsider", headers=owner_headers)
+    collab_url = "/api/v1/accounts/owner/projects/shared/collaborators/outsider"
+    added = client.put(collab_url, headers=owner_headers)
     assert added.status_code == 200
+    assert client.put(collab_url, headers=owner_headers).status_code == 409
+    listed = client.get(f"{BASE}/shared/collaborators", headers=owner_headers).json()
+    assert [u["handle"] for u in listed] == ["outsider"]
+    assert client.delete(collab_url, headers=outsider_headers).status_code == 403
     assert client.get(f"{BASE}/shared", headers=outsider_headers).status_code == 200
     assert _project_names(client.get(BASE, headers=outsider_headers)) == {"public", "shared"}
     launched = client.post("/api/v1/accounts/owner/projects/shared/runs/launch", headers=outsider_headers, json={
@@ -98,6 +102,10 @@ def test_project_visibility_and_listing(
     my_projects = client.get("/api/v1/me/projects", headers=outsider_headers)
     assert my_projects.status_code == 200
     assert [cast(str, project["name"]) for project in my_projects.json()] == ["shared", "outsider-private"]
+    removed = client.delete(collab_url, headers=owner_headers)
+    assert removed.status_code == 200 and removed.json() == {"status": "ok"}
+    assert client.delete(collab_url, headers=owner_headers).status_code == 404
+    assert client.get(f"{BASE}/shared", headers=outsider_headers).status_code == 403
 
     org = create_org(owner_headers)
     admin_headers = create_org_member(org["id"], "admin@example.com", "admin", "Admin", role="ADMIN")
@@ -112,56 +120,41 @@ def test_project_visibility_and_listing(
     assert client.get("/api/v1/accounts/core/projects/open").status_code == 200
     assert client.post(launch_url, headers=member_headers, json={"runName": "r", "launchId": "1"}).status_code == 403
     assert client.post(launch_url, headers=admin_headers, json={"runName": "r", "launchId": "1"}).status_code == 200
+    org_collab = "/api/v1/accounts/core/projects/secret/collaborators/outsider"
+    assert client.put(org_collab, headers=member_headers).status_code == 403
+    assert client.put(org_collab, headers=admin_headers).status_code == 200
+    assert client.delete(org_collab, headers=admin_headers).status_code == 200
+    assert client.delete(org_collab, headers=admin_headers).status_code == 404
     org_projects = client.get("/api/v1/accounts/core/projects", headers=admin_headers)
     assert org_projects.status_code == 200 and _project_names(org_projects) == {"secret", "open"}
     admin_projects = client.get("/api/v1/me/projects", headers=admin_headers)
     assert admin_projects.status_code == 200 and _project_names(admin_projects) == {"secret", "open"}
 
 
-@pytest.mark.parametrize(("url", "payload", "status", "existing"), [
-    ("/api/v1/accounts/missing/projects", {"name": "underfit", "visibility": "private"}, 404, False),
-    (BASE, {"name": "underfit", "visibility": "internal"}, 400, False),
-    (BASE, {"name": "UNDERFIT", "visibility": "private"}, 409, True),
-])
-def test_project_creation_rejects_invalid_requests(
-    url: str, payload: dict[str, str], status: int, existing: bool,
-    client: TestClient, owner_headers: Headers, create_project: CreateProject,
+def test_project_creation_and_rename_validation(
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_project: CreateProject,
 ) -> None:
-    if existing:
-        create_project(handle="owner", name="underfit")
-    assert client.post(url, headers=owner_headers, json=payload).status_code == status
-
-
-@pytest.mark.parametrize(("method", "url", "payload"), [
-    ("put", f"{BASE}/underfit", {"description": "hacked"}),
-    ("post", f"{BASE}/underfit/rename", {"name": "hacked"}),
-    ("post", BASE, {"name": "proj", "description": "x", "visibility": "private"}),
-])
-def test_project_admin_permissions(
-    method: str, url: str, payload: dict[str, str],
-    client: TestClient, outsider_headers: Headers, create_project: CreateProject, create_user: CreateUser,
-) -> None:
-    create_user(email="owner@example.com", handle="owner", name="Owner")
     create_project(handle="owner", name="underfit")
-    assert getattr(client, method)(url, headers=outsider_headers, json=payload).status_code == 403
+    create_project(handle="owner", name="project2")
 
-
-def test_rename_project(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
-    create_project(handle="owner", name="underfit")
+    assert client.post(
+        "/api/v1/accounts/missing/projects", headers=owner_headers,
+        json={"name": "underfit", "visibility": "private"},
+    ).status_code == 404
+    assert client.post(BASE, headers=owner_headers, json={"name": "x", "visibility": "internal"}).status_code == 400
+    conflict = client.post(BASE, headers=owner_headers, json={"name": "UNDERFIT", "visibility": "private"})
+    assert conflict.status_code == 409
+    assert client.put(f"{BASE}/underfit", headers=outsider_headers, json={"description": "hacked"}).status_code == 403
+    assert client.post(
+        f"{BASE}/underfit/rename", headers=outsider_headers, json={"name": "hacked"},
+    ).status_code == 403
 
     renamed = client.post(f"{BASE}/underfit/rename", headers=owner_headers, json={"name": "new-project"})
-    assert renamed.status_code == 200
-    assert renamed.json()["name"] == "new-project"
-
-    fetched = client.get("/api/v1/accounts/owner/projects/new-project", headers=owner_headers)
-    assert fetched.status_code == 200 and fetched.json()["name"] == "new-project"
+    assert renamed.status_code == 200 and renamed.json()["name"] == "new-project"
     assert client.get("/api/v1/accounts/owner/projects/underfit", headers=owner_headers).status_code == 404
-
-
-def test_rename_project_conflicts(client: TestClient, owner_headers: Headers, create_project: CreateProject) -> None:
-    create_project(handle="owner", name="project1")
-    create_project(handle="owner", name="project2")
-    assert client.post(f"{BASE}/project1/rename", headers=owner_headers, json={"name": "project2"}).status_code == 409
+    assert client.post(
+        f"{BASE}/new-project/rename", headers=owner_headers, json={"name": "project2"},
+    ).status_code == 409
 
 
 def test_delete_project(

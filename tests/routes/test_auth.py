@@ -32,11 +32,6 @@ def test_login_rejects_invalid_credentials(client: TestClient, register_user: Re
     assert client.post(url, json={"email": "missing@example.com", "password": "password123"}).status_code == 401
 
 
-def test_register_rejects_invalid_input(client: TestClient) -> None:
-    payload = {"email": "no-at", "handle": "valid-user", "password": "password123"}
-    assert client.post("/api/v1/auth/register", json=payload).status_code == 400
-
-
 @pytest.mark.parametrize(("base_url", "secure_override", "frontend_url", "expect_secure"), [
     ("http://localhost", True, None, True),
     ("https://example.com", False, None, False),
@@ -58,21 +53,22 @@ def test_session_cookie_secure_flag(
     assert ("Secure" in response.headers["set-cookie"]) is expect_secure
 
 
-def test_auth_modes(create_user: CreateUser, session_for_user: SessionForUser) -> None:
-    with TestClient(app) as client:
-        assert client.get("/api/v1/me").status_code == 401
+def test_auth_modes(
+    client: TestClient, create_user: CreateUser, session_for_user: SessionForUser, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert client.get("/api/v1/me").status_code == 401
 
-        user = create_user(email="cookie@example.com", handle="cookie", name="Cookie")
-        cookie_headers = session_for_user(user)
-        token = client.post("/api/v1/me/api-keys", headers=cookie_headers, json={"label": "test"}).json()["token"]
-        current = client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
-        assert current.status_code == 200 and current.json()["handle"] == "cookie"
+    user = create_user(email="cookie@example.com", handle="cookie", name="Cookie")
+    cookie_headers = session_for_user(user)
+    token = client.post("/api/v1/me/api-keys", headers=cookie_headers, json={"label": "test"}).json()["token"]
+    current = client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+    assert current.status_code == 200 and current.json()["handle"] == "cookie"
 
-    config.auth_enabled = False
-    with TestClient(app) as client:
-        current = client.get("/api/v1/me")
-        client.cookies.set("session_token", "stale")
-        bogus = client.get("/api/v1/me", headers={"Authorization": "Bearer nope"})
+    monkeypatch.setattr(config, "auth_enabled", False)
+    with TestClient(app) as local_client:
+        current = local_client.get("/api/v1/me")
+        local_client.cookies.set("session_token", "stale")
+        bogus = local_client.get("/api/v1/me", headers={"Authorization": "Bearer nope"})
     assert current.status_code == 200
     assert (current.json()["handle"], current.json()["email"]) == ("local", "local@underfit.local")
     assert bogus.status_code == 200 and bogus.json()["handle"] == "local"

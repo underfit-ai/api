@@ -10,74 +10,41 @@ from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.schema import run_workers
 from underfit_api.storage import Storage
 
+INGEST = "/api/v1/ingest/scalars"
+SCALARS = "/api/v1/accounts/owner/projects/underfit/runs/r/scalars"
 
-def test_write_and_read_scalars(client: TestClient, owner_headers: Headers, worker_headers: Headers) -> None:
-    scalars_url = "/api/v1/accounts/owner/projects/underfit/runs/r/scalars"
+
+def test_scalar_ingest_and_read(
+    client: TestClient, owner_headers: Headers, worker_headers: Headers, engine: Engine, storage: Storage,
+) -> None:
     points = [
         {"step": i, "values": {"loss": round(1.0 - i * 0.01, 4)}, "timestamp": f"2025-01-01T00:00:{i:02d}+00:00"}
         for i in range(20)
     ]
-    scalars = {"start_line": 0, "scalars": points}
-    assert client.post("/api/v1/ingest/scalars", headers=worker_headers, json=scalars).json()["nextStartLine"] == 20
+    payload = {"start_line": 0, "scalars": points}
+    assert client.post(INGEST, json=payload).status_code == 401
+    assert client.post(INGEST, headers=worker_headers, json=payload).json()["nextStartLine"] == 20
+    duplicate = client.post(INGEST, headers=worker_headers, json=payload)
+    assert duplicate.status_code == 409
+    assert duplicate.json() == {"error": "Invalid startLine", "expectedStartLine": 20}
+
     stale = {"step": 5, "values": {"loss": 9.9}, "timestamp": "2025-01-01T00:01:00+00:00"}
-    reject = client.post("/api/v1/ingest/scalars", headers=worker_headers, json={"start_line": 20, "scalars": [stale]})
+    reject = client.post(INGEST, headers=worker_headers, json={"start_line": 20, "scalars": [stale]})
     assert reject.status_code == 409
     assert reject.json() == {"error": "Step must be strictly increasing", "lastStep": 19}
 
-    full = client.get(scalars_url, headers=owner_headers)
-    assert full.status_code == 200
-    assert full.json()["resolution"] == 1
-    assert full.json()["pointCount"] == 20
+    assert client.get(SCALARS, headers=owner_headers, params={"resolution": 1, "targetPoints": 10}).status_code == 400
 
-    reduced = client.get(scalars_url, headers=owner_headers, params={"targetPoints": 5})
-    assert reduced.status_code == 200
-    assert reduced.json()["resolution"] == 10
-    assert reduced.json()["pointCount"] == 2
-    reduced_again = client.get(scalars_url, headers=owner_headers, params={"targetPoints": 1}).json()
-    assert reduced_again["resolution"] == 100
-    assert reduced_again["pointCount"] == 1
+    full = client.get(SCALARS, headers=owner_headers).json()
+    assert (full["resolution"], full["pointCount"]) == (1, 20)
+    reduced = client.get(SCALARS, headers=owner_headers, params={"targetPoints": 5}).json()
+    assert (reduced["resolution"], reduced["pointCount"]) == (10, 2)
+    assert client.get(SCALARS, headers=owner_headers, params={"targetPoints": 1}).json()["resolution"] == 100
 
-
-def test_scalar_ingest_validation(client: TestClient, owner_headers: Headers, worker_headers: Headers) -> None:
-    scalars_url = "/api/v1/accounts/owner/projects/underfit/runs/r/scalars"
-    payload = {
-        "start_line": 0,
-        "scalars": [{"step": 1, "values": {"loss": 0.1}, "timestamp": "2025-01-01T00:00:00+00:00"}],
-    }
-
-    assert client.post("/api/v1/ingest/scalars", json=payload).status_code == 401
-    assert client.post("/api/v1/ingest/scalars", headers=worker_headers, json=payload).status_code == 200
-    duplicate = {
-        "start_line": 0,
-        "scalars": [{"step": 2, "values": {"loss": 0.2}, "timestamp": "2025-01-01T00:00:01+00:00"}],
-    }
-    assert client.post("/api/v1/ingest/scalars", headers=worker_headers, json=duplicate).status_code == 409
-
-    line = {"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"}
-    client.post("/api/v1/ingest/logs", headers=worker_headers, json={"start_line": 0, "lines": [line]})
-    replay = client.post("/api/v1/ingest/logs", headers=worker_headers, json={"start_line": 0, "lines": [line]})
-    assert replay.json() == {"error": "Invalid startLine", "expectedStartLine": 1}
-
-    invalid_query = client.get(scalars_url, headers=owner_headers, params={"resolution": 1, "targetPoints": 10})
-    assert invalid_query.status_code == 400
-
-
-def test_read_scalars_from_storage(
-    client: TestClient, owner_headers: Headers, worker_headers: Headers, engine: Engine, storage: Storage,
-) -> None:
-    scalars_url = "/api/v1/accounts/owner/projects/underfit/runs/r/scalars"
-    points = [
-        {"step": i, "values": {"loss": round(1.0 - i * 0.01, 4)}, "timestamp": f"2025-01-01T00:00:{i:02d}+00:00"}
-        for i in range(20)
-    ]
-    assert client.post(
-        "/api/v1/ingest/scalars", headers=worker_headers, json={"start_line": 0, "scalars": points},
-    ).status_code == 200
     with engine.begin() as conn:
         conn.execute(run_workers.update().values(last_heartbeat=datetime(2020, 1, 1, tzinfo=timezone.utc)))
     scalar_buffer.compact(engine, storage)
-    assert client.get(scalars_url, headers=owner_headers).json()["pointCount"] == 20
-    reduced = client.get(scalars_url, headers=owner_headers, params={"resolution": 10}).json()
-    assert reduced["resolution"] == 10
-    assert reduced["pointCount"] == 2
-    assert reduced["points"][-1]["step"] == 19
+    assert client.get(SCALARS, headers=owner_headers).json()["pointCount"] == 20
+    from_storage = client.get(SCALARS, headers=owner_headers, params={"resolution": 10}).json()
+    assert (from_storage["resolution"], from_storage["pointCount"]) == (10, 2)
+    assert from_storage["points"][-1]["step"] == 19

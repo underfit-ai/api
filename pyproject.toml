@@ -58,7 +58,7 @@ lint.ignore = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--basetemp=/tmp/underfit-pytest --disable-plugin-autoload"
+addopts = "--disable-plugin-autoload"
 
 [tool.alembic]
 script_location = "%(here)s/migrations"

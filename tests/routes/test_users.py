@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+from io import BytesIO
+
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from tests.conftest import CreateOrg, CreateUser, Headers, SessionForUser
 
 ORGS = "/api/v1/organizations"
+
+
+def _png_bytes(color: tuple[int, int, int] = (20, 120, 200)) -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (128, 64), color).save(output, format="PNG")
+    return output.getvalue()
 
 
 def test_email_exists(client: TestClient, create_user: CreateUser) -> None:
@@ -44,6 +53,14 @@ def test_update_profile(client: TestClient, create_user: CreateUser, session_for
     preserved = client.patch("/api/v1/me", headers=headers, json={"name": "Sam Researcher"})
     assert preserved.status_code == 200
     assert (preserved.json()["name"], preserved.json()["bio"]) == ("Sam Researcher", "Building models.")
+
+    assert client.put("/api/v1/me/avatar", headers=headers, content=b"not-an-image").status_code == 400
+    assert client.put("/api/v1/me/avatar", headers=headers, content=_png_bytes()).status_code == 200
+    assert client.put("/api/v1/me/avatar", headers=headers, content=_png_bytes((200, 120, 20))).status_code == 200
+    fetched = client.get("/api/v1/accounts/sam/avatar")
+    assert fetched.status_code == 200 and fetched.headers["content-type"] == "image/jpeg"
+    assert client.delete("/api/v1/me/avatar", headers=headers).status_code == 200
+    assert client.get("/api/v1/accounts/sam/avatar").status_code == 404
 
 
 def test_list_user_memberships(client: TestClient, owner_headers: Headers, create_org: CreateOrg) -> None:

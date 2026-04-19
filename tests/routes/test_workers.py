@@ -10,14 +10,19 @@ from underfit_api.auth import get_app_secret
 from underfit_api.config import config
 from underfit_api.main import app
 
-LAUNCH = "/api/v1/accounts/owner/projects/underfit/runs/launch"
-
 
 def test_heartbeat_and_terminal_state(client: TestClient, worker_headers: Headers) -> None:
     assert client.post("/api/v1/workers/heartbeat", headers=worker_headers).status_code == 200
 
     resp = client.put("/api/v1/runs/terminal-state", headers=worker_headers, json={"terminalState": "failed"})
     assert resp.status_code == 200 and resp.json()["terminalState"] == "failed"
+
+    for token in ["bogus", str(UUID(int=0))]:
+        bad = {"Authorization": f"Bearer {token}"}
+        assert client.post("/api/v1/workers/heartbeat", headers=bad).status_code == 401
+        terminal = client.put("/api/v1/runs/terminal-state", headers=bad, json={"terminalState": "finished"})
+        assert terminal.status_code == 401
+        assert client.put("/api/v1/runs/summary", headers=bad, json={"summary": {}}).status_code == 401
 
 
 def test_worker_auth_without_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -35,12 +40,3 @@ def test_worker_auth_without_app_secret(monkeypatch: pytest.MonkeyPatch) -> None
         assert client.put("/api/v1/runs/terminal-state", headers=worker_headers, json=payload).status_code == 200
 
 
-@pytest.mark.parametrize(("method", "url", "body"), [
-    ("post", "/api/v1/workers/heartbeat", None),
-    ("put", "/api/v1/runs/terminal-state", {"terminalState": "finished"}),
-    ("put", "/api/v1/runs/summary", {"summary": {}}),
-])
-def test_worker_endpoints_reject_invalid_tokens(client: TestClient, method: str, url: str, body: object) -> None:
-    for token in ["bogus", str(UUID(int=0))]:
-        response = getattr(client, method)(url, headers={"Authorization": f"Bearer {token}"}, json=body)
-        assert response.status_code == 401
