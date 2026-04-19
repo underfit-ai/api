@@ -12,7 +12,7 @@ from underfit_api.auth import create_signed_token, hash_password, verify_signed_
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, SessionTokenCookie
 from underfit_api.helpers import as_conflict, ensure_email_configured, send_email
-from underfit_api.models import AuthResponse, Body, OkResponse, Session
+from underfit_api.models import Body, OkResponse, Schema, Session, User
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import user_auth as user_auth_repo
 from underfit_api.repositories import users as users_repo
@@ -75,6 +75,11 @@ class ResetPasswordBody(Body):
 class ResetTokenPayload(BaseModel):
     user_id: UUID
     pw: str
+
+
+class AuthResponse(Schema):
+    user: User
+    session: Session
 
 
 @router.post("/register")

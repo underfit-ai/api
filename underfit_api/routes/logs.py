@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
-from underfit_api.models import Body, BufferedResponse, LogEntriesResponse, LogEntry, LogLine
+from underfit_api.models import Body, BufferedResponse, LogEntry, LogLine, Schema
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -17,6 +17,12 @@ router = APIRouter()
 class WriteLogsBody(Body):
     start_line: int
     lines: list[LogLine]
+
+
+class LogEntriesResponse(Schema):
+    entries: list[LogEntry]
+    next_cursor: int
+    has_more: bool
 
 
 @router.post("/ingest/logs")

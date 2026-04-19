@@ -7,7 +7,7 @@ from pydantic import Field
 
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser, SyncBackfill
 from underfit_api.helpers import as_conflict, validate_json_size
-from underfit_api.models import Body, LaunchResponse, OkResponse, Run, RunTerminalState
+from underfit_api.models import Body, OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import run_workers as workers_repo
@@ -44,6 +44,10 @@ class UpdateSummaryBody(Body):
 
 class UpdateRunUIStateBody(RunSettings):
     is_baseline: bool | None = None
+
+
+class LaunchResponse(Run):
+    worker_token: str
 
 
 def _launch_response(run: Run, worker_id: UUID) -> LaunchResponse:

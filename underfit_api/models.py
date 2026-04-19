@@ -15,7 +15,7 @@ UTCDatetime = Annotated[
 ]
 
 
-class _Base(BaseModel):
+class Schema(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, from_attributes=True)
 
 
@@ -41,7 +41,7 @@ class MediaType(str, Enum):
     HTML = "html"
 
 
-class User(_Base):
+class User(Schema):
     id: UUID
     handle: str
     type: str
@@ -52,7 +52,7 @@ class User(_Base):
     updated_at: UTCDatetime
 
 
-class Organization(_Base):
+class Organization(Schema):
     id: UUID
     handle: str
     type: str
@@ -61,13 +61,13 @@ class Organization(_Base):
     updated_at: UTCDatetime
 
 
-class Session(_Base):
+class Session(Schema):
     token: str
     created_at: UTCDatetime
     expires_at: UTCDatetime
 
 
-class ApiKey(_Base):
+class ApiKey(Schema):
     id: UUID
     user_id: UUID
     label: str
@@ -89,7 +89,7 @@ class UserMembership(Organization):
     role: str
 
 
-class Project(_Base):
+class Project(Schema):
     id: UUID
     owner: str
     account_id: UUID = Field(exclude=True)
@@ -105,7 +105,7 @@ class Project(_Base):
     updated_at: UTCDatetime
 
 
-class Run(_Base):
+class Run(Schema):
     id: UUID
     project_id: UUID
     user: str
@@ -128,11 +128,7 @@ class Run(_Base):
     updated_at: UTCDatetime
 
 
-class LaunchResponse(Run):
-    worker_token: str
-
-
-class Worker(_Base):
+class Worker(Schema):
     id: UUID
     run_id: UUID
     run_storage_key: str = Field(exclude=True)
@@ -141,7 +137,7 @@ class Worker(_Base):
     joined_at: UTCDatetime
 
 
-class Artifact(_Base):
+class Artifact(Schema):
     id: UUID
     project_id: UUID
     run_id: UUID | None
@@ -156,7 +152,7 @@ class Artifact(_Base):
     metadata: dict[str, object] | None
 
 
-class Media(_Base):
+class Media(Schema):
     id: UUID
     run_id: UUID
     key: str
@@ -169,68 +165,41 @@ class Media(_Base):
     created_at: UTCDatetime
 
 
-class Scalar(_Base):
+class Scalar(Schema):
     step: int | None = None
     values: dict[str, float]
     timestamp: UTCDatetime
 
 
-class ScalarAxis(_Base):
-    steps: list[int | None]
-    timestamps: list[UTCDatetime]
-
-
-class ScalarSeries(_Base):
-    axis: int
-    values: list[float]
-
-
-class ScalarSeriesResponse(_Base):
-    resolution: int
-    axes: list[ScalarAxis]
-    series: dict[str, ScalarSeries]
-
-
-class AuthResponse(_Base):
-    user: User
-    session: Session
-
-
-class ExistsResponse(_Base):
+class ExistsResponse(Schema):
     exists: bool
 
 
-class OkResponse(_Base):
+class OkResponse(Schema):
     status: Literal["ok"] = "ok"
 
 
-class BufferedResponse(_Base):
+class BufferedResponse(Schema):
     status: Literal["buffered"] = "buffered"
     next_start_line: int | None = None
 
 
-class HealthResponse(_Base):
+class HealthResponse(Schema):
     status: Literal["ok"] = "ok"
     version: Literal["v1"] = "v1"
 
 
-class LogLine(_Base):
+class LogLine(Schema):
     timestamp: UTCDatetime
     content: str
 
 
-class LogEntry(_Base):
+class LogEntry(Schema):
     start_line: int
     end_line: int
     content: str
     start_at: UTCDatetime
     end_at: UTCDatetime
-
-
-class LogEntriesResponse(_Base):
-    entries: list[LogEntry]
-    next_cursor: int
-    has_more: bool
 
 
 class ProjectCollaborator(User):
