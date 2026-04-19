@@ -14,7 +14,7 @@ from underfit_api.repositories import project_collaborators as project_collabora
 from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories.projects import ProjectSettings
-from underfit_api.routes.resolvers import resolve_account, resolve_account_and_project, resolve_project
+from underfit_api.routes.resolvers import resolve_account, resolve_project
 from underfit_api.storage import delete_prefix
 
 router = APIRouter()
@@ -74,15 +74,15 @@ def get_project(handle: str, project_name: str, conn: Conn, user: MaybeUser) -> 
 
 @router.put("/accounts/{handle}/projects/{project_name}")
 def update_project(handle: str, project_name: str, body: ProjectSettings, conn: Conn, user: RequireUser) -> Project:
-    account, project = resolve_account_and_project(conn, handle, project_name, user)
-    require_account_admin(conn, account.id, account.type, user.id)
+    project = resolve_project(conn, handle, project_name, user)
+    require_account_admin(conn, project.account_id, project.account_type, user.id)
     return projects_repo.update_settings(conn, project.id, body)
 
 
 @router.delete("/accounts/{handle}/projects/{project_name}")
 def delete_project(handle: str, project_name: str, conn: Conn, ctx: Ctx, user: RequireUser) -> OkResponse:
-    account, project = resolve_account_and_project(conn, handle, project_name, user)
-    require_account_admin(conn, account.id, account.type, user.id)
+    project = resolve_project(conn, handle, project_name, user)
+    require_account_admin(conn, project.account_id, project.account_type, user.id)
     run_storage_keys = [run.storage_key for run in runs_repo.list_by_project(conn, project.id)]
     with ctx.engine.begin() as write_conn:
         projects_repo.delete(write_conn, project.id)
@@ -97,7 +97,7 @@ def update_project_ui_state(
     handle: str, project_name: str, body: UpdateProjectUIStateBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Project:
     project = resolve_project(conn, handle, project_name, user)
-    require_project_contributor(conn, project.id, user.id)
+    require_project_contributor(conn, project, user.id)
     updated = projects_repo.update_ui_state(conn, project.id, body.ui_state)
     if config.backfill.enabled:
         write_project(ctx, updated)
@@ -106,8 +106,8 @@ def update_project_ui_state(
 
 @router.post("/accounts/{handle}/projects/{project_name}/rename")
 def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn: Conn, user: RequireUser) -> Project:
-    account, project = resolve_account_and_project(conn, handle, project_name, user)
-    require_account_admin(conn, account.id, account.type, user.id)
+    project = resolve_project(conn, handle, project_name, user)
+    require_account_admin(conn, project.account_id, project.account_type, user.id)
     with as_conflict(conn, "Project already exists"):
         return projects_repo.rename(conn, project.id, body.name.lower())
 
@@ -116,12 +116,12 @@ def rename_project(handle: str, project_name: str, body: RenameProjectBody, conn
 def transfer_project(
     handle: str, project_name: str, body: TransferProjectBody, conn: Conn, user: RequireUser,
 ) -> Project:
-    account, project = resolve_account_and_project(conn, handle, project_name, user)
-    require_account_admin(conn, account.id, account.type, user.id)
+    project = resolve_project(conn, handle, project_name, user)
+    require_account_admin(conn, project.account_id, project.account_type, user.id)
     recipient = resolve_account(conn, body.handle)
     if recipient.type != "USER":
         raise HTTPException(400, "Projects can only be transferred to a user")
-    if recipient.id == account.id:
+    if recipient.id == project.account_id:
         raise HTTPException(400, "Cannot transfer a project to its current owner")
     if not project_collaborators_repo.get(conn, project.id, recipient.id):
         raise HTTPException(400, "Recipient must be a collaborator on the project")

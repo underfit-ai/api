@@ -9,10 +9,9 @@ from pydantic import BaseModel
 
 from underfit_api.dependencies import Auth, Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import validate_json_size, validate_path
-from underfit_api.models import Artifact, Body, OkResponse
+from underfit_api.models import Artifact, Body, OkResponse, Project
 from underfit_api.permissions import require_project_contributor
 from underfit_api.repositories import artifacts as artifacts_repo
-from underfit_api.repositories import projects as projects_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.routes.resolvers import resolve_artifact, resolve_project, resolve_run
 
@@ -54,13 +53,11 @@ def _create_artifact(conn: Conn, project_id: UUID, body: CreateArtifactBody, run
     )
 
 
-def _artifact_prefix(conn: Conn, artifact: Artifact) -> str:
+def _artifact_prefix(conn: Conn, artifact: Artifact, project: Project) -> str:
     if artifact.run_id:
         run = runs_repo.get_by_id(conn, artifact.run_id)
         assert run is not None
         return f"{run.storage_key}/{artifact.storage_key}"
-    project = projects_repo.get_by_id(conn, artifact.project_id)
-    assert project is not None
     return f"{project.storage_key}/{artifact.storage_key}"
 
 
@@ -99,25 +96,25 @@ def create_project_artifact(
 def create_run_artifact(
     handle: str, project_name: str, run_name: str, body: CreateArtifactBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Artifact:
-    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
-    require_project_contributor(conn, run.project_id, user.id)
-    return _create_artifact(conn, run.project_id, body, run.id)
+    project, run = resolve_run(conn, ctx, handle, project_name, run_name, user)
+    require_project_contributor(conn, project, user.id)
+    return _create_artifact(conn, project.id, body, run.id)
 
 
 @router.get("/artifacts/{artifact_id}")
 def get_artifact(artifact_id: UUID, conn: Conn, user: MaybeUser) -> Artifact:
-    return resolve_artifact(conn, artifact_id, user)
+    return resolve_artifact(conn, artifact_id, user)[1]
 
 
 @router.put("/artifacts/{artifact_id}/files/{file_path:path}")
 async def upload_file(artifact_id: UUID, file_path: str, request: Request, ctx: Ctx, auth: Auth) -> Artifact:
     with ctx.engine.begin() as conn:
         user = auth.require_user(conn)
-        artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
-        require_project_contributor(conn, artifact.project_id, user.id)
+        project, artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
+        require_project_contributor(conn, project, user.id)
         if not artifacts_repo.begin_upload(conn, artifact.id):
             raise HTTPException(409, "Artifact is finalized")
-        key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
+        key = f"{_artifact_prefix(conn, artifact, project)}/files/{validate_path(file_path)}"
     try:
         await ctx.storage.write_stream(key, request.stream())
     except Exception:
@@ -132,9 +129,9 @@ async def upload_file(artifact_id: UUID, file_path: str, request: Request, ctx: 
 
 @router.head("/artifacts/{artifact_id}/files/{file_path:path}")
 def head_file(artifact_id: UUID, file_path: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> Response:
-    artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
+    project, artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
     try:
-        stat = ctx.storage.stat(f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}")
+        stat = ctx.storage.stat(f"{_artifact_prefix(conn, artifact, project)}/files/{validate_path(file_path)}")
     except FileNotFoundError as e:
         raise HTTPException(404, "File not found") from e
     headers = {"Content-Length": str(stat.size)}
@@ -149,8 +146,8 @@ def head_file(artifact_id: UUID, file_path: str, conn: Conn, ctx: Ctx, user: May
 def download_file(artifact_id: UUID, file_path: str, request: Request, ctx: Ctx, auth: Auth) -> Response:
     with ctx.engine.begin() as conn:
         user = auth.maybe_user(conn)
-        artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
-        key = f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}"
+        project, artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
+        key = f"{_artifact_prefix(conn, artifact, project)}/files/{validate_path(file_path)}"
     try:
         size = ctx.storage.size(key)
     except FileNotFoundError as e:
@@ -169,12 +166,12 @@ def download_file(artifact_id: UUID, file_path: str, request: Request, ctx: Ctx,
 
 @router.delete("/artifacts/{artifact_id}/files/{file_path:path}")
 def delete_file(artifact_id: UUID, file_path: str, conn: Conn, ctx: Ctx, user: RequireUser) -> Artifact:
-    artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
-    require_project_contributor(conn, artifact.project_id, user.id)
+    project, artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
+    require_project_contributor(conn, project, user.id)
     if artifact.finalized_at is not None:
         raise HTTPException(409, "Artifact is finalized")
     try:
-        ctx.storage.delete(f"{_artifact_prefix(conn, artifact)}/files/{validate_path(file_path)}")
+        ctx.storage.delete(f"{_artifact_prefix(conn, artifact, project)}/files/{validate_path(file_path)}")
     except FileNotFoundError as e:
         raise HTTPException(404, "File not found") from e
     return artifact
@@ -184,11 +181,11 @@ def delete_file(artifact_id: UUID, file_path: str, conn: Conn, ctx: Ctx, user: R
 def finalize_artifact(artifact_id: UUID, body: FinalizeArtifactBody, ctx: Ctx, auth: Auth) -> OkResponse:
     with ctx.engine.begin() as conn:
         user = auth.require_user(conn)
-        artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
-        require_project_contributor(conn, artifact.project_id, user.id)
+        project, artifact = resolve_artifact(conn, artifact_id, user, require_finalized=False)
+        require_project_contributor(conn, project, user.id)
         if artifact.finalized_at is not None:
             raise HTTPException(409, "Already finalized")
-        artifact_prefix = _artifact_prefix(conn, artifact)
+        artifact_prefix = _artifact_prefix(conn, artifact, project)
         if not artifacts_repo.begin_finalize(conn, artifact.id):
             raise HTTPException(409, "Uploads in progress")
     try:

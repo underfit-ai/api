@@ -54,7 +54,7 @@ def read_scalars(
     resolution: Annotated[int | None, Query(gt=0)] = None,
     target_points: Annotated[int | None, Query(alias="targetPoints", gt=0)] = None,
 ) -> ScalarSeriesResponse:
-    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
+    _, run = resolve_run(conn, ctx, handle, project_name, run_name, user)
     if resolution is not None and target_points is not None:
         raise HTTPException(400, "Cannot specify both resolution and targetPoints")
     workers = workers_repo.list_by_run(conn, run.id)

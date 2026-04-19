@@ -93,15 +93,15 @@ def launch(handle: str, project_name: str, body: LaunchBody, conn: Conn, user: R
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
 def get_run(handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> Run:
-    return resolve_run(conn, ctx, handle, project_name, run_name, user)
+    return resolve_run(conn, ctx, handle, project_name, run_name, user)[1]
 
 
 @router.put("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
 def update_run(
     handle: str, project_name: str, run_name: str, body: UpdateRunBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Run:
-    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
-    require_project_contributor(conn, run.project_id, user.id)
+    project, run = resolve_run(conn, ctx, handle, project_name, run_name, user)
+    require_project_contributor(conn, project, user.id)
     validate_json_size(body.metadata, "Metadata")
     if body.metadata is None:
         return run
@@ -110,7 +110,7 @@ def update_run(
 
 @router.delete("/accounts/{handle}/projects/{project_name}/runs/{run_name}")
 def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: RequireUser) -> OkResponse:
-    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
+    _, run = resolve_run(conn, ctx, handle, project_name, run_name, user)
     if run.user != user.handle:
         require_account_admin(conn, run.project_owner_id, run.project_owner_type, user.id)
     with ctx.engine.begin() as write_conn:
@@ -123,8 +123,8 @@ def delete_run(handle: str, project_name: str, run_name: str, conn: Conn, ctx: C
 def update_run_ui_state(
     handle: str, project_name: str, run_name: str, body: UpdateRunUIStateBody, conn: Conn, ctx: Ctx, user: RequireUser,
 ) -> Run:
-    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
-    require_project_contributor(conn, run.project_id, user.id)
+    project, run = resolve_run(conn, ctx, handle, project_name, run_name, user)
+    require_project_contributor(conn, project, user.id)
     validate_json_size(body.ui_state, "UI state")
     if body.is_baseline is not None:
         projects_repo.set_baseline_run(conn, run.project_id, run.id if body.is_baseline else None)

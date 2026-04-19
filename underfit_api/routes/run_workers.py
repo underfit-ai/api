@@ -14,7 +14,7 @@ router = APIRouter()
 def list_workers(
     handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: MaybeUser,
 ) -> list[Worker]:
-    run = resolve_run(conn, ctx, handle, project_name, run_name, user)
+    _, run = resolve_run(conn, ctx, handle, project_name, run_name, user)
     return workers_repo.list_by_run(conn, run.id)
 
 

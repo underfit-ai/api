@@ -8,16 +8,6 @@ from sqlalchemy import Connection
 from underfit_api.models import Project
 from underfit_api.repositories import organization_members as organization_members_repo
 from underfit_api.repositories import project_collaborators as project_collaborators_repo
-from underfit_api.repositories import projects as projects_repo
-
-
-def _resolve_project(conn: Connection, project: Project | UUID) -> Project:
-    if isinstance(project, Project):
-        return project
-    resolved = projects_repo.get_by_id(conn, project)
-    if not resolved:
-        raise HTTPException(404, "Project not found")
-    return resolved
 
 
 def _is_project_contributor(conn: Connection, project: Project, user_id: UUID) -> bool:
@@ -36,25 +26,16 @@ def require_account_admin(conn: Connection, account_id: UUID, account_type: str,
     raise HTTPException(403, "Forbidden")
 
 
-def require_project_contributor(conn: Connection, project: Project | UUID, user_id: UUID) -> None:
-    project = _resolve_project(conn, project)
-    if _is_project_contributor(conn, project, user_id):
-        return
-    raise HTTPException(403, "Forbidden")
+def require_project_contributor(conn: Connection, project: Project, user_id: UUID) -> None:
+    if not _is_project_contributor(conn, project, user_id):
+        raise HTTPException(403, "Forbidden")
 
 
-def require_project_viewer(conn: Connection, project: Project | UUID, user_id: UUID | None) -> None:
-    if can_view_project(conn, project, user_id):
+def require_project_viewer(conn: Connection, project: Project, user_id: UUID | None) -> None:
+    if project.visibility == "public":
         return
     if user_id is None:
         raise HTTPException(401, "Unauthorized")
+    if _is_project_contributor(conn, project, user_id):
+        return
     raise HTTPException(403, "Forbidden")
-
-
-def can_view_project(conn: Connection, project: Project | UUID, user_id: UUID | None) -> bool:
-    project = _resolve_project(conn, project)
-    if project.visibility == "public":
-        return True
-    if user_id is None:
-        return False
-    return _is_project_contributor(conn, project, user_id)
