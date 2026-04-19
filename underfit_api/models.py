@@ -170,13 +170,13 @@ class Media(_Base):
 
 
 class Scalar(_Base):
-    step: int
+    step: int | None = None
     values: dict[str, float]
     timestamp: UTCDatetime
 
 
 class ScalarAxis(_Base):
-    steps: list[int]
+    steps: list[int | None]
     timestamps: list[UTCDatetime]
 
 

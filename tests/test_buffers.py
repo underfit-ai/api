@@ -68,9 +68,29 @@ def test_scalar_ingest_validates_step_and_start_line(engine: Engine, worker: Wor
         assert step_exc.value.last_step == 2
 
 
-def test_scalar_compaction_full_chunk_emits_all_resolutions(
-    engine: Engine, storage: Storage, worker: Worker,
-) -> None:
+def test_scalar_ingest_allows_stepless_points(engine: Engine, storage: Storage, worker: Worker) -> None:
+    config.buffer.scalar_resolutions = [1, 10]
+    config.buffer.scalar_segment_lines = 10
+    stepless = [Scalar(values={"cpu": float(i)}, timestamp=T0 + timedelta(seconds=i)) for i in range(3)]
+    with engine.begin() as conn:
+        scalar_buffer.append(conn, worker.id, 0, stepless)
+        scalar_buffer.append(conn, worker.id, 3, _scalars(5, 2))
+        scalar_buffer.append(conn, worker.id, 5, [
+            Scalar(values={"cpu": 9.0}, timestamp=T0 + timedelta(seconds=9)),
+        ])
+        with pytest.raises(BadStepError) as step_exc:
+            scalar_buffer.append(conn, worker.id, 6, [Scalar(step=6, values={"loss": 0.0}, timestamp=T0)])
+        assert step_exc.value.last_step == 6
+    _mark_stale(engine, worker)
+    scalar_buffer.compact(engine, storage)
+    with engine.begin() as conn:
+        rows = {r.resolution: r for r in conn.execute(
+            select(scalar_segments).where(scalar_segments.c.worker_id == worker.id),
+        ).all()}
+    assert rows[1].end_step == 6 and rows[10].end_step == 6
+
+
+def test_scalar_compaction_full_chunk_emits_all_resolutions(engine: Engine, storage: Storage, worker: Worker) -> None:
     config.buffer.scalar_resolutions = [1, 10]
     config.buffer.scalar_segment_lines = 20
     with engine.begin() as conn:

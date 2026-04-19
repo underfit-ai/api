@@ -22,18 +22,18 @@ class WriteScalarsBody(Body):
 
 
 def _build_response(resolution: int, scalars: list[Scalar]) -> ScalarSeriesResponse:
-    by_key: dict[str, list[tuple[int, datetime, float]]] = {}
+    by_key: dict[str, list[tuple[int | None, datetime, float]]] = {}
     for s in scalars:
         for k, v in s.values.items():
             by_key.setdefault(k, []).append((s.step, s.timestamp, v))
     axes: list[ScalarAxis] = []
-    axis_ids: dict[tuple[int, ...], int] = {}
+    axis_ids: dict[tuple[tuple[int | None, ...], tuple[datetime, ...]], int] = {}
     series: dict[str, ScalarSeries] = {}
     for key, pts in by_key.items():
-        sig = tuple(p[0] for p in pts)
+        sig = (tuple(p[0] for p in pts), tuple(p[1] for p in pts))
         if sig not in axis_ids:
             axis_ids[sig] = len(axes)
-            axes.append(ScalarAxis(steps=list(sig), timestamps=[p[1] for p in pts]))
+            axes.append(ScalarAxis(steps=list(sig[0]), timestamps=list(sig[1])))
         series[key] = ScalarSeries(axis=axis_ids[sig], values=[p[2] for p in pts])
     return ScalarSeriesResponse(resolution=resolution, axes=axes, series=series)
 

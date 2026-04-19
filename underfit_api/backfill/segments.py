@@ -103,9 +103,10 @@ def _ingest_scalar_segment(
     )).scalar()
     if existing == end_line:
         return
+    steps = [p.step for p in points if p.step is not None]
     scalar_seg_repo.upsert(
         conn, worker_id, resolution, start_line=start_line, end_line=end_line,
-        end_step=points[-1].step, start_at=points[0].timestamp, end_at=points[-1].timestamp,
-        storage_key=storage_key,
+        end_step=max(steps) if steps else None,
+        start_at=points[0].timestamp, end_at=points[-1].timestamp, storage_key=storage_key,
     )
     workers_repo.touch(conn, worker_id)

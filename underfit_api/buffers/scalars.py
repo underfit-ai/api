@@ -33,11 +33,16 @@ def read_buffered(conn: Connection, worker_id: UUID, resolution: int, line_lte: 
         sa.func.max(scalar_points.c.step).label("step"),
         sa.func.max(scalar_points.c.timestamp).label("timestamp"),
     ).where(*conditions).group_by(bucket, scalar_points.c.key).order_by(bucket)).all()
-    grouped: dict[int, tuple[int, dict[str, float], datetime]] = {}
+    grouped: dict[int, tuple[int | None, dict[str, float], datetime]] = {}
     for row in rows:
-        step, values, timestamp = grouped.get(row.bucket, (row.step, {}, row.timestamp))
-        values[row.key] = float(row.value)
-        grouped[row.bucket] = (max(step, row.step), values, max(timestamp, row.timestamp))
+        prev = grouped.get(row.bucket)
+        if prev is None:
+            grouped[row.bucket] = (row.step, {row.key: float(row.value)}, row.timestamp)
+        else:
+            step, values, timestamp = prev
+            values[row.key] = float(row.value)
+            merged_step = row.step if step is None else step if row.step is None else max(step, row.step)
+            grouped[row.bucket] = (merged_step, values, max(timestamp, row.timestamp))
     return [Scalar(step=step, values=values, timestamp=ts) for _, (step, values, ts) in sorted(grouped.items())]
 
 
@@ -82,6 +87,8 @@ def append(conn: Connection, worker_id: UUID, start_line: int, scalars: list[Sca
     if last_step is None:
         last_step = scalar_seg_repo.get_last_step(conn, worker_id)
     for scalar in scalars:
+        if scalar.step is None:
+            continue
         if last_step is not None and scalar.step <= last_step:
             raise BadStepError(last_step)
         last_step = scalar.step
@@ -161,9 +168,11 @@ def _compact_worker(conn: Connection, storage: Storage, worker: Worker, *, parti
         storage_key = f"scalars/{worker.worker_label}/r{resolution}/{base}.jsonl"
         content = "".join(p.model_dump_json() + "\n" for p in downsampled)
         storage.write(f"{worker.run_storage_key}/{storage_key}", content.encode())
+        segment_steps = [p.step for p in downsampled if p.step is not None]
         scalar_seg_repo.upsert(
             conn, worker.id, resolution,
-            start_line=base, end_line=base + len(downsampled), end_step=downsampled[-1].step,
+            start_line=base, end_line=base + len(downsampled),
+            end_step=max(segment_steps) if segment_steps else None,
             start_at=downsampled[0].timestamp, end_at=downsampled[-1].timestamp, storage_key=storage_key,
         )
     conn.execute(scalar_points.delete().where(

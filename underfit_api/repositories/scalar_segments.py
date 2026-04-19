@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
+import sqlalchemy as sa
 from sqlalchemy import Connection
 from sqlalchemy.engine import Row
 
@@ -21,7 +22,7 @@ def get_end_line(conn: Connection, worker_id: UUID, resolution: int) -> int:
 
 
 def upsert(
-    conn: Connection, worker_id: UUID, resolution: int, start_line: int, end_line: int, end_step: int,
+    conn: Connection, worker_id: UUID, resolution: int, start_line: int, end_line: int, end_step: int | None,
     start_at: datetime, end_at: datetime, storage_key: str,
 ) -> None:
     updated = conn.execute(scalar_segments.update().where(
@@ -44,9 +45,6 @@ def list_by_resolution(conn: Connection, worker_id: UUID, resolution: int) -> Se
 
 
 def get_last_step(conn: Connection, worker_id: UUID) -> int | None:
-    row = conn.execute(
-        scalar_segments.select()
-        .where(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == 1)
-        .order_by(scalar_segments.c.end_line.desc()).limit(1),
-    ).first()
-    return row.end_step if row else None
+    return conn.execute(sa.select(sa.func.max(scalar_segments.c.end_step)).where(
+        scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == 1,
+    )).scalar()
