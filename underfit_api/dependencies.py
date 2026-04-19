@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import Cookie, Depends, Header, HTTPException, Request
 from sqlalchemy import Connection, Engine
 
+from underfit_api import backfill
 from underfit_api.auth import hash_token
 from underfit_api.config import config
 from underfit_api.models import User
@@ -71,14 +72,11 @@ def get_auth(authorization: AuthorizationHeader = None, session_token: SessionTo
     return AuthContext(authorization, session_token)
 
 
-Auth = Annotated[AuthContext, Depends(get_auth)]
-
-
-def get_current_user(conn: Conn, auth: Auth) -> User:
+def get_current_user(conn: Conn, auth: Annotated[AuthContext, Depends(get_auth)]) -> User:
     return auth.require_user(conn)
 
 
-def get_maybe_user(conn: Conn, auth: Auth) -> User | None:
+def get_maybe_user(conn: Conn, auth: Annotated[AuthContext, Depends(get_auth)]) -> User | None:
     return auth.maybe_user(conn)
 
 
@@ -91,6 +89,13 @@ def get_current_worker(authorization: AuthorizationHeader = None) -> UUID:
         raise HTTPException(401, "Unauthorized") from None
 
 
+def sync_backfill(conn: Conn, ctx: Ctx) -> None:
+    if config.backfill.enabled:
+        backfill.sync(ctx, conn)
+
+
+SyncBackfill = Annotated[None, Depends(sync_backfill)]
+Auth = Annotated[AuthContext, Depends(get_auth)]
 RequireUser = Annotated[User, Depends(get_current_user)]
 MaybeUser = Annotated[Optional[User], Depends(get_maybe_user)]
 CurrentWorker = Annotated[UUID, Depends(get_current_worker)]

@@ -5,9 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
-from underfit_api import backfill
-from underfit_api.config import config
-from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
+from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser, SyncBackfill
 from underfit_api.helpers import as_conflict, validate_json_size
 from underfit_api.models import Body, LaunchResponse, OkResponse, Run, RunTerminalState
 from underfit_api.permissions import require_account_admin, require_project_contributor
@@ -53,18 +51,14 @@ def _launch_response(run: Run, worker_id: UUID) -> LaunchResponse:
 
 
 @router.get("/users/{handle}/runs")
-def list_user_runs(handle: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> list[Run]:
-    if config.backfill.enabled:
-        backfill.sync(ctx, conn)
+def list_user_runs(handle: str, conn: Conn, user: MaybeUser, _: SyncBackfill) -> list[Run]:
     if not (target := users_repo.get_by_handle(conn, handle)):
         raise HTTPException(404, "User not found")
     return runs_repo.list_visible_by_user(conn, target.id, user.id if user else None)
 
 
 @router.get("/accounts/{handle}/projects/{project_name}/runs")
-def list_project_runs(handle: str, project_name: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> list[Run]:
-    if config.backfill.enabled:
-        backfill.sync(ctx, conn)
+def list_project_runs(handle: str, project_name: str, conn: Conn, user: MaybeUser, _: SyncBackfill) -> list[Run]:
     project = resolve_project(conn, handle, project_name, user)
     return runs_repo.list_by_project(conn, project.id)
 

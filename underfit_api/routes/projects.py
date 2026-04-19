@@ -3,9 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
-from underfit_api import backfill
-from underfit_api.config import config
-from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
+from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser, SyncBackfill
 from underfit_api.helpers import as_conflict
 from underfit_api.models import Body, OkResponse, Project, ProjectVisibility
 from underfit_api.permissions import require_account_admin, require_project_contributor
@@ -42,16 +40,12 @@ class TransferProjectBody(Body):
 
 
 @router.get("/me/projects")
-def list_my_projects(conn: Conn, ctx: Ctx, user: RequireUser) -> list[Project]:
-    if config.backfill.enabled:
-        backfill.sync(ctx, conn)
+def list_my_projects(conn: Conn, user: RequireUser, _: SyncBackfill) -> list[Project]:
     return projects_repo.list_related_to_user(conn, user.id)
 
 
 @router.get("/accounts/{handle}/projects")
-def list_account_projects(handle: str, conn: Conn, ctx: Ctx, user: MaybeUser) -> list[Project]:
-    if config.backfill.enabled:
-        backfill.sync(ctx, conn)
+def list_account_projects(handle: str, conn: Conn, user: MaybeUser, _: SyncBackfill) -> list[Project]:
     account = resolve_account(conn, handle)
     return projects_repo.list_visible_by_account(conn, account.id, user.id if user else None)
 

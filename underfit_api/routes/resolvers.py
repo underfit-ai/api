@@ -43,9 +43,9 @@ def resolve_run(
     project = resolve_project(conn, handle, project_name, user)
     if not (run := runs_repo.get_by_project_and_name(conn, project.id, run_name)):
         raise HTTPException(404, "Run not found")
-    if config.backfill.enabled:
-        backfill.refresh_run(ctx, conn, run.id)
-        if not (run := runs_repo.get_by_project_and_name(conn, project.id, run_name)):
+    if config.backfill.enabled and backfill.refresh_run(ctx, conn, run.id):
+        run = runs_repo.get_by_project_and_name(conn, project.id, run_name)
+        if run is None:
             raise HTTPException(404, "Run not found")
     return project, run
 

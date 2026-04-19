@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
-from underfit_api.buffers import BadStartLineError
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
 from underfit_api.models import Body, BufferedResponse, LogEntriesResponse, LogEntry, LogLine
@@ -28,12 +27,8 @@ def write_logs(body: WriteLogsBody, conn: Conn, worker_id: CurrentWorker) -> Buf
         raise HTTPException(400, "startLine must be >= 0")
     if any("\n" in ln.content or "\r" in ln.content for ln in body.lines):
         raise HTTPException(400, "Log lines must not contain newlines")
-    if not body.lines:
-        return BufferedResponse(next_start_line=body.start_line)
-    try:
+    if body.lines:
         log_buffer.append(conn, worker_id, body.start_line, body.lines)
-    except BadStartLineError as e:
-        raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
     return BufferedResponse(next_start_line=body.start_line + len(body.lines))
 
 

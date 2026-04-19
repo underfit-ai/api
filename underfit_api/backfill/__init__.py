@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -11,9 +12,11 @@ from underfit_api.backfill.assets import reconcile_assets
 from underfit_api.backfill.runs import ensure_run
 from underfit_api.backfill.segments import reconcile_segments
 from underfit_api.config import config
-from underfit_api.dependencies import AppContext
 from underfit_api.schema import runs
 from underfit_api.storage import Storage
+
+if TYPE_CHECKING:
+    from underfit_api.dependencies import AppContext
 
 __all__ = ["refresh_run", "sync"]
 
@@ -38,25 +41,26 @@ def sync(ctx: AppContext, conn: Connection) -> None:
             logger.exception("Backfill ensure_run error for run %s", run_id)
 
 
-def refresh_run(ctx: AppContext, conn: Connection, run_id: UUID) -> None:
+def refresh_run(ctx: AppContext, conn: Connection, run_id: UUID) -> bool:
     with ctx.sync_lock:
         now = time.monotonic()
         if now - ctx.last_run_sync.get(run_id, 0.0) < config.backfill.debounce_s:
-            return
+            return False
         ctx.last_run_sync[run_id] = now
     if not ctx.storage.exists(f"{run_id}/run.json"):
         conn.execute(runs.delete().where(runs.c.id == run_id))
         ctx.last_run_sync.pop(run_id, None)
-        return
+        return True
     try:
         project_id = ensure_run(conn, ctx.storage, run_id)
     except Exception:
         logger.exception("Backfill ensure_run error for run %s", run_id)
-        return
+        return True
     if project_id is None:
-        return
+        return True
     reconcile_segments(conn, ctx.storage, run_id)
     reconcile_assets(conn, ctx.storage, run_id, project_id)
+    return True
 
 
 def _storage_run_ids(storage: Storage) -> set[UUID]:

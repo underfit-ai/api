@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
-from underfit_api.buffers import BadStartLineError, BadStepError
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
@@ -37,14 +36,8 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker_id: CurrentWorker) 
         raise HTTPException(401, "Unauthorized")
     if body.start_line < 0:
         raise HTTPException(400, "startLine must be >= 0")
-    if not body.scalars:
-        return BufferedResponse(next_start_line=body.start_line)
-    try:
+    if body.scalars:
         scalar_buffer.append(conn, worker_id, body.start_line, body.scalars)
-    except BadStartLineError as e:
-        raise HTTPException(409, detail={"error": "Invalid startLine", "expectedStartLine": e.expected}) from e
-    except BadStepError as e:
-        raise HTTPException(409, detail={"error": "Step must be strictly increasing", "lastStep": e.last_step}) from e
     return BufferedResponse(next_start_line=body.start_line + len(body.scalars))
 
 

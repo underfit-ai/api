@@ -17,7 +17,6 @@ from underfit_api.config import (
     config,
 )
 from underfit_api.db import build_engine
-from underfit_api.dependencies import AppContext
 from underfit_api.main import app
 from underfit_api.models import Project, ProjectCollaborator, Run, User, Worker
 from underfit_api.repositories import accounts as accounts_repo
@@ -29,7 +28,7 @@ from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import sessions as sessions_repo
 from underfit_api.repositories import users as users_repo
 from underfit_api.schema import metadata
-from underfit_api.storage import Storage, build_storage
+from underfit_api.storage import Storage
 
 os.environ.setdefault("UNDERFIT_APP_SECRET", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 
@@ -95,30 +94,29 @@ def _reset_state(request: pytest.FixtureRequest, tmp_path: Path, db_backend: str
     snapshot = config.model_copy(deep=True)
     config.database = _database_config(request, db_backend, tmp_path)
     config.storage = FileStorageConfig(base=str(tmp_path / "storage"))
-    ctx = AppContext(engine=build_engine(), storage=build_storage())
-    app.state.ctx = ctx
-    metadata.drop_all(ctx.engine)
-    metadata.create_all(ctx.engine)
+    engine = build_engine()
+    metadata.drop_all(engine)
+    metadata.create_all(engine)
+    engine.dispose()
     yield
-    ctx.engine.dispose()
     for field in type(config).model_fields:
         setattr(config, field, getattr(snapshot, field))
-
-
-@pytest.fixture
-def engine() -> Engine:
-    return app.state.ctx.engine
-
-
-@pytest.fixture
-def storage() -> Storage:
-    return app.state.ctx.storage
 
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def engine(client: TestClient) -> Engine:
+    return app.state.ctx.engine
+
+
+@pytest.fixture
+def storage(client: TestClient) -> Storage:
+    return app.state.ctx.storage
 
 
 @pytest.fixture

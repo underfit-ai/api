@@ -16,6 +16,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from underfit_api import backfill
 from underfit_api.auth import get_app_secret
+from underfit_api.buffers import BadStartLineError, BadStepError
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
@@ -70,22 +71,15 @@ def _validate_config() -> None:
         get_app_secret()
 
 
-def _init_context(app: FastAPI) -> AppContext:
-    ctx = getattr(app.state, "ctx", None)
-    if not ctx:
-        engine = ensure_local_cache_schema() if config.backfill.enabled else build_engine()
-        ctx = AppContext(engine=engine, storage=build_storage())
-    if not config.auth_enabled:
-        with ctx.engine.begin() as conn:
-            accounts_repo.get_or_create_local(conn)
-    return ctx
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _validate_config()
-    ctx = _init_context(app)
+    engine = ensure_local_cache_schema() if config.backfill.enabled else build_engine()
+    ctx = AppContext(engine=engine, storage=build_storage())
     app.state.ctx = ctx
+    if not config.auth_enabled:
+        with ctx.engine.begin() as conn:
+            accounts_repo.get_or_create_local(conn)
     if config.backfill.enabled:
         with ctx.engine.begin() as conn:
             backfill.sync(ctx, conn)
@@ -140,6 +134,17 @@ def validation_exception_handler(_request: Request, exc: RequestValidationError)
     return JSONResponse(status_code=400, content={"error": "Validation error"})
 
 
+@app.exception_handler(BadStartLineError)
+def bad_start_line_handler(_request: Request, exc: BadStartLineError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"error": "Invalid startLine", "expectedStartLine": exc.expected})
+
+
+@app.exception_handler(BadStepError)
+def bad_step_handler(_request: Request, exc: BadStepError) -> JSONResponse:
+    content = {"error": "Step must be strictly increasing", "lastStep": exc.last_step}
+    return JSONResponse(status_code=409, content=content)
+
+
 api_router = APIRouter(prefix="/api/v1")
 
 
@@ -173,6 +178,8 @@ if (_static_dir := Path(__file__).parent / config.static_dir).is_dir():
 
     @app.get("/{path:path}")
     async def spa_fallback(path: str) -> FileResponse:
+        if path.startswith("api/"):
+            raise HTTPException(404, "Route not found")
         if (file := _static_dir / path).is_file():
             return FileResponse(file)
         return FileResponse(_index_html)
