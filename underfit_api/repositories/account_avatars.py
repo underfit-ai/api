@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import Connection
 
-from underfit_api.helpers import utcnow
+from underfit_api.helpers import dialect_insert, utcnow
 from underfit_api.schema import account_avatars
 
 
@@ -15,13 +15,9 @@ def get(conn: Connection, account_id: UUID) -> bytes | None:
 
 def upsert(conn: Connection, account_id: UUID, image: bytes) -> None:
     now = utcnow()
-    updated = conn.execute(
-        account_avatars.update().where(account_avatars.c.account_id == account_id).values(image=image, updated_at=now),
-    ).rowcount
-    if updated == 0:
-        conn.execute(account_avatars.insert().values(
-            account_id=account_id, image=image, created_at=now, updated_at=now,
-        ))
+    conn.execute(dialect_insert(conn, account_avatars).values(
+        account_id=account_id, image=image, created_at=now, updated_at=now,
+    ).on_conflict_do_update(index_elements=["account_id"], set_={"image": image, "updated_at": now}))
 
 
 def delete(conn: Connection, account_id: UUID) -> None:

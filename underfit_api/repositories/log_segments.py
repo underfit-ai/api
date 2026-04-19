@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import Connection
 from sqlalchemy.engine import Row
 
-from underfit_api.helpers import utcnow
+from underfit_api.helpers import dialect_insert, utcnow
 from underfit_api.schema import log_segments
 
 
@@ -23,14 +23,10 @@ def upsert(
     conn: Connection, worker_id: UUID, start_line: int, end_line: int,
     start_at: datetime, end_at: datetime, storage_key: str,
 ) -> None:
-    updated = conn.execute(log_segments.update().where(
-        log_segments.c.worker_id == worker_id, log_segments.c.start_line == start_line,
-    ).values(end_line=end_line, end_at=end_at, storage_key=storage_key)).rowcount
-    if updated == 0:
-        conn.execute(log_segments.insert().values(
-            id=uuid4(), worker_id=worker_id, start_line=start_line, end_line=end_line,
-            start_at=start_at, end_at=end_at, storage_key=storage_key, created_at=utcnow(),
-        ))
+    updates = {"end_line": end_line, "end_at": end_at, "storage_key": storage_key}
+    conn.execute(dialect_insert(conn, log_segments).values(
+        id=uuid4(), worker_id=worker_id, start_line=start_line, start_at=start_at, created_at=utcnow(), **updates,
+    ).on_conflict_do_update(index_elements=["worker_id", "start_line"], set_=updates))
 
 
 def list_for_range(conn: Connection, worker_id: UUID, cursor: int, count: int) -> Sequence[Row]:

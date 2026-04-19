@@ -8,7 +8,7 @@ from uuid import UUID, uuid5
 import sqlalchemy as sa
 from sqlalchemy import Connection
 
-from underfit_api.helpers import utcnow
+from underfit_api.helpers import dialect_insert, utcnow
 from underfit_api.schema import artifacts, media
 from underfit_api.storage import Storage
 
@@ -40,12 +40,11 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_i
             continue
         media_id = uuid5(run_id, rel)
         storage_media_ids.add(media_id)
-        if conn.execute(media.select().where(media.c.id == media_id)).first() is None:
-            conn.execute(media.insert().values(
-                id=media_id, run_id=run_id, type=m.group(1), key=m.group(2),
-                step=int(m.group(3)), index=int(m.group(4)),
-                storage_key=rel, metadata=None, created_at=utcnow(),
-            ))
+        conn.execute(dialect_insert(conn, media).values(
+            id=media_id, run_id=run_id, type=m.group(1), key=m.group(2),
+            step=int(m.group(3)), index=int(m.group(4)),
+            storage_key=rel, metadata=None, created_at=utcnow(),
+        ).on_conflict_do_nothing(index_elements=["id"]))
     query = media.delete().where(media.c.run_id == run_id)
     if storage_media_ids:
         query = query.where(sa.not_(media.c.id.in_(storage_media_ids)))
@@ -74,8 +73,7 @@ def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, project_i
         "stored_size_bytes": stored_size_bytes if finalized else None, "metadata": metadata.get("metadata"),
         "updated_at": now,
     }
-    if conn.execute(artifacts.select().where(artifacts.c.id == artifact_id)).first() is None:
-        conn.execute(artifacts.insert().values(id=artifact_id, run_id=run_id, created_at=now, **values))
-    else:
-        conn.execute(artifacts.update().where(artifacts.c.id == artifact_id).values(**values))
+    conn.execute(dialect_insert(conn, artifacts).values(
+        id=artifact_id, run_id=run_id, created_at=now, **values,
+    ).on_conflict_do_update(index_elements=["id"], set_=values))
     return True
