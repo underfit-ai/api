@@ -42,7 +42,7 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_i
         storage_media_ids.add(media_id)
         conn.execute(dialect_insert(conn, media).values(
             id=media_id, run_id=run_id, type=m.group(1), key=m.group(2),
-            step=int(m.group(3)), index=int(m.group(4)),
+            step=int(m.group(3)), index=int(m.group(4)), finalized=True,
             storage_key=rel, metadata=None, created_at=utcnow(),
         ).on_conflict_do_nothing(index_elements=["id"]))
     query = media.delete().where(media.c.run_id == run_id)
