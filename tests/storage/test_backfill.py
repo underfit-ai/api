@@ -197,27 +197,3 @@ def test_backfill_deletes_runs_when_manifest_gone(storage: Storage, engine: Engi
     with engine.begin() as conn:
         assert conn.execute(select(runs).where(runs.c.id == run_id)).first() is None
 
-
-def test_backfill_reads_ui_state_file(storage: Storage, engine: Engine) -> None:
-    run_id = uuid4()
-    _write_json(storage, f"{run_id}/run.json", {"project": "vision", "name": "run-a"})
-    _write_json(storage, ".ui-state.json", {
-        "runs": {str(run_id): {"uiState": {"layout": "grid"}, "isPinned": True}},
-        "projects": {"local/vision": {"uiState": {"charts": "all"}, "baselineRunId": str(run_id)}},
-    })
-    _sync(engine, storage)
-
-    with engine.begin() as conn:
-        run_row = conn.execute(select(runs).where(runs.c.id == run_id)).first()
-        project_row = conn.execute(select(projects).where(projects.c.name == "vision")).first()
-    assert run_row is not None and run_row.ui_state == {"layout": "grid"} and run_row.is_pinned is True
-    assert project_row is not None
-    assert project_row.ui_state == {"charts": "all"} and project_row.baseline_run_id == run_id
-
-    run_b = uuid4()
-    _write_json(storage, f"{run_b}/run.json", {"project": "vision", "name": "run-b"})
-    _write_json(storage, ".ui-state.json", {"projects": {"local/vision": {"baselineRunId": str(run_b)}}})
-    _sync(engine, storage)
-    with engine.begin() as conn:
-        project_row = conn.execute(select(projects).where(projects.c.name == "vision")).first()
-    assert project_row is not None and project_row.baseline_run_id == run_b

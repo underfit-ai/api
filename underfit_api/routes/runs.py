@@ -6,7 +6,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
 from underfit_api import backfill
-from underfit_api.backfill.ui_state import write_project, write_run
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict, validate_json_size
@@ -129,14 +128,7 @@ def update_run_ui_state(
     if body.is_baseline is not None:
         projects_repo.set_baseline_run(conn, run.project_id, run.id if body.is_baseline else None)
     patch = RunSettings.model_validate(body.model_dump(exclude_unset=True))
-    updated = runs_repo.update_settings(conn, run.id, patch)
-    if config.backfill.enabled:
-        write_run(ctx, updated)
-        if body.is_baseline is not None:
-            project = projects_repo.get_by_id(conn, run.project_id)
-            assert project is not None
-            write_project(ctx, project)
-    return updated
+    return runs_repo.update_settings(conn, run.id, patch)
 
 
 @router.put("/runs/terminal-state")

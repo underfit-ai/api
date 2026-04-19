@@ -10,7 +10,6 @@ from sqlalchemy import Connection
 from underfit_api.backfill.assets import reconcile_assets
 from underfit_api.backfill.runs import ensure_run
 from underfit_api.backfill.segments import reconcile_segments
-from underfit_api.backfill.ui_state import load as load_ui_state
 from underfit_api.config import config
 from underfit_api.dependencies import AppContext
 from underfit_api.schema import runs
@@ -41,7 +40,6 @@ def refresh_run(ctx: AppContext, conn: Connection, run_id: UUID) -> None:
 
 def _run_sync(ctx: AppContext, conn: Connection) -> None:
     storage = ctx.storage
-    state = load_ui_state(storage)
     storage_ids = _storage_run_ids(storage)
     db_ids = {row.id for row in conn.execute(sa.select(runs.c.id))}
     for run_id in db_ids - storage_ids:
@@ -49,7 +47,7 @@ def _run_sync(ctx: AppContext, conn: Connection) -> None:
         ctx.last_run_sync.pop(run_id, None)
     for run_id in storage_ids:
         try:
-            ensure_run(conn, storage, run_id, state)
+            ensure_run(conn, storage, run_id)
         except Exception:
             logger.exception("Backfill ensure_run error for run %s", run_id)
 
@@ -60,9 +58,8 @@ def _run_refresh(ctx: AppContext, conn: Connection, run_id: UUID) -> None:
         conn.execute(runs.delete().where(runs.c.id == run_id))
         ctx.last_run_sync.pop(run_id, None)
         return
-    state = load_ui_state(storage)
     try:
-        project_id = ensure_run(conn, storage, run_id, state)
+        project_id = ensure_run(conn, storage, run_id)
     except Exception:
         logger.exception("Backfill ensure_run error for run %s", run_id)
         return

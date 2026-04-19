@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
 from underfit_api import backfill
-from underfit_api.backfill.ui_state import write_project
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, MaybeUser, RequireUser
 from underfit_api.helpers import as_conflict
@@ -94,14 +93,11 @@ def delete_project(handle: str, project_name: str, conn: Conn, ctx: Ctx, user: R
 
 @router.put("/accounts/{handle}/projects/{project_name}/ui-state")
 def update_project_ui_state(
-    handle: str, project_name: str, body: UpdateProjectUIStateBody, conn: Conn, ctx: Ctx, user: RequireUser,
+    handle: str, project_name: str, body: UpdateProjectUIStateBody, conn: Conn, user: RequireUser,
 ) -> Project:
     project = resolve_project(conn, handle, project_name, user)
     require_project_contributor(conn, project, user.id)
-    updated = projects_repo.update_ui_state(conn, project.id, body.ui_state)
-    if config.backfill.enabled:
-        write_project(ctx, updated)
-    return updated
+    return projects_repo.update_ui_state(conn, project.id, body.ui_state)
 
 
 @router.post("/accounts/{handle}/projects/{project_name}/rename")

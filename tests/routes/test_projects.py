@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import cast
 
 import pytest
@@ -53,7 +52,7 @@ def test_project_lifecycle(client: TestClient, owner_headers: Headers) -> None:
 
 
 def test_update_project_ui_state(
-    client: TestClient, owner_headers: Headers, create_project: CreateProject, storage: Storage,
+    client: TestClient, owner_headers: Headers, create_project: CreateProject,
 ) -> None:
     create_project(handle="owner", name="underfit")
     ui_url = f"{BASE}/underfit/ui-state"
@@ -62,11 +61,8 @@ def test_update_project_ui_state(
 
     config.backfill.enabled = True
     resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"charts": "loss"}})
-    assert resp.status_code == 200
+    assert resp.status_code == 200 and resp.json()["uiState"] == {"charts": "loss"}
     assert client.put(f"{BASE}/underfit", headers=owner_headers, json={"description": "x"}).status_code == 409
-
-    state = json.loads(storage.read(".ui-state.json"))
-    assert state["projects"]["owner/underfit"]["uiState"] == {"charts": "loss"}
 
 
 def test_project_visibility_and_listing(

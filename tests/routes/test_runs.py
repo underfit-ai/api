@@ -170,11 +170,8 @@ def test_update_run_ui_state(
     )
     config.backfill.enabled = True
     resp = client.put(ui_url, headers=owner_headers, json={"uiState": {"layout": "list"}, "isPinned": True})
-    assert resp.status_code == 200
+    assert resp.status_code == 200 and resp.json()["uiState"] == {"layout": "list"}
     assert client.put(f"{RUNS}/{run['name']}", headers=owner_headers, json={"metadata": {}}).status_code == 409
-
-    state = json.loads(storage.read(".ui-state.json"))
-    assert state["runs"][run["id"]] == {"uiState": {"layout": "list"}, "isPinned": True}
 
 
 def test_delete_run(
