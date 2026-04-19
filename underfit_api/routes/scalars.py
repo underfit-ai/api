@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
+import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException, Query
 
 from underfit_api.buffers import scalars as scalar_buffer
@@ -12,6 +13,7 @@ from underfit_api.models import Body, BufferedResponse, Scalar, Schema, UTCDatet
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
+from underfit_api.schema import run_metric_keys
 
 router = APIRouter()
 
@@ -56,12 +58,9 @@ def _build_response(resolution: int, scalars: list[Scalar]) -> ScalarSeriesRespo
 
 def _select_resolution(counts: dict[int, int], target_points: int) -> int:
     for resolution in config.buffer.scalar_resolutions:
-        if 0 < counts[resolution] <= target_points:
+        if counts[resolution] <= target_points:
             return resolution
-    for resolution in reversed(config.buffer.scalar_resolutions):
-        if counts[resolution] > 0:
-            return resolution
-    return 1
+    return max(config.buffer.scalar_resolutions)
 
 
 @router.post("/ingest/scalars")
@@ -78,24 +77,37 @@ def write_scalars(body: WriteScalarsBody, conn: Conn, worker_id: CurrentWorker) 
 @router.get("/accounts/{handle}/projects/{project_name}/runs/{run_name}/scalars")
 def read_scalars(
     handle: str, project_name: str, run_name: str, conn: Conn, ctx: Ctx, user: MaybeUser,
-    resolution: Annotated[int | None, Query(gt=0)] = None,
-    target_points: Annotated[int | None, Query(alias="targetPoints", gt=0)] = None,
+    target_points: Annotated[int, Query(alias="targetPoints", gt=0)] = 1000,
+    start_time: Annotated[UTCDatetime | None, Query(alias="startTime")] = None,
+    end_time: Annotated[UTCDatetime | None, Query(alias="endTime")] = None,
+    keys: Annotated[list[str] | None, Query()] = None,
 ) -> ScalarSeriesResponse:
     _, run = resolve_run(conn, ctx, handle, project_name, run_name, user)
-    if resolution is not None and target_points is not None:
-        raise HTTPException(400, "Cannot specify both resolution and targetPoints")
     workers = workers_repo.list_by_run(conn, run.id)
-    counts = scalar_buffer.total_line_counts(conn, [w.id for w in workers])
-    selected_resolution = resolution if resolution is not None else 1
-    if target_points is not None:
-        selected_resolution = _select_resolution(counts, target_points)
-    if counts.get(selected_resolution, 0) == 0:
-        raise HTTPException(404, "Resolution not found")
+    if keys:
+        owned = set(conn.execute(sa.select(run_metric_keys.c.worker_id).where(
+            run_metric_keys.c.run_id == run.id, run_metric_keys.c.key.in_(keys),
+        )).scalars().all())
+        workers = [w for w in workers if w.id in owned]
+    worker_ids = [w.id for w in workers]
+    counts = scalar_buffer.window_line_counts(conn, worker_ids, start_time, end_time)
+    resolution = _select_resolution(counts, target_points)
 
     scalars: list[Scalar] = []
     for worker in workers:
-        for seg in scalar_seg_repo.list_by_resolution(conn, worker.id, selected_resolution):
+        for seg in scalar_seg_repo.list_by_resolution(conn, worker.id, resolution, start_time, end_time):
             data = ctx.storage.read(f"{run.storage_key}/{seg.storage_key}")
             scalars.extend(Scalar.model_validate_json(line) for line in data.decode().splitlines() if line)
-        scalars.extend(scalar_buffer.read_buffered(conn, worker.id, selected_resolution))
-    return _build_response(selected_resolution, scalars)
+        scalars.extend(scalar_buffer.read_buffered(
+            conn, worker.id, resolution, start_time=start_time, end_time=end_time,
+        ))
+    if start_time or end_time or keys:
+        filtered: list[Scalar] = []
+        for s in scalars:
+            if (start_time and s.timestamp < start_time) or (end_time and s.timestamp > end_time):
+                continue
+            values = {k: v for k, v in s.values.items() if not keys or k in keys}
+            if values:
+                filtered.append(Scalar(step=s.step, timestamp=s.timestamp, values=values))
+        scalars = filtered
+    return _build_response(resolution, scalars)

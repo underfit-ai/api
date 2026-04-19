@@ -8,12 +8,12 @@ import sqlalchemy as sa
 from pydantic import ValidationError
 from sqlalchemy import Connection
 
-from underfit_api.helpers import utcnow
+from underfit_api.helpers import dialect_insert, utcnow
 from underfit_api.models import Scalar
 from underfit_api.repositories import log_segments as log_seg_repo
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
-from underfit_api.schema import log_segments, run_workers, scalar_segments
+from underfit_api.schema import log_segments, run_metric_keys, run_workers, scalar_segments
 from underfit_api.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def reconcile_segments(conn: Connection, storage: Storage, run_id: UUID) -> None
         if m := _SCALAR.match(rel):
             worker_id = _ensure_worker(conn, run_id, m.group(1))
             scalar_keys_by_worker.setdefault(worker_id, set()).add(rel)
-            _ingest_scalar_segment(conn, storage, worker_id, key, rel, int(m.group(2)), int(m.group(3)))
+            _ingest_scalar_segment(conn, storage, run_id, worker_id, key, rel, int(m.group(2)), int(m.group(3)))
 
     seen_workers = set(log_keys_by_worker) | set(scalar_keys_by_worker)
     for worker in workers_repo.list_by_run(conn, run_id):
@@ -82,7 +82,7 @@ def _ingest_log_segment(
 
 
 def _ingest_scalar_segment(
-    conn: Connection, storage: Storage, worker_id: UUID, full_key: str, storage_key: str,
+    conn: Connection, storage: Storage, run_id: UUID, worker_id: UUID, full_key: str, storage_key: str,
     resolution: int, start_line: int,
 ) -> None:
     points: list[Scalar] = []
@@ -104,6 +104,11 @@ def _ingest_scalar_segment(
     if existing == end_line:
         return
     steps = [p.step for p in points if p.step is not None]
+    keys = {k for p in points for k in p.values}
+    if keys:
+        conn.execute(dialect_insert(conn, run_metric_keys).values(
+            [{"run_id": run_id, "key": k, "worker_id": worker_id} for k in keys],
+        ).on_conflict_do_nothing())
     scalar_seg_repo.upsert(
         conn, worker_id, resolution, start_line=start_line, end_line=end_line,
         end_step=max(steps) if steps else None,

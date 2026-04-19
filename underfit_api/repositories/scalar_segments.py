@@ -32,12 +32,18 @@ def upsert(
     ).on_conflict_do_update(index_elements=["worker_id", "resolution", "start_line"], set_=updates))
 
 
-def list_by_resolution(conn: Connection, worker_id: UUID, resolution: int) -> Sequence[Row]:
-    return conn.execute(
-        scalar_segments.select()
-        .where(scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution)
-        .order_by(scalar_segments.c.start_line),
-    ).all()
+def list_by_resolution(
+    conn: Connection, worker_id: UUID, resolution: int,
+    start_time: datetime | None = None, end_time: datetime | None = None,
+) -> Sequence[Row]:
+    conditions: list[sa.ColumnElement[bool]] = [
+        scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == resolution,
+    ]
+    if start_time is not None:
+        conditions.append(scalar_segments.c.end_at >= start_time)
+    if end_time is not None:
+        conditions.append(scalar_segments.c.start_at <= end_time)
+    return conn.execute(scalar_segments.select().where(*conditions).order_by(scalar_segments.c.start_line)).all()
 
 
 def get_last_step(conn: Connection, worker_id: UUID) -> int | None:

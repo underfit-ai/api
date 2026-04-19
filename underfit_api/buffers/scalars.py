@@ -33,11 +33,18 @@ def _claim_keys(conn: Connection, worker_id: UUID, keys: set[str]) -> None:
         raise MetricOwnedError(conflict)
 
 
-def read_buffered(conn: Connection, worker_id: UUID, resolution: int, line_lte: int | None = None) -> list[Scalar]:
+def read_buffered(
+    conn: Connection, worker_id: UUID, resolution: int, line_lte: int | None = None,
+    start_time: datetime | None = None, end_time: datetime | None = None,
+) -> list[Scalar]:
     bucket = (scalar_points.c.line - scalar_points.c.line.op("%")(resolution)).label("bucket")
     conditions = [scalar_points.c.worker_id == worker_id]
     if line_lte is not None:
         conditions.append(scalar_points.c.line <= line_lte)
+    if start_time is not None:
+        conditions.append(scalar_points.c.timestamp >= start_time)
+    if end_time is not None:
+        conditions.append(scalar_points.c.timestamp <= end_time)
     rows = conn.execute(sa.select(
         bucket,
         scalar_points.c.key,
@@ -68,23 +75,29 @@ def end_line(conn: Connection, worker_id: UUID, resolution: int = 1) -> int:
     return seg_end + (staged + resolution - 1) // resolution
 
 
-def total_line_counts(conn: Connection, worker_ids: list[UUID]) -> dict[int, int]:
+def window_line_counts(
+    conn: Connection, worker_ids: list[UUID],
+    start_time: datetime | None = None, end_time: datetime | None = None,
+) -> dict[int, int]:
     if not worker_ids:
         return {r: 0 for r in config.buffer.scalar_resolutions}
+    seg_conds: list[sa.ColumnElement[bool]] = [scalar_segments.c.worker_id.in_(worker_ids)]
+    pt_conds: list[sa.ColumnElement[bool]] = [scalar_points.c.worker_id.in_(worker_ids)]
+    if start_time is not None:
+        seg_conds.append(scalar_segments.c.end_at >= start_time)
+        pt_conds.append(scalar_points.c.timestamp >= start_time)
+    if end_time is not None:
+        seg_conds.append(scalar_segments.c.start_at <= end_time)
+        pt_conds.append(scalar_points.c.timestamp <= end_time)
     seg_rows = conn.execute(sa.select(
-        scalar_segments.c.worker_id, scalar_segments.c.resolution, sa.func.max(scalar_segments.c.end_line),
-    ).where(scalar_segments.c.worker_id.in_(worker_ids)).group_by(
-        scalar_segments.c.worker_id, scalar_segments.c.resolution,
-    )).all()
-    seg_end = {(r[0], r[1]): r[2] for r in seg_rows}
-    staged_rows = conn.execute(sa.select(
-        scalar_points.c.worker_id, sa.func.count(sa.distinct(scalar_points.c.line)),
-    ).where(scalar_points.c.worker_id.in_(worker_ids)).group_by(scalar_points.c.worker_id)).all()
-    staged = {r[0]: r[1] for r in staged_rows}
-    return {
-        res: sum(seg_end.get((wid, res), 0) + (staged.get(wid, 0) + res - 1) // res for wid in worker_ids)
-        for res in config.buffer.scalar_resolutions
-    }
+        scalar_segments.c.resolution,
+        sa.func.sum(scalar_segments.c.end_line - scalar_segments.c.start_line),
+    ).where(*seg_conds).group_by(scalar_segments.c.resolution)).all()
+    seg_counts = {r[0]: r[1] or 0 for r in seg_rows}
+    staged = conn.execute(
+        sa.select(sa.func.count(sa.distinct(scalar_points.c.line))).where(*pt_conds),
+    ).scalar() or 0
+    return {res: seg_counts.get(res, 0) + (staged + res - 1) // res for res in config.buffer.scalar_resolutions}
 
 
 def append(conn: Connection, worker_id: UUID, start_line: int, scalars: list[Scalar]) -> None:
