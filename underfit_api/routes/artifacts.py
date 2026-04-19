@@ -31,6 +31,10 @@ class Manifest(BaseModel):
     references: list[ManifestReference] = []
 
 
+class ArtifactDetail(Artifact):
+    manifest: Manifest
+
+
 class CreateArtifactBody(Body):
     step: int | None = None
     name: str
@@ -102,8 +106,10 @@ def create_run_artifact(
 
 
 @router.get("/artifacts/{artifact_id}")
-def get_artifact(artifact_id: UUID, conn: Conn, user: MaybeUser) -> Artifact:
-    return resolve_artifact(conn, artifact_id, user)[1]
+def get_artifact(artifact_id: UUID, conn: Conn, ctx: Ctx, user: MaybeUser) -> ArtifactDetail:
+    project, artifact = resolve_artifact(conn, artifact_id, user)
+    raw = ctx.storage.read(f"{_artifact_prefix(conn, artifact, project)}/manifest.json")
+    return ArtifactDetail.model_validate({**artifact.__dict__, "manifest": Manifest.model_validate_json(raw)})
 
 
 @router.put("/artifacts/{artifact_id}/files/{file_path:path}")

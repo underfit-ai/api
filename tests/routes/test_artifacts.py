@@ -76,6 +76,8 @@ def test_artifact_upload(client: TestClient, owner_headers: Headers, create_run:
 
     artifact = client.get(f"/api/v1/artifacts/{artifact['id']}", headers=owner_headers).json()
     assert artifact["storedSizeBytes"] == 9
+    assert artifact["manifest"]["files"] == ["weights.bin", "dir/config.json"]
+    assert [r["etag"] for r in artifact["manifest"]["references"]] == ["new"]
 
     assert client.put(file_base + "/weights.bin", headers=owner_headers, content=b"new").status_code == 409
     assert client.delete(file_base + "/weights.bin", headers=owner_headers).status_code == 409
