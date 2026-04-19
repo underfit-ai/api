@@ -20,7 +20,7 @@ The API is served at `http://localhost:8000`. By default, Underfit uses SQLite a
 
 Underfit loads settings from `underfit.toml` (or set `UNDERFIT_CONFIG` to a custom path).
 
-**Database** — SQLite is the default and requires no configuration. PostgreSQL and MySQL are also supported; install `underfit-api[postgresql]` or `underfit-api[mysql]`, set `[database] type` to `"postgresql"` or `"mysql"`, and run `alembic upgrade head` before starting the API.
+**Database** — SQLite is the default and requires no configuration. PostgreSQL is also supported; install `underfit-api[postgresql]`, set `[database] type` to `"postgresql"`, and run `alembic upgrade head` before starting the API.
 
 **Storage** — Experiment data (logs, scalars, media) is stored on the local filesystem by default. Install `underfit-api[s3]` and set `[storage] type` to `"s3"` for S3-compatible object storage.
 

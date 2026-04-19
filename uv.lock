@@ -1509,15 +1509,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pymysql"
-version = "1.1.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f5/ae/1fe3fcd9f959efa0ebe200b8de88b5a5ce3e767e38c7ac32fb179f16a388/pymysql-1.1.2.tar.gz", hash = "sha256:4961d3e165614ae65014e361811a724e2044ad3ea3739de9903ae7c21f539f03", size = 48258, upload-time = "2025-08-24T12:55:55.146Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/4c/ad33b92b9864cbde84f259d5df035a6447f91891f5be77788e2a3892bce3/pymysql-1.1.2-py3-none-any.whl", hash = "sha256:e6b1d89711dd51f8f74b1631fe08f039e7d76cf67a42a323d3178f0f25762ed9", size = 45300, upload-time = "2025-08-24T12:55:53.394Z" },
-]
-
-[[package]]
 name = "pytest"
 version = "8.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1557,25 +1548,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d1/db/7ef3487e0fb0049ddb5ce41d3a49c235bf9ad299b6a25d5780a89f19230f/pytest-9.0.2.tar.gz", hash = "sha256:75186651a92bd89611d1d9fc20f0b4345fd827c41ccd5c299a868a05d70edf11", size = 1568901, upload-time = "2025-12-06T21:30:51.014Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3b/ab/b3226f0bd7cdcf710fbede2b3548584366da3b19b5021e74f5bde2a8fa3f/pytest-9.0.2-py3-none-any.whl", hash = "sha256:711ffd45bf766d5264d487b917733b453d917afd2b0ad65223959f59089f875b", size = 374801, upload-time = "2025-12-06T21:30:49.154Z" },
-]
-
-[[package]]
-name = "pytest-mysql"
-version = "3.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "mirakuru", version = "2.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "mirakuru", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "packaging" },
-    { name = "port-for", version = "0.7.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "port-for", version = "1.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "pymysql" },
-    { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "pytest", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/23/9e/fdce5258bcef3e1143de166bd1aed71c63a2ffaa1170b230e822b2a9c249/pytest_mysql-3.1.0.tar.gz", hash = "sha256:51f4d90f3cbc0e45d4bb04c24172c2fe97eae8623b86a18a014c976dfeb449d7", size = 37784, upload-time = "2024-12-10T10:51:53.431Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/aa/870d54693b652e93fd338e1f79ddac3642385d0b5b9129dffc61a175b328/pytest_mysql-3.1.0-py3-none-any.whl", hash = "sha256:26d70c1db401a24d302a8dd93ff6b92457e94cbef4fd7b2f86343d8205129a3b", size = 34452, upload-time = "2024-12-10T10:51:50.899Z" },
 ]
 
 [[package]]
@@ -2052,9 +2024,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-mysql = [
-    { name = "pymysql" },
-]
 postgresql = [
     { name = "psycopg", version = "3.2.13", source = { registry = "https://pypi.org/simple" }, extra = ["binary"], marker = "python_full_version < '3.10'" },
     { name = "psycopg", version = "3.3.3", source = { registry = "https://pypi.org/simple" }, extra = ["binary"], marker = "python_full_version >= '3.10'" },
@@ -2067,7 +2036,6 @@ testing = [
     { name = "moto", extra = ["s3"] },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "pytest-mysql" },
     { name = "pytest-postgresql", version = "7.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest-postgresql", version = "8.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "ruff" },
@@ -2084,9 +2052,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=11" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgresql'", specifier = ">=3" },
     { name = "pydantic", specifier = ">=2.11" },
-    { name = "pymysql", marker = "extra == 'mysql'", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'testing'" },
-    { name = "pytest-mysql", marker = "extra == 'testing'" },
     { name = "pytest-postgresql", marker = "extra == 'testing'" },
     { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "ruff", marker = "extra == 'testing'" },
@@ -2095,7 +2061,7 @@ requires-dist = [
     { name = "ty", marker = "extra == 'testing'" },
     { name = "uvicorn", specifier = ">=0.39" },
 ]
-provides-extras = ["s3", "mysql", "postgresql", "testing"]
+provides-extras = ["s3", "postgresql", "testing"]
 
 [[package]]
 name = "urllib3"

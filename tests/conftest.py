@@ -12,7 +12,6 @@ from sqlalchemy import Engine
 
 from underfit_api.config import (
     FileStorageConfig,
-    MysqlDatabaseConfig,
     PostgresqlDatabaseConfig,
     SqliteDatabaseConfig,
     config,
@@ -47,7 +46,7 @@ CreateOrgMember = Callable[..., Headers]
 
 TEST_DATABASE_ENV = "UNDERFIT_TEST_DATABASES"
 TEST_DATABASE_NAME = "underfit"
-SUPPORTED_DATABASES = ("sqlite", "postgresql", "mysql")
+SUPPORTED_DATABASES = ("sqlite", "postgresql")
 
 
 def _selected_db_backends() -> list[str]:
@@ -64,20 +63,12 @@ def _selected_db_backends() -> list[str]:
 
 
 SELECTED_DB_BACKENDS = _selected_db_backends()
-pytest_plugins = (
-    *(["pytest_postgresql.plugin"] if "postgresql" in SELECTED_DB_BACKENDS else []),
-    *(["pytest_mysql.plugin"] if "mysql" in SELECTED_DB_BACKENDS else []),
-)
+pytest_plugins = tuple(["pytest_postgresql.plugin"] if "postgresql" in SELECTED_DB_BACKENDS else [])
 
 if "postgresql" in SELECTED_DB_BACKENDS:
     from pytest_postgresql import factories as postgresql_factories
     _underfit_postgresql_proc = postgresql_factories.postgresql_proc(dbname=TEST_DATABASE_NAME, port=15432)
     _underfit_postgresql = postgresql_factories.postgresql("_underfit_postgresql_proc", dbname=TEST_DATABASE_NAME)
-
-if "mysql" in SELECTED_DB_BACKENDS:
-    from pytest_mysql import factories as mysql_factories
-    _underfit_mysql_proc = mysql_factories.mysql_proc(port=13306)
-    _underfit_mysql = mysql_factories.mysql("_underfit_mysql_proc", dbname=TEST_DATABASE_NAME, passwd="")
 
 
 @pytest.fixture(params=SELECTED_DB_BACKENDS, ids=SELECTED_DB_BACKENDS)
@@ -87,7 +78,7 @@ def db_backend(request: pytest.FixtureRequest) -> str:
 
 def _database_config(
     request: pytest.FixtureRequest, db_backend: str, tmp_path: Path,
-) -> SqliteDatabaseConfig | PostgresqlDatabaseConfig | MysqlDatabaseConfig:
+) -> SqliteDatabaseConfig | PostgresqlDatabaseConfig:
     if db_backend == "sqlite":
         return SqliteDatabaseConfig(path=str(tmp_path / "test.sqlite"))
     elif db_backend == "postgresql":
@@ -95,12 +86,6 @@ def _database_config(
         proc = request.getfixturevalue("_underfit_postgresql_proc")
         return PostgresqlDatabaseConfig(
             host=proc.host, port=proc.port, user=proc.user, password=proc.password, database=TEST_DATABASE_NAME,
-        )
-    elif db_backend == "mysql":
-        request.getfixturevalue("_underfit_mysql")
-        proc = request.getfixturevalue("_underfit_mysql_proc")
-        return MysqlDatabaseConfig(
-            host=proc.host, port=proc.port, user=proc.user, password="", database=TEST_DATABASE_NAME,
         )
     raise Exception(f"Unsupported database type: {db_backend}")
 

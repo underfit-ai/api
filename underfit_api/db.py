@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import URL
 
-from underfit_api.config import MysqlDatabaseConfig, PostgresqlDatabaseConfig, SqliteDatabaseConfig, config
+from underfit_api.config import PostgresqlDatabaseConfig, SqliteDatabaseConfig, config
 from underfit_api.schema import metadata
 
 LOCAL_CACHE_SCHEMA_VERSION = 2
@@ -18,15 +18,6 @@ def database_url() -> str | URL:
     if isinstance(db, PostgresqlDatabaseConfig):
         return URL.create(
             "postgresql+psycopg",
-            username=db.user or None,
-            password=db.password or None,
-            host=db.host,
-            port=db.port,
-            database=db.database,
-        )
-    if isinstance(db, MysqlDatabaseConfig):
-        return URL.create(
-            "mysql+pymysql",
             username=db.user or None,
             password=db.password or None,
             host=db.host,

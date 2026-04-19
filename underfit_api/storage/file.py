@@ -105,13 +105,7 @@ class FileStorage:
         path = self._resolve(prefix)
         if not path.is_dir():
             return []
-        entries: list[DirEntry] = []
-        for item in path.iterdir():
-            stat = item.stat()
-            entries.append(DirEntry(
-                name=item.name, is_directory=item.is_dir(),
-                size=stat.st_size if not item.is_dir() else 0, last_modified=_format_mtime(stat.st_mtime),
-            ))
+        entries = [DirEntry(name=item.name, is_directory=item.is_dir()) for item in path.iterdir()]
         entries.sort(key=lambda e: (not e.is_directory, e.name))
         return entries
 
@@ -121,7 +115,3 @@ class FileStorage:
             return []
         base = self.base.resolve()
         return sorted(str(p.resolve().relative_to(base)) for p in path.rglob("*") if p.is_file())
-
-
-def _format_mtime(mtime: float) -> str:
-    return datetime.fromtimestamp(mtime, tz=timezone.utc).replace(tzinfo=None).isoformat() + "Z"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Iterator
-from datetime import datetime, timezone
+from datetime import timezone
 from email.utils import format_datetime
 from typing import Any
 
@@ -144,13 +144,11 @@ class S3Storage:
             for cp in page.get("CommonPrefixes", []):
                 name = cp["Prefix"][len(full_prefix):].rstrip("/")
                 if name:
-                    entries.append(DirEntry(name=name, is_directory=True, size=0, last_modified=""))
+                    entries.append(DirEntry(name=name, is_directory=True))
             for obj in page.get("Contents", []):
                 name = obj["Key"][len(full_prefix):]
                 if name and "/" not in name:
-                    entries.append(DirEntry(
-                        name=name, is_directory=False, size=obj["Size"], last_modified=_format_dt(obj["LastModified"]),
-                    ))
+                    entries.append(DirEntry(name=name, is_directory=False))
         entries.sort(key=lambda e: (not e.is_directory, e.name))
         return entries
 
@@ -162,7 +160,3 @@ class S3Storage:
             for obj in page.get("Contents", []):
                 files.append(self._relative_key(obj["Key"]))
         return sorted(files)
-
-
-def _format_dt(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).replace(tzinfo=None).isoformat() + "Z"

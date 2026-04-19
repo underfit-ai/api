@@ -23,14 +23,12 @@ dependencies = [
 
 [project.optional-dependencies]
 s3 = ["boto3>=1.42"]
-mysql = ["pymysql>=1.1"]
 postgresql = ["psycopg[binary]>=3"]
 testing = [
     "ruff",
     "ty",
     "pytest",
     "pytest-postgresql",
-    "pytest-mysql",
     "httpx",
     "moto[s3]",
 ]

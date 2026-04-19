@@ -5,15 +5,13 @@ import smtplib
 import unicodedata
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from email.message import EmailMessage
-from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import Connection
 from sqlalchemy.exc import IntegrityError
 
-from underfit_api.auth import create_signed_token
 from underfit_api.config import EmailConfig, config
 
 MAX_PATH_BYTES = 1024
@@ -76,7 +74,3 @@ def ensure_email_configured() -> tuple[EmailConfig, str]:
     if not config.frontend_url:
         raise HTTPException(400, "Frontend URL is not configured")
     return config.email, config.frontend_url
-
-
-def signed_link_url(frontend_url: str, payload: dict[str, Any], ttl: timedelta, kind: str, path: str) -> str:
-    return f"{frontend_url.rstrip('/')}{path}?token={create_signed_token(payload, ttl, kind)}"

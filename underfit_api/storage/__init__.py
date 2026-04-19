@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 class DirEntry(NamedTuple):
     name: str
     is_directory: bool
-    size: int
-    last_modified: str
 
 
 class FileStat(NamedTuple):

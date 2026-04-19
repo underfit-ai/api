@@ -27,15 +27,6 @@ class PostgresqlDatabaseConfig(BaseModel):
     database: str = "underfit"
 
 
-class MysqlDatabaseConfig(BaseModel):
-    type: Literal["mysql"] = "mysql"
-    host: str = "localhost"
-    port: int = 3306
-    user: str = ""
-    password: str = ""
-    database: str = "underfit"
-
-
 class BackfillConfig(BaseModel):
     enabled: bool = False
     debounce_s: float = 1.0
@@ -85,7 +76,7 @@ class EmailConfig(BaseModel):
 
 
 DatabaseConfig = Annotated[
-    Union[SqliteDatabaseConfig, PostgresqlDatabaseConfig, MysqlDatabaseConfig], Field(discriminator="type"),
+    Union[SqliteDatabaseConfig, PostgresqlDatabaseConfig], Field(discriminator="type"),
 ]
 StorageConfig = Annotated[Union[FileStorageConfig, S3StorageConfig], Field(discriminator="type")]
 
