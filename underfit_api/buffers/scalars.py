@@ -90,14 +90,20 @@ def window_line_counts(
         seg_conds.append(scalar_segments.c.start_at <= end_time)
         pt_conds.append(scalar_points.c.timestamp <= end_time)
     seg_rows = conn.execute(sa.select(
+        scalar_segments.c.worker_id,
         scalar_segments.c.resolution,
-        sa.func.sum(scalar_segments.c.end_line - scalar_segments.c.start_line),
-    ).where(*seg_conds).group_by(scalar_segments.c.resolution)).all()
-    seg_counts = {r[0]: r[1] or 0 for r in seg_rows}
-    staged = conn.execute(
-        sa.select(sa.func.count(sa.distinct(scalar_points.c.line))).where(*pt_conds),
-    ).scalar() or 0
-    return {res: seg_counts.get(res, 0) + (staged + res - 1) // res for res in config.buffer.scalar_resolutions}
+        sa.func.sum(scalar_segments.c.end_line - scalar_segments.c.start_line).label("n"),
+    ).where(*seg_conds).group_by(scalar_segments.c.worker_id, scalar_segments.c.resolution)).all()
+    seg_counts = {(row.worker_id, row.resolution): row.n or 0 for row in seg_rows}
+    staged_rows = conn.execute(sa.select(
+        scalar_points.c.worker_id,
+        sa.func.count(sa.distinct(scalar_points.c.line)).label("n"),
+    ).where(*pt_conds).group_by(scalar_points.c.worker_id)).all()
+    staged_counts = {row.worker_id: row.n or 0 for row in staged_rows}
+    return {
+        res: max(seg_counts.get((wid, res), 0) + (staged_counts.get(wid, 0) + res - 1) // res for wid in worker_ids)
+        for res in config.buffer.scalar_resolutions
+    }
 
 
 def append(conn: Connection, worker_id: UUID, start_line: int, scalars: list[Scalar]) -> None:
