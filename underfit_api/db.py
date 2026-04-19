@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import URL
 
@@ -9,6 +11,7 @@ from underfit_api.config import PostgresqlDatabaseConfig, SqliteDatabaseConfig, 
 from underfit_api.schema import metadata
 
 LOCAL_CACHE_SCHEMA_VERSION = 2
+_PYPROJECT_PATH = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
 
 def database_url() -> str | URL:
@@ -35,6 +38,16 @@ def build_engine() -> Engine:
         event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys=ON"))
         return engine
     return create_engine(database_url())
+
+
+def ensure_sqlite_database() -> None:
+    if not isinstance(config.database, SqliteDatabaseConfig) or config.database.path == ":memory:":
+        return
+    path = Path(config.database.path)
+    if path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    command.upgrade(AlembicConfig(toml_file=str(_PYPROJECT_PATH)), "head")
 
 
 def ensure_local_cache_schema() -> Engine:

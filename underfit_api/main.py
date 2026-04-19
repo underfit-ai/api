@@ -20,7 +20,7 @@ from underfit_api.buffers import BadStartLineError, BadStepError, BadTimestampEr
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
-from underfit_api.db import build_engine, ensure_local_cache_schema
+from underfit_api.db import build_engine, ensure_local_cache_schema, ensure_sqlite_database
 from underfit_api.dependencies import AppContext
 from underfit_api.models import HealthResponse
 from underfit_api.repositories import accounts as accounts_repo
@@ -74,7 +74,11 @@ def _validate_config() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _validate_config()
-    engine = ensure_local_cache_schema() if config.backfill.enabled else build_engine()
+    if config.backfill.enabled:
+        engine = ensure_local_cache_schema()
+    else:
+        ensure_sqlite_database()
+        engine = build_engine()
     ctx = AppContext(engine=engine, storage=build_storage())
     app.state.ctx = ctx
     if not config.auth_enabled:
