@@ -9,7 +9,11 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 
 from fastapi import HTTPException
-from sqlalchemy import Connection
+from sqlalchemy import Connection, Table
+from sqlalchemy.dialects.postgresql import Insert as PgInsert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import Insert as SqliteInsert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
 from underfit_api.config import EmailConfig, config
@@ -21,6 +25,10 @@ MAX_JSON_BYTES = 65536
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def dialect_insert(conn: Connection, table: Table) -> PgInsert | SqliteInsert:
+    return (pg_insert if conn.dialect.name == "postgresql" else sqlite_insert)(table)
 
 
 def send_email(cfg: EmailConfig, to: str, subject: str, body: str) -> None:

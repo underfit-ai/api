@@ -213,6 +213,15 @@ scalar_points = sa.Table(
     sa.UniqueConstraint("worker_id", "line", "key"),
 )
 
+run_metric_keys = sa.Table(
+    "run_metric_keys",
+    metadata,
+    sa.Column("run_id", sa.Uuid, sa.ForeignKey("runs.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("key", sa.Text, nullable=False),
+    sa.Column("worker_id", sa.Uuid, sa.ForeignKey("run_workers.id", ondelete="CASCADE"), nullable=False),
+    sa.PrimaryKeyConstraint("run_id", "key"),
+)
+
 log_chunks = sa.Table(
     "log_chunks",
     metadata,

@@ -8,17 +8,29 @@ import sqlalchemy as sa
 from sqlalchemy import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
-from underfit_api.buffers import BadStartLineError, BadStepError, BadTimestampError
+from underfit_api.buffers import BadStartLineError, BadStepError, BadTimestampError, MetricOwnedError
 from underfit_api.config import config
-from underfit_api.helpers import utcnow
+from underfit_api.helpers import dialect_insert, utcnow
 from underfit_api.models import Scalar, Worker
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import runs as runs_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
-from underfit_api.schema import run_workers, scalar_points, scalar_segments
+from underfit_api.schema import run_metric_keys, run_workers, scalar_points, scalar_segments
 from underfit_api.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+
+def _claim_keys(conn: Connection, worker_id: UUID, keys: set[str]) -> None:
+    run_id = conn.execute(sa.select(run_workers.c.run_id).where(run_workers.c.id == worker_id)).scalar_one()
+    rows = [{"run_id": run_id, "key": k, "worker_id": worker_id} for k in keys]
+    conn.execute(dialect_insert(conn, run_metric_keys).values(rows).on_conflict_do_nothing())
+    conflict = conn.execute(sa.select(run_metric_keys.c.key).where(
+        run_metric_keys.c.run_id == run_id, run_metric_keys.c.key.in_(keys),
+        run_metric_keys.c.worker_id != worker_id,
+    ).limit(1)).scalar()
+    if conflict is not None:
+        raise MetricOwnedError(conflict)
 
 
 def read_buffered(conn: Connection, worker_id: UUID, resolution: int, line_lte: int | None = None) -> list[Scalar]:
@@ -76,9 +88,12 @@ def total_line_counts(conn: Connection, worker_ids: list[UUID]) -> dict[int, int
 
 
 def append(conn: Connection, worker_id: UUID, start_line: int, scalars: list[Scalar]) -> None:
+    if not scalars:
+        return
     expected = end_line(conn, worker_id, 1)
     if start_line != expected:
         raise BadStartLineError(expected)
+    _claim_keys(conn, worker_id, {k for s in scalars for k in s.values})
     # Staged points always hold the most recent steps (compaction drains oldest-first),
     # so we only fall back to segments when nothing is staged.
     last_step = conn.execute(sa.select(sa.func.max(scalar_points.c.step)).where(
@@ -104,8 +119,6 @@ def append(conn: Connection, worker_id: UUID, start_line: int, scalars: list[Sca
          "key": k, "value": v, "timestamp": s.timestamp}
         for i, s in enumerate(scalars) for k, v in s.values.items()
     ]
-    if not rows:
-        return
     # Savepoint lets us recover from a concurrent append that won the race on the same line
     # without aborting the outer transaction; the unique (worker_id, line, key) constraint
     # is what actually serializes writers.

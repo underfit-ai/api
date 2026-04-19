@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine, select
 
 from tests.conftest import CreateWorker
-from underfit_api.buffers import BadStartLineError, BadStepError, BadTimestampError
+from underfit_api.buffers import BadStartLineError, BadStepError, BadTimestampError, MetricOwnedError
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
@@ -136,6 +136,19 @@ def test_scalar_compaction_full_chunk_emits_all_resolutions(engine: Engine, stor
         ).order_by(scalar_segments.c.start_line)).all()
     latest = {r.resolution: r for r in rows}
     assert latest[1].end_line == 50 and latest[10].end_line == 5
+
+
+def test_scalar_ingest_rejects_metric_owned_by_another_worker(
+    engine: Engine, create_worker: CreateWorker,
+) -> None:
+    worker_a = create_worker("0")
+    worker_b = create_worker("1")
+    with engine.begin() as conn:
+        scalar_buffer.append(conn, worker_a.id, 0, _scalars(0, 2, keys=("loss",)))
+        scalar_buffer.append(conn, worker_b.id, 0, _scalars(0, 2, keys=("accuracy",), t=T0 + timedelta(seconds=10)))
+        with pytest.raises(MetricOwnedError) as exc:
+            scalar_buffer.append(conn, worker_b.id, 2, _scalars(10, 1, keys=("loss",), t=T0 + timedelta(seconds=20)))
+        assert exc.value.key == "loss"
 
 
 def test_scalar_partial_flush_waits_for_entire_run_to_go_quiet(

@@ -14,3 +14,8 @@ class BadStepError(Exception):
 class BadTimestampError(Exception):
     def __init__(self, last_timestamp: datetime) -> None:
         self.last_timestamp = last_timestamp
+
+
+class MetricOwnedError(Exception):
+    def __init__(self, key: str) -> None:
+        self.key = key
