@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy import Connection, Engine
 from sqlalchemy.exc import IntegrityError
 
-from underfit_api.buffers import BadStartLineError, BadStepError
+from underfit_api.buffers import BadStartLineError, BadStepError, BadTimestampError
 from underfit_api.config import config
 from underfit_api.helpers import utcnow
 from underfit_api.models import Scalar, Worker
@@ -86,12 +86,19 @@ def append(conn: Connection, worker_id: UUID, start_line: int, scalars: list[Sca
     )).scalar()
     if last_step is None:
         last_step = scalar_seg_repo.get_last_step(conn, worker_id)
+    last_ts = conn.execute(sa.select(sa.func.max(scalar_points.c.timestamp)).where(
+        scalar_points.c.worker_id == worker_id,
+    )).scalar()
+    if last_ts is None:
+        last_ts = scalar_seg_repo.get_last_timestamp(conn, worker_id)
     for scalar in scalars:
-        if scalar.step is None:
-            continue
-        if last_step is not None and scalar.step <= last_step:
-            raise BadStepError(last_step)
-        last_step = scalar.step
+        if scalar.step is not None:
+            if last_step is not None and scalar.step <= last_step:
+                raise BadStepError(last_step)
+            last_step = scalar.step
+        if last_ts is not None and scalar.timestamp <= last_ts:
+            raise BadTimestampError(last_ts)
+        last_ts = scalar.timestamp
     rows = [
         {"worker_id": worker_id, "line": start_line + i, "step": s.step,
          "key": k, "value": v, "timestamp": s.timestamp}

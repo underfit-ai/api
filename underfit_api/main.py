@@ -16,7 +16,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from underfit_api import backfill
 from underfit_api.auth import get_app_secret
-from underfit_api.buffers import BadStartLineError, BadStepError
+from underfit_api.buffers import BadStartLineError, BadStepError, BadTimestampError
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
@@ -142,6 +142,12 @@ def bad_start_line_handler(_request: Request, exc: BadStartLineError) -> JSONRes
 @app.exception_handler(BadStepError)
 def bad_step_handler(_request: Request, exc: BadStepError) -> JSONResponse:
     content = {"error": "Step must be strictly increasing", "lastStep": exc.last_step}
+    return JSONResponse(status_code=409, content=content)
+
+
+@app.exception_handler(BadTimestampError)
+def bad_timestamp_handler(_request: Request, exc: BadTimestampError) -> JSONResponse:
+    content = {"error": "Timestamp must be strictly increasing", "lastTimestamp": exc.last_timestamp.isoformat() + "Z"}
     return JSONResponse(status_code=409, content=content)
 
 

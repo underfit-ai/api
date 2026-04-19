@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine, select
 
 from tests.conftest import CreateWorker
-from underfit_api.buffers import BadStartLineError, BadStepError
+from underfit_api.buffers import BadStartLineError, BadStepError, BadTimestampError
 from underfit_api.buffers import logs as log_buffer
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
@@ -68,18 +68,39 @@ def test_scalar_ingest_validates_step_and_start_line(engine: Engine, worker: Wor
         assert step_exc.value.last_step == 2
 
 
+def test_scalar_ingest_enforces_timestamp_monotonicity(
+    engine: Engine, storage: Storage, worker: Worker,
+) -> None:
+    with engine.begin() as conn:
+        scalar_buffer.append(conn, worker.id, 0, _scalars(0, 3))
+        with pytest.raises(BadTimestampError) as exc:
+            scalar_buffer.append(conn, worker.id, 3, [
+                Scalar(step=10, values={"loss": 0.0}, timestamp=T0 + timedelta(seconds=1)),
+            ])
+        assert exc.value.last_timestamp == (T0 + timedelta(seconds=2)).replace(tzinfo=None)
+    _mark_stale(engine, worker)
+    scalar_buffer.compact(engine, storage)
+    with engine.begin() as conn, pytest.raises(BadTimestampError) as exc:
+        scalar_buffer.append(conn, worker.id, 3, [
+            Scalar(step=10, values={"loss": 0.0}, timestamp=T0 + timedelta(seconds=2)),
+        ])
+    assert exc.value.last_timestamp == (T0 + timedelta(seconds=2)).replace(tzinfo=None)
+
+
 def test_scalar_ingest_allows_stepless_points(engine: Engine, storage: Storage, worker: Worker) -> None:
     config.buffer.scalar_resolutions = [1, 10]
     config.buffer.scalar_segment_lines = 10
     stepless = [Scalar(values={"cpu": float(i)}, timestamp=T0 + timedelta(seconds=i)) for i in range(3)]
     with engine.begin() as conn:
         scalar_buffer.append(conn, worker.id, 0, stepless)
-        scalar_buffer.append(conn, worker.id, 3, _scalars(5, 2))
+        scalar_buffer.append(conn, worker.id, 3, _scalars(5, 2, t=T0 + timedelta(seconds=3)))
         scalar_buffer.append(conn, worker.id, 5, [
             Scalar(values={"cpu": 9.0}, timestamp=T0 + timedelta(seconds=9)),
         ])
         with pytest.raises(BadStepError) as step_exc:
-            scalar_buffer.append(conn, worker.id, 6, [Scalar(step=6, values={"loss": 0.0}, timestamp=T0)])
+            scalar_buffer.append(conn, worker.id, 6, [
+                Scalar(step=6, values={"loss": 0.0}, timestamp=T0 + timedelta(seconds=10)),
+            ])
         assert step_exc.value.last_step == 6
     _mark_stale(engine, worker)
     scalar_buffer.compact(engine, storage)
@@ -107,7 +128,7 @@ def test_scalar_compaction_full_chunk_emits_all_resolutions(engine: Engine, stor
            storage.read(f"{worker.run_storage_key}/{rows[10].storage_key}").decode().splitlines()]
     assert [p["values"] for p in r10] == [{"loss": 4.5, "accuracy": 4.5}, {"loss": 14.5, "accuracy": 14.5}]
     with engine.begin() as conn:
-        scalar_buffer.append(conn, worker.id, 25, _scalars(25, 25))
+        scalar_buffer.append(conn, worker.id, 25, _scalars(25, 25, t=T0 + timedelta(seconds=25)))
     scalar_buffer.compact(engine, storage)
     with engine.begin() as conn:
         rows = conn.execute(select(scalar_segments).where(

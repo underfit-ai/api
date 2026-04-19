@@ -48,3 +48,9 @@ def get_last_step(conn: Connection, worker_id: UUID) -> int | None:
     return conn.execute(sa.select(sa.func.max(scalar_segments.c.end_step)).where(
         scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == 1,
     )).scalar()
+
+
+def get_last_timestamp(conn: Connection, worker_id: UUID) -> datetime | None:
+    return conn.execute(sa.select(sa.func.max(scalar_segments.c.end_at)).where(
+        scalar_segments.c.worker_id == worker_id, scalar_segments.c.resolution == 1,
+    )).scalar()
