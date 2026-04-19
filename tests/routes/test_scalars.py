@@ -36,15 +36,19 @@ def test_scalar_ingest_and_read(
     assert client.get(SCALARS, headers=owner_headers, params={"resolution": 1, "targetPoints": 10}).status_code == 400
 
     full = client.get(SCALARS, headers=owner_headers).json()
-    assert (full["resolution"], full["pointCount"]) == (1, 20)
+    assert full["resolution"] == 1
+    assert full["series"]["loss"]["axis"] == 0
+    assert len(full["axes"][0]["steps"]) == 20
+    assert len(full["series"]["loss"]["values"]) == 20
     reduced = client.get(SCALARS, headers=owner_headers, params={"targetPoints": 5}).json()
-    assert (reduced["resolution"], reduced["pointCount"]) == (10, 2)
+    assert reduced["resolution"] == 10
+    assert len(reduced["axes"][0]["steps"]) == 2
     assert client.get(SCALARS, headers=owner_headers, params={"targetPoints": 1}).json()["resolution"] == 100
 
     with engine.begin() as conn:
         conn.execute(run_workers.update().values(last_heartbeat=datetime(2020, 1, 1, tzinfo=timezone.utc)))
     scalar_buffer.compact(engine, storage)
-    assert client.get(SCALARS, headers=owner_headers).json()["pointCount"] == 20
+    assert len(client.get(SCALARS, headers=owner_headers).json()["axes"][0]["steps"]) == 20
     from_storage = client.get(SCALARS, headers=owner_headers, params={"resolution": 10}).json()
-    assert (from_storage["resolution"], from_storage["pointCount"]) == (10, 2)
-    assert from_storage["points"][-1]["step"] == 19
+    assert from_storage["resolution"] == 10
+    assert from_storage["axes"][0]["steps"][-1] == 19

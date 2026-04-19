@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
@@ -7,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from underfit_api.buffers import scalars as scalar_buffer
 from underfit_api.config import config
 from underfit_api.dependencies import Conn, Ctx, CurrentWorker, MaybeUser
-from underfit_api.models import Body, BufferedResponse, Scalar, ScalarSeriesResponse
+from underfit_api.models import Body, BufferedResponse, Scalar, ScalarAxis, ScalarSeries, ScalarSeriesResponse
 from underfit_api.repositories import run_workers as workers_repo
 from underfit_api.repositories import scalar_segments as scalar_seg_repo
 from underfit_api.routes.resolvers import resolve_run
@@ -18,6 +19,23 @@ router = APIRouter()
 class WriteScalarsBody(Body):
     start_line: int
     scalars: list[Scalar]
+
+
+def _build_response(resolution: int, scalars: list[Scalar]) -> ScalarSeriesResponse:
+    by_key: dict[str, list[tuple[int, datetime, float]]] = {}
+    for s in scalars:
+        for k, v in s.values.items():
+            by_key.setdefault(k, []).append((s.step, s.timestamp, v))
+    axes: list[ScalarAxis] = []
+    axis_ids: dict[tuple[int, ...], int] = {}
+    series: dict[str, ScalarSeries] = {}
+    for key, pts in by_key.items():
+        sig = tuple(p[0] for p in pts)
+        if sig not in axis_ids:
+            axis_ids[sig] = len(axes)
+            axes.append(ScalarAxis(steps=list(sig), timestamps=[p[1] for p in pts]))
+        series[key] = ScalarSeries(axis=axis_ids[sig], values=[p[2] for p in pts])
+    return ScalarSeriesResponse(resolution=resolution, axes=axes, series=series)
 
 
 def _select_resolution(counts: dict[int, int], target_points: int) -> int:
@@ -64,4 +82,4 @@ def read_scalars(
             data = ctx.storage.read(f"{run.storage_key}/{seg.storage_key}")
             scalars.extend(Scalar.model_validate_json(line) for line in data.decode().splitlines() if line)
         scalars.extend(scalar_buffer.read_buffered(conn, worker.id, selected_resolution))
-    return ScalarSeriesResponse(resolution=selected_resolution, point_count=len(scalars), points=scalars)
+    return _build_response(selected_resolution, scalars)

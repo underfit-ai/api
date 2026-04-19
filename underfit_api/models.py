@@ -175,10 +175,20 @@ class Scalar(_Base):
     timestamp: UTCDatetime
 
 
+class ScalarAxis(_Base):
+    steps: list[int]
+    timestamps: list[UTCDatetime]
+
+
+class ScalarSeries(_Base):
+    axis: int
+    values: list[float]
+
+
 class ScalarSeriesResponse(_Base):
     resolution: int
-    point_count: int
-    points: list[Scalar]
+    axes: list[ScalarAxis]
+    series: dict[str, ScalarSeries]
 
 
 class AuthResponse(_Base):
