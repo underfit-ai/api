@@ -26,7 +26,16 @@ def sync(ctx: AppContext, conn: Connection) -> None:
         if now - ctx.last_full_sync < config.backfill.debounce_s:
             return
         ctx.last_full_sync = now
-    _run_sync(ctx, conn)
+    storage_ids = _storage_run_ids(ctx.storage)
+    db_ids = {row.id for row in conn.execute(sa.select(runs.c.id))}
+    for run_id in db_ids - storage_ids:
+        conn.execute(runs.delete().where(runs.c.id == run_id))
+        ctx.last_run_sync.pop(run_id, None)
+    for run_id in storage_ids:
+        try:
+            ensure_run(conn, ctx.storage, run_id)
+        except Exception:
+            logger.exception("Backfill ensure_run error for run %s", run_id)
 
 
 def refresh_run(ctx: AppContext, conn: Connection, run_id: UUID) -> None:
@@ -35,38 +44,19 @@ def refresh_run(ctx: AppContext, conn: Connection, run_id: UUID) -> None:
         if now - ctx.last_run_sync.get(run_id, 0.0) < config.backfill.debounce_s:
             return
         ctx.last_run_sync[run_id] = now
-    _run_refresh(ctx, conn, run_id)
-
-
-def _run_sync(ctx: AppContext, conn: Connection) -> None:
-    storage = ctx.storage
-    storage_ids = _storage_run_ids(storage)
-    db_ids = {row.id for row in conn.execute(sa.select(runs.c.id))}
-    for run_id in db_ids - storage_ids:
-        conn.execute(runs.delete().where(runs.c.id == run_id))
-        ctx.last_run_sync.pop(run_id, None)
-    for run_id in storage_ids:
-        try:
-            ensure_run(conn, storage, run_id)
-        except Exception:
-            logger.exception("Backfill ensure_run error for run %s", run_id)
-
-
-def _run_refresh(ctx: AppContext, conn: Connection, run_id: UUID) -> None:
-    storage = ctx.storage
-    if not storage.exists(f"{run_id}/run.json"):
+    if not ctx.storage.exists(f"{run_id}/run.json"):
         conn.execute(runs.delete().where(runs.c.id == run_id))
         ctx.last_run_sync.pop(run_id, None)
         return
     try:
-        project_id = ensure_run(conn, storage, run_id)
+        project_id = ensure_run(conn, ctx.storage, run_id)
     except Exception:
         logger.exception("Backfill ensure_run error for run %s", run_id)
         return
     if project_id is None:
         return
-    reconcile_segments(conn, storage, run_id)
-    reconcile_assets(conn, storage, run_id, project_id)
+    reconcile_segments(conn, ctx.storage, run_id)
+    reconcile_assets(conn, ctx.storage, run_id, project_id)
 
 
 def _storage_run_ids(storage: Storage) -> set[UUID]:
