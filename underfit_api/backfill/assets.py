@@ -26,8 +26,8 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_i
             artifact_id = UUID(entry.name)
         except ValueError:
             continue
-        storage_artifact_ids.add(artifact_id)
-        _ingest_artifact(conn, storage, run_id, project_id, artifact_id)
+        if _ingest_artifact(conn, storage, run_id, project_id, artifact_id):
+            storage_artifact_ids.add(artifact_id)
     conn.execute(artifacts.delete().where(
         artifacts.c.run_id == run_id, sa.not_(artifacts.c.id.in_(storage_artifact_ids)),
     ))
@@ -52,16 +52,15 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_i
     conn.execute(query)
 
 
-def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, project_id: UUID, artifact_id: UUID) -> None:
+def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, project_id: UUID, artifact_id: UUID) -> bool:
     storage_prefix = f"artifacts/{artifact_id}"
     base = f"{run_id}/{storage_prefix}"
-    metadata_key = f"{base}/artifact.json"
     try:
         manifest = json.loads(storage.read(f"{base}/manifest.json"))
-        metadata = json.loads(storage.read(metadata_key)) if storage.exists(metadata_key) else {}
-    except (FileNotFoundError, json.JSONDecodeError):
+        metadata = json.loads(storage.read(f"{base}/artifact.json"))
+    except (FileNotFoundError, json.JSONDecodeError) as err:
         logger.warning("Skipping artifact %s: invalid or missing manifest/metadata", artifact_id)
-        return
+        return isinstance(err, json.JSONDecodeError)
     files_dir = f"{base}/files"
     uploaded_paths = {path[len(files_dir) + 1:] for path in storage.list_files(files_dir)}
     declared_paths = {f for f in manifest.get("files", []) if isinstance(f, str) and f}
@@ -79,3 +78,4 @@ def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, project_i
         conn.execute(artifacts.insert().values(id=artifact_id, run_id=run_id, created_at=now, **values))
     else:
         conn.execute(artifacts.update().where(artifacts.c.id == artifact_id).values(**values))
+    return True

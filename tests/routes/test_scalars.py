@@ -21,7 +21,8 @@ def test_write_and_read_scalars(client: TestClient, owner_headers: Headers, work
     assert client.post("/api/v1/ingest/scalars", headers=worker_headers, json=scalars).json()["nextStartLine"] == 20
     stale = {"step": 5, "values": {"loss": 9.9}, "timestamp": "2025-01-01T00:01:00+00:00"}
     reject = client.post("/api/v1/ingest/scalars", headers=worker_headers, json={"start_line": 20, "scalars": [stale]})
-    assert reject.status_code == 409 and reject.json()["lastStep"] == 19
+    assert reject.status_code == 409
+    assert reject.json() == {"error": "Step must be strictly increasing", "lastStep": 19}
 
     full = client.get(scalars_url, headers=owner_headers)
     assert full.status_code == 200
@@ -51,6 +52,11 @@ def test_scalar_ingest_validation(client: TestClient, owner_headers: Headers, wo
         "scalars": [{"step": 2, "values": {"loss": 0.2}, "timestamp": "2025-01-01T00:00:01+00:00"}],
     }
     assert client.post("/api/v1/ingest/scalars", headers=worker_headers, json=duplicate).status_code == 409
+
+    line = {"timestamp": "2025-01-01T00:00:00+00:00", "content": "hello"}
+    client.post("/api/v1/ingest/logs", headers=worker_headers, json={"start_line": 0, "lines": [line]})
+    replay = client.post("/api/v1/ingest/logs", headers=worker_headers, json={"start_line": 0, "lines": [line]})
+    assert replay.json() == {"error": "Invalid startLine", "expectedStartLine": 1}
 
     invalid_query = client.get(scalars_url, headers=owner_headers, params={"resolution": 1, "targetPoints": 10})
     assert invalid_query.status_code == 400

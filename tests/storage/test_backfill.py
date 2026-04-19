@@ -189,6 +189,23 @@ def test_backfill_updates_artifact_and_media_records(storage: Storage, engine: E
         assert [r.index for r in conn.execute(select(media).order_by(media.c.index)).all()] == [0, 2]
 
 
+def test_backfill_keeps_corrupt_artifact_metadata_but_drops_missing_file(storage: Storage, engine: Engine) -> None:
+    run_id, artifact_id = uuid4(), uuid4()
+    _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial E"})
+    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", {"name": "base"})
+    _write_json(storage, f"{run_id}/artifacts/{artifact_id}/manifest.json", {"files": ["a.bin"]})
+    _write_text(storage, f"{run_id}/artifacts/{artifact_id}/files/a.bin", "a")
+    _sync(engine, storage)
+    _write_text(storage, f"{run_id}/artifacts/{artifact_id}/artifact.json", "{bad-json}")
+    _sync(engine, storage)
+    with engine.begin() as conn:
+        assert conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first() is not None
+    storage.delete(f"{run_id}/artifacts/{artifact_id}/artifact.json")
+    _sync(engine, storage)
+    with engine.begin() as conn:
+        assert conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first() is None
+
+
 def test_backfill_deletes_runs_when_manifest_gone(storage: Storage, engine: Engine) -> None:
     run_id = uuid4()
     _write_json(storage, f"{run_id}/run.json", {"project": "Vision", "name": "Trial D"})

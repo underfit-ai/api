@@ -20,6 +20,10 @@ def test_api_key_lifecycle(client: TestClient, create_user: CreateUser, session_
     assert listed.status_code == 200
     assert [row["id"] for row in listed.json()] == [key["id"]]
 
+    bearer = {"Authorization": f"Bearer {key['token']}"}
+    me = client.get("/api/v1/me", headers=bearer)
+    assert me.status_code == 200 and me.json()["id"] == str(user.id)
+
     deleted = client.delete(f"/api/v1/me/api-keys/{key['id']}", headers=headers)
     assert deleted.status_code == 200
     assert deleted.json() == {"status": "ok"}
@@ -29,3 +33,5 @@ def test_api_key_lifecycle(client: TestClient, create_user: CreateUser, session_
     empty = client.get("/api/v1/me/api-keys", headers=headers)
     assert empty.status_code == 200
     assert empty.json() == []
+
+    assert client.get("/api/v1/me", headers=bearer).status_code == 401
