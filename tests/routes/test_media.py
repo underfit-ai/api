@@ -58,8 +58,11 @@ def test_media_ingest_cleans_up_failed_upload(
         storage.write(key, b"partial")
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(storage, "write_stream", fail_write_stream)
     run = client.get("/api/v1/accounts/owner/projects/underfit/runs/r", headers=owner_headers).json()
-    with pytest.raises(RuntimeError, match="boom"):
-        client.post(INGEST, headers=worker_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
+    with monkeypatch.context() as m:
+        m.setattr(storage, "write_stream", fail_write_stream)
+        with pytest.raises(RuntimeError, match="boom"):
+            client.post(INGEST, headers=worker_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
     assert storage.list_files(run["id"]) == []
+    retried = client.post(INGEST, headers=worker_headers, data={"metadata": MEDIA_METADATA}, files=MEDIA_FILES)
+    assert retried.status_code == 200

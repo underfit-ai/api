@@ -46,3 +46,17 @@ def test_member_mutation_validation(
     assert client.put(f"{MEMBERS}/member", headers=owner_headers, json={"role": "NOPE"}).status_code == 400
     assert client.put(f"{MEMBERS}/missing", headers=owner_headers, json={}).status_code == 404
     assert client.delete(f"{MEMBERS}/{outsider.handle}", headers=owner_headers).status_code == 404
+
+
+def test_admin_handoff_allows_original_admin_to_leave(
+    client: TestClient, owner_headers: Headers, create_user: CreateUser,
+) -> None:
+    create_user(email="member@example.com", handle="member", name="Member")
+    assert client.post(ORGS, headers=owner_headers, json={"handle": "core", "name": "Core"}).status_code == 201
+    assert client.put(f"{MEMBERS}/member", headers=owner_headers, json={"role": "ADMIN"}).status_code == 200
+    assert client.put(f"{MEMBERS}/owner", headers=owner_headers, json={"role": "MEMBER"}).status_code == 200
+    assert client.delete(f"{MEMBERS}/owner", headers=owner_headers).status_code == 200
+    listed = client.get(MEMBERS)
+    assert listed.status_code == 200 and [(entry["handle"], entry["role"]) for entry in listed.json()] == [
+        ("member", "ADMIN"),
+    ]

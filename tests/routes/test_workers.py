@@ -11,11 +11,17 @@ from underfit_api.config import config
 from underfit_api.main import app
 
 
-def test_heartbeat_and_terminal_state(client: TestClient, worker_headers: Headers) -> None:
+def test_heartbeat_and_terminal_state(client: TestClient, owner_headers: Headers, worker_headers: Headers) -> None:
     assert client.post("/api/v1/workers/heartbeat", headers=worker_headers).status_code == 200
 
     resp = client.put("/api/v1/runs/terminal-state", headers=worker_headers, json={"terminalState": "failed"})
     assert resp.status_code == 200 and resp.json()["terminalState"] == "failed"
+    assert client.put("/api/v1/runs/summary", headers=worker_headers, json={"summary": {"loss": 0.25}}).json()[
+        "summary"
+    ] == {"loss": 0.25}
+    assert client.get("/api/v1/accounts/owner/projects/underfit/runs/r", headers=owner_headers).json()["summary"] == {
+        "loss": 0.25,
+    }
 
     for token in ["bogus", str(UUID(int=0))]:
         bad = {"Authorization": f"Bearer {token}"}
@@ -38,5 +44,4 @@ def test_worker_auth_without_app_secret(monkeypatch: pytest.MonkeyPatch) -> None
         payload = {"terminalState": "finished"}
         assert client.post("/api/v1/workers/heartbeat", headers=worker_headers).status_code == 200
         assert client.put("/api/v1/runs/terminal-state", headers=worker_headers, json=payload).status_code == 200
-
 
