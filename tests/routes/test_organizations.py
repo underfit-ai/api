@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from io import BytesIO
 
-from tests.conftest import CreateUser, Headers, SessionForUser
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from tests.conftest import CreateOrg, CreateUser, Headers, SessionForUser
 
 ORGS = "/api/v1/organizations"
 CORE = f"{ORGS}/core"
@@ -17,6 +20,21 @@ def test_create_update_organization(client: TestClient, owner_headers: Headers, 
     assert client.patch(CORE, headers=outsider_headers, json={"name": "Nope"}).status_code == 403
     updated = client.patch(CORE, headers=owner_headers, json={"name": "Core Team"})
     assert updated.status_code == 200 and updated.json()["name"] == "Core Team"
+
+
+def test_organization_avatar(
+    client: TestClient, owner_headers: Headers, outsider_headers: Headers, create_org: CreateOrg,
+) -> None:
+    create_org(owner_headers, handle="core", name="Core")
+    png = BytesIO()
+    Image.new("RGB", (64, 64), (10, 20, 30)).save(png, format="PNG")
+    assert client.put(f"{CORE}/avatar", headers=outsider_headers, content=png.getvalue()).status_code == 403
+    assert client.put(f"{CORE}/avatar", headers=owner_headers, content=png.getvalue()).status_code == 200
+    fetched = client.get("/api/v1/accounts/core/avatar")
+    assert fetched.status_code == 200 and fetched.headers["content-type"] == "image/jpeg"
+    assert client.delete(f"{CORE}/avatar", headers=outsider_headers).status_code == 403
+    assert client.delete(f"{CORE}/avatar", headers=owner_headers).status_code == 200
+    assert client.get("/api/v1/accounts/core/avatar").status_code == 404
 
 
 def test_member_can_remove_self(
