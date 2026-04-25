@@ -30,7 +30,7 @@ class RunMetadata(BaseModel):
     summary: dict[str, float] | None = None
 
 
-def ensure_run(conn: Connection, storage: Storage, run_uuid: UUID) -> UUID | None:
+def ensure_run(conn: Connection, storage: Storage, run_uuid: UUID) -> Project | None:
     try:
         metadata = RunMetadata.model_validate_json(storage.read(f"{run_uuid}/run.json"))
     except (ValidationError, json.JSONDecodeError):
@@ -58,7 +58,7 @@ def ensure_run(conn: Connection, storage: Storage, run_uuid: UUID) -> UUID | Non
             if existing.project_id != project_row.id:
                 conn.execute(artifacts.delete().where(artifacts.c.run_id == run_uuid))
             conn.execute(runs.update().where(runs.c.id == run_uuid).values(updated_at=utcnow(), **values))
-    return project_row.id
+    return project_row
 
 
 def _resolve_user(conn: Connection, handle: str) -> UUID | None:
@@ -72,4 +72,4 @@ def _resolve_user(conn: Connection, handle: str) -> UUID | None:
 def _resolve_project(conn: Connection, account_id: UUID, name: str) -> Project:
     if project := projects_repo.get_by_account_and_name(conn, account_id, name):
         return project
-    return projects_repo.create(conn, account_id, name, "", ProjectVisibility.PRIVATE, {})
+    return projects_repo.create(conn, account_id, name, "", ProjectVisibility.PRIVATE, {}, f"projects/{name}")

@@ -8,7 +8,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy import Connection
 
-from underfit_api.backfill.assets import reconcile_assets
+from underfit_api.backfill.assets import reconcile_assets, reconcile_project_assets
 from underfit_api.backfill.runs import ensure_run
 from underfit_api.backfill.segments import reconcile_segments
 from underfit_api.config import config
@@ -52,14 +52,15 @@ def refresh_run(ctx: AppContext, conn: Connection, run_id: UUID) -> bool:
         ctx.last_run_sync.pop(run_id, None)
         return True
     try:
-        project_id = ensure_run(conn, ctx.storage, run_id)
+        project = ensure_run(conn, ctx.storage, run_id)
     except Exception:
         logger.exception("Backfill ensure_run error for run %s", run_id)
         return True
-    if project_id is None:
+    if project is None:
         return True
     reconcile_segments(conn, ctx.storage, run_id)
-    reconcile_assets(conn, ctx.storage, run_id, project_id)
+    reconcile_assets(conn, ctx.storage, run_id, project.id)
+    reconcile_project_assets(conn, ctx.storage, project.id, project.name)
     return True
 
 

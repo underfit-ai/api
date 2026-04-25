@@ -92,11 +92,13 @@ def list_related_to_user(conn: Connection, user_id: UUID) -> list[Project]:
 
 def create(
     conn: Connection, account_id: UUID, name: str, description: str, visibility: str, metadata: dict[str, object],
+    storage_key: str | None = None,
 ) -> Project:
     project_id = uuid4()
     now = utcnow()
     conn.execute(projects.insert().values(
-        id=project_id, account_id=account_id, name=name, storage_key=str(project_id), description=description,
+        id=project_id, account_id=account_id, name=name, storage_key=storage_key or str(project_id),
+        description=description,
         metadata=metadata, ui_state={}, visibility=visibility, created_at=now, updated_at=now,
     ))
     result = get_by_id(conn, project_id)

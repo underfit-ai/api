@@ -18,19 +18,7 @@ _MEDIA = re.compile(r"^media/(image|video|audio|html)/(.+)_(-?\d+)_(\d+)(\.[^/]+
 
 
 def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_id: UUID) -> None:
-    storage_artifact_ids: set[UUID] = set()
-    for entry in storage.list_dir(f"{run_id}/artifacts"):
-        if not entry.is_directory:
-            continue
-        try:
-            artifact_id = UUID(entry.name)
-        except ValueError:
-            continue
-        if _ingest_artifact(conn, storage, run_id, project_id, artifact_id):
-            storage_artifact_ids.add(artifact_id)
-    conn.execute(artifacts.delete().where(
-        artifacts.c.run_id == run_id, sa.not_(artifacts.c.id.in_(storage_artifact_ids)),
-    ))
+    _reconcile_artifacts(conn, storage, str(run_id), project_id, run_id, artifacts.c.run_id == run_id)
 
     prefix = f"{run_id}/"
     storage_media_ids: set[UUID] = set()
@@ -51,9 +39,32 @@ def reconcile_assets(conn: Connection, storage: Storage, run_id: UUID, project_i
     conn.execute(query)
 
 
-def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, project_id: UUID, artifact_id: UUID) -> bool:
+def reconcile_project_assets(conn: Connection, storage: Storage, project_id: UUID, project_name: str) -> None:
+    where = sa.and_(artifacts.c.project_id == project_id, artifacts.c.run_id.is_(None))
+    _reconcile_artifacts(conn, storage, f"projects/{project_name}", project_id, None, where)
+
+
+def _reconcile_artifacts(
+    conn: Connection, storage: Storage, parent: str, project_id: UUID, run_id: UUID | None, where: sa.ColumnElement,
+) -> None:
+    storage_artifact_ids: set[UUID] = set()
+    for entry in storage.list_dir(f"{parent}/artifacts"):
+        if not entry.is_directory:
+            continue
+        try:
+            artifact_id = UUID(entry.name)
+        except ValueError:
+            continue
+        if _ingest_artifact(conn, storage, parent, project_id, run_id, artifact_id):
+            storage_artifact_ids.add(artifact_id)
+    conn.execute(artifacts.delete().where(where, sa.not_(artifacts.c.id.in_(storage_artifact_ids))))
+
+
+def _ingest_artifact(
+    conn: Connection, storage: Storage, parent: str, project_id: UUID, run_id: UUID | None, artifact_id: UUID,
+) -> bool:
     storage_prefix = f"artifacts/{artifact_id}"
-    base = f"{run_id}/{storage_prefix}"
+    base = f"{parent}/{storage_prefix}"
     try:
         manifest = json.loads(storage.read(f"{base}/manifest.json"))
         metadata = json.loads(storage.read(f"{base}/artifact.json"))
@@ -67,13 +78,13 @@ def _ingest_artifact(conn: Connection, storage: Storage, run_id: UUID, project_i
     stored_size_bytes = sum(storage.size(f"{files_dir}/{path}") for path in uploaded_paths)
     now = utcnow()
     values = {
-        "project_id": project_id, "step": metadata.get("step"),
+        "project_id": project_id, "run_id": run_id, "step": metadata.get("step"),
         "name": metadata.get("name", str(artifact_id)), "type": metadata.get("type", "dataset"),
         "storage_key": storage_prefix, "finalized_at": now if finalized else None,
         "stored_size_bytes": stored_size_bytes if finalized else None, "metadata": metadata.get("metadata"),
         "updated_at": now,
     }
     conn.execute(dialect_insert(conn, artifacts).values(
-        id=artifact_id, run_id=run_id, created_at=now, **values,
+        id=artifact_id, created_at=now, **values,
     ).on_conflict_do_update(index_elements=["id"], set_=values))
     return True
