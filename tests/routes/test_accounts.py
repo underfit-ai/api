@@ -16,18 +16,13 @@ def test_account_exists(client: TestClient, create_user: CreateUser) -> None:
 
 def test_rename_account(client: TestClient, owner_headers: Headers, outsider_headers: Headers) -> None:
     assert client.post(f"{BASE}/owner/rename", headers=outsider_headers, json={"handle": "hacked"}).status_code == 403
-    renamed = client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": "new-owner"})
-    assert renamed.status_code == 200
-    assert renamed.json()["handle"] == "new-owner"
+    assert client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": "outsider"}).status_code == 409
 
+    renamed = client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": "new-owner"})
+    assert renamed.status_code == 200 and renamed.json()["handle"] == "new-owner"
     fetched = client.get(f"{BASE}/new-owner", headers=owner_headers)
     assert fetched.status_code == 200 and fetched.json()["handle"] == "new-owner"
     assert client.get(f"{BASE}/owner", headers=owner_headers).status_code == 404
-
-
-def test_rename_account_conflicts(client: TestClient, owner_headers: Headers, create_user: CreateUser) -> None:
-    create_user(email="outsider@example.com", handle="outsider", name="Outsider")
-    assert client.post(f"{BASE}/owner/rename", headers=owner_headers, json={"handle": "outsider"}).status_code == 409
 
 
 def test_rename_org_handle(client: TestClient, owner_headers: Headers, create_org: CreateOrg) -> None:

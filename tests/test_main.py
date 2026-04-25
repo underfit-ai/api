@@ -18,23 +18,19 @@ def test_unknown_route_returns_json_404(client: TestClient) -> None:
     assert response.json() == {"error": "Route not found"}
 
 
-def test_backfill_with_auth_enabled_rejected() -> None:
-    config.backfill.enabled = True
-    with pytest.raises(RuntimeError, match="auth_enabled = false"), TestClient(app):
-        pass
-
-
-def test_backfill_blocks_api_write_methods_but_not_get(client: TestClient) -> None:
+def test_backfill_mode(client: TestClient) -> None:
     config.backfill.enabled = True
 
     health = client.get("/api/v1/health")
     register = client.post("/api/v1/auth/register", json={
         "email": "sam@example.com", "handle": "sam", "password": "password123",
     })
-
     assert health.status_code == 200
     assert register.status_code == 409
     assert register.json() == {"error": "API write endpoints are disabled while backfill is enabled"}
+
+    with pytest.raises(RuntimeError, match="auth_enabled = false"), TestClient(app):
+        pass
 
 
 def test_app_secret_validation_and_hashing(monkeypatch: pytest.MonkeyPatch) -> None:

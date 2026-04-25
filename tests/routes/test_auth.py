@@ -9,27 +9,23 @@ from underfit_api.main import app
 
 
 def test_register_login_logout_flow(client: TestClient, register_user: RegisterUser) -> None:
-    register = register_user()
+    register = register_user(email="sam@example.com", handle="sam")
     assert register.status_code == 200
     assert register.cookies.get("session_token") is not None
 
     current = client.get("/api/v1/me")
     assert current.status_code == 200 and current.json()["id"] == register.json()["user"]["id"]
+
+    assert register_user(email="sam@example.com", handle="sam-2").status_code == 409
+    assert register_user(email="sam-2@example.com", handle="sam").status_code == 409
+
     assert client.post("/api/v1/auth/logout").status_code == 200
     assert client.get("/api/v1/me").status_code == 401
 
-
-def test_register_rejects_duplicate_email_and_handle(register_user: RegisterUser) -> None:
-    assert register_user(email="dup@example.com", handle="dup").status_code == 200
-    assert register_user(email="dup@example.com", handle="dup-2").status_code == 409
-    assert register_user(email="dup-2@example.com", handle="dup").status_code == 409
-
-
-def test_login_rejects_invalid_credentials(client: TestClient, register_user: RegisterUser) -> None:
-    register_user(email="jules@example.com", handle="jules")
-    url = "/api/v1/auth/login"
-    assert client.post(url, json={"email": "jules@example.com", "password": "bad-password"}).status_code == 401
-    assert client.post(url, json={"email": "missing@example.com", "password": "password123"}).status_code == 401
+    login = "/api/v1/auth/login"
+    assert client.post(login, json={"email": "sam@example.com", "password": "bad-password"}).status_code == 401
+    assert client.post(login, json={"email": "missing@example.com", "password": "password123"}).status_code == 401
+    assert client.post(login, json={"email": "sam@example.com", "password": "password123"}).status_code == 200
 
 
 @pytest.mark.parametrize(("base_url", "secure_override", "frontend_url", "expect_secure"), [
