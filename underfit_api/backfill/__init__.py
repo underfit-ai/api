@@ -9,10 +9,11 @@ import sqlalchemy as sa
 from sqlalchemy import Connection
 
 from underfit_api.backfill.assets import reconcile_assets, reconcile_project_assets
-from underfit_api.backfill.runs import ensure_run
+from underfit_api.backfill.runs import ensure_run, resolve_project
 from underfit_api.backfill.segments import reconcile_segments
 from underfit_api.config import config
-from underfit_api.schema import runs
+from underfit_api.repositories import accounts as accounts_repo
+from underfit_api.schema import projects, runs
 from underfit_api.storage import Storage
 
 if TYPE_CHECKING:
@@ -39,6 +40,26 @@ def sync(ctx: AppContext, conn: Connection) -> None:
             ensure_run(conn, ctx.storage, run_id)
         except Exception:
             logger.exception("Backfill ensure_run error for run %s", run_id)
+    _reconcile_projects(conn, ctx.storage)
+
+
+def _reconcile_projects(conn: Connection, storage: Storage) -> None:
+    local_user_id: UUID | None = None
+    for entry in storage.list_dir("projects"):
+        if not entry.is_directory:
+            continue
+        name = entry.name.lower()
+        existing = conn.execute(sa.select(projects.c.id).where(projects.c.storage_key == f"projects/{name}")).first()
+        if existing:
+            project_id = existing.id
+        else:
+            if local_user_id is None:
+                local_user_id = accounts_repo.get_or_create_local(conn).id
+            project_id = resolve_project(conn, local_user_id, name).id
+        try:
+            reconcile_project_assets(conn, storage, project_id, name)
+        except Exception:
+            logger.exception("Backfill reconcile_project_assets error for project %s", name)
 
 
 def refresh_run(ctx: AppContext, conn: Connection, run_id: UUID) -> bool:

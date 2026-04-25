@@ -39,7 +39,7 @@ def ensure_run(conn: Connection, storage: Storage, run_uuid: UUID) -> Project | 
     if not (user_id := _resolve_user(conn, metadata.user)):
         return None
     project_name = metadata.project.lower()
-    project_row = _resolve_project(conn, user_id, project_name)
+    project_row = resolve_project(conn, user_id, project_name)
     existing = conn.execute(runs.select().where(runs.c.id == run_uuid)).first()
     values: dict[str, object] = dict(
         project_id=project_row.id, user_id=user_id, name=(metadata.name or str(run_uuid)).lower(),
@@ -69,7 +69,7 @@ def _resolve_user(conn: Connection, handle: str) -> UUID | None:
     return accounts_repo.get_or_create_local(conn).id
 
 
-def _resolve_project(conn: Connection, account_id: UUID, name: str) -> Project:
+def resolve_project(conn: Connection, account_id: UUID, name: str) -> Project:
     if project := projects_repo.get_by_account_and_name(conn, account_id, name):
         return project
     return projects_repo.create(conn, account_id, name, "", ProjectVisibility.PRIVATE, {}, f"projects/{name}")

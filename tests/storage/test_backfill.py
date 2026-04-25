@@ -190,15 +190,16 @@ def test_backfill_updates_artifact_and_media_records(storage: Storage, engine: E
 
 
 def test_backfill_ingests_project_level_artifacts(storage: Storage, engine: Engine) -> None:
-    run_id, artifact_id = uuid4(), uuid4()
-    _write_json(storage, f"{run_id}/run.json", {"project": "vision", "name": "Trial P"})
+    artifact_id = uuid4()
     _write_json(storage, f"projects/vision/artifacts/{artifact_id}/artifact.json", {"name": "shared", "type": "model"})
     _write_json(storage, f"projects/vision/artifacts/{artifact_id}/manifest.json", {"files": ["a.bin"]})
     _write_text(storage, f"projects/vision/artifacts/{artifact_id}/files/a.bin", "a")
     _sync(engine, storage)
     with engine.begin() as conn:
+        project_row = conn.execute(select(projects).where(projects.c.name == "vision")).first()
         row = conn.execute(select(artifacts).where(artifacts.c.id == artifact_id)).first()
-    assert row is not None and row.run_id is None and row.name == "shared"
+    assert project_row is not None and project_row.storage_key == "projects/vision"
+    assert row is not None and row.run_id is None and row.project_id == project_row.id and row.name == "shared"
     assert row.finalized_at is not None and row.stored_size_bytes == 1
     storage.delete(f"projects/vision/artifacts/{artifact_id}/artifact.json")
     _sync(engine, storage)
